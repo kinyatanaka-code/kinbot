@@ -9,7 +9,7 @@ const apoTxt = (apo, called) => { apo = Number(apo || 0); called = Number(called
 // ホット度のカード（すべてのリードの隣）（2026-11-23 田中さん）
 const HOTS = [["hot", "ホット", "担当者名・ニーズ・検討時期の3つ"], ["warm", "ウォーム", "3つのうち2つ"], ["cold", "コールド", "1つ以下・まだ判定していない"]];
 // stg=mcuser（MOCHICA ユーザー）の表の見出し用。STG の箱には出さない
-const STG_EXTRA = { mcuser: "MOCHICAユーザー" };
+const STG_EXTRA = { mcuser: "MOCHICAユーザー", ng: "アプローチ禁止" };
 const STG = [["call", "かけるリスト", "リサイクル・アーカイブ以外（ナーチャリングも含む）"], ["nurture", "ナーチャリング", "ジャッジ・営業フォロー・資料送付"], ["recycle", "リサイクル", "ステージがリサイクル"], ["archive", "アーカイブ", "ステージがアーカイブ"]];
 (function () {
   const $ = (id) => document.getElementById(id);
@@ -118,7 +118,7 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
     root.innerHTML = `<div class="bl-home">
       <div class="bl-home-h"><h2>リスト管理</h2><button type="button" class="bl-add" data-addlist>${PLUS}リスト追加</button></div>
       ${run.map((l) => `<div class="bl-run"><b>取り込み中</b><small>${esc(l.name)} ・ ${Number(l.got || 0).toLocaleString()}${l.total ? ` / ${Number(l.total).toLocaleString()}` : ""}件</small><div class="bl-bar"><i style="width:${l.total ? Math.min(100, Math.round(l.got / l.total * 100)) : 30}%"></i></div></div>`).join("")}
-      <div class="bl-lgrid">${lists.filter((l) => l.status !== "running").map((l) => `<button type="button" class="bl-lc main" data-l="${esc(l.list_key)}"><b>${esc(l.name || l.list_key)}</b><span class="n">${Number((l.count || 0) - (l.dup_hidden || 0) - (l.user_hidden || 0)).toLocaleString()}<small>件</small></span>${l.dup_hidden ? `<small>重複 ${Number(l.dup_hidden).toLocaleString()}件をまとめた</small>` : ""}${l.user_hidden ? `<small title="SF の取引先に、商談名に「新規」が付いた受注処理完了の商談があるリード">MOCHICAユーザー ${Number(l.user_hidden).toLocaleString()}件を省いた</small>` : ""}<span data-apo-l="${esc(l.list_key)}"></span>${l === m0 ? "" : hotTxt(l)}<small>${esc(dt(l.done_at || l.run_at))} に取り込み</small></button>`).join("") || '<div class="bl-empty">まだ取り込んだリストがありません。右上の「リスト追加」から、Bales のリストを取り込んでください。</div>'}${m0 ? HOTS.map(([k, l, d]) => `<button type="button" class="bl-lc hotc ${k}" data-hc="${k}"><b><i class="bl-hdot ${k}"></i>${l}</b><span class="n" data-hc-n="${k}">…<small>件</small></span><span data-hc-a="${k}"></span><small>${d}</small></button>`).join("") : ""}</div>
+      <div class="bl-lgrid">${lists.filter((l) => l.status !== "running").map((l) => `<button type="button" class="bl-lc main" data-l="${esc(l.list_key)}"><b>${esc(l.name || l.list_key)}</b><span class="n">${Number((l.count || 0) - (l.dup_hidden || 0) - (l.user_hidden || 0) - (l.ng_hidden || 0)).toLocaleString()}<small>件</small></span>${l.dup_hidden ? `<small>重複 ${Number(l.dup_hidden).toLocaleString()}件をまとめた</small>` : ""}${l.user_hidden ? `<small title="SF の取引先に、商談名に「新規」が付いた受注処理完了の商談があるリード">MOCHICAユーザー ${Number(l.user_hidden).toLocaleString()}件を省いた</small>` : ""}${l.ng_hidden ? `<small>アプローチ禁止 ${Number(l.ng_hidden).toLocaleString()}件を省いた</small>` : ""}<span data-apo-l="${esc(l.list_key)}"></span>${l === m0 ? "" : hotTxt(l)}<small>${esc(dt(l.done_at || l.run_at))} に取り込み</small></button>`).join("") || '<div class="bl-empty">まだ取り込んだリストがありません。右上の「リスト追加」から、Bales のリストを取り込んでください。</div>'}${m0 ? HOTS.map(([k, l, d]) => `<button type="button" class="bl-lc hotc ${k}" data-hc="${k}"><b><i class="bl-hdot ${k}"></i>${l}</b><span class="n" data-hc-n="${k}">…<small>件</small></span><span data-hc-a="${k}"></span><small>${d}</small></button>`).join("") : ""}</div>
       <div class="bl-lgrid" data-srcs style="margin-top:10px"></div>
       <div class="bl-home-h sub"><h3>ステージ別</h3></div>
       <div class="bl-lgrid" data-stgs>${STG.filter(([k]) => k !== "call").map(([k, l, d]) => `<button type="button" class="bl-lc stg ${k}" data-stg="${k}"><b>${l}</b><span class="n" data-stg-n="${k}">…<small>件</small></span><span data-stg-a="${k}"></span><small>${d}</small></button>`).join("")}</div>
@@ -234,11 +234,17 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
         : `<div class="mc-note">${oc ? "このステージのリードを持っているメンバーがいません。" : "リストに「所有者」の列が無いので、メンバーに分けられません。"}</div>`)
       // アーカイブの中に「MOCHICAユーザー」のカード（ほかの表・件数からは省いている人たち）（2026-11-23 田中さん）
       + (stgHome === "archive" && m0.user_hidden ? `<button type="button" class="bl-lc mem stg archive mcu" data-stmcu><span class="av">M</span><b>MOCHICAユーザー</b><span class="n">${Number(m0.user_hidden).toLocaleString()}<small>件</small></span><small>SF で商談名に「新規」・受注処理完了</small></button>` : "")
+      // アーカイブの中に「アプローチ禁止」のカード（シート「②企業リスト_All」の企業名に当たるリード）（2026-11-23 田中さん）
+      + (stgHome === "archive" ? `<div class="bl-lc mem stg archive mcu" role="button" tabindex="0" data-stng><span class="av">禁</span><b>アプローチ禁止</b><span class="n">${Number(m0.ng_hidden || 0).toLocaleString()}<small>件</small></span><small>シート「②企業リスト_All」の企業名</small><button type="button" class="bl-duplk" data-ngre style="margin:4px 0 0">シートを読み直す</button></div>` : "")
       + (oc && blank ? `<button type="button" class="bl-lc mem none stg ${esc(stgHome)}" data-stnone><span class="av">−</span><b>未割り振り</b><span class="n">${blank.toLocaleString()}<small>件</small></span>${apoTxt(...bApo)}<small>${esc(st[1])}・所有者なし</small></button>` : "");
     const open = (who, none) => { cur = m0.list_key; mode = "list"; memberF = none ? "未割り振り" : who; fcol = who || none ? oc : ""; fval = none ? "" : who; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = stgHome; retStage = stgHome; page = 0; openList(); };
     box.querySelector("[data-stall]").addEventListener("click", () => open(""));
     box.querySelectorAll("[data-stm]").forEach((b) => b.addEventListener("click", () => open(b.dataset.stm)));
     const nb = box.querySelector("[data-stnone]"); if (nb) nb.addEventListener("click", () => open("", true));
+    const ng = box.querySelector("[data-stng]"); if (ng) ng.addEventListener("click", (e) => { if (e.target.closest("[data-ngre]")) return; cur = m0.list_key; mode = "list"; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = "ng"; retStage = stgHome; page = 0; openList(); });
+    const ngr = box.querySelector("[data-ngre]"); if (ngr) ngr.addEventListener("click", async (e) => { e.stopPropagation(); ngr.disabled = true; ngr.textContent = "読み直しています…";
+      try { const d = await api("/api/mochica/bales/ng/refresh", { method: "POST" }); lists = (await api("/api/mochica/bales/lists")).items || lists; alert(`アプローチ禁止企業 ${d.names}社を読みました。当たったリード：${d.hits}件`); stageView(root); }
+      catch (er) { alert(er.message); ngr.disabled = false; ngr.textContent = "シートを読み直す"; } });
     const mu = box.querySelector("[data-stmcu]"); if (mu) mu.addEventListener("click", () => { cur = m0.list_key; mode = "list"; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = "mcuser"; retStage = stgHome; page = 0; openList(); });
   }
   // ===== 見張りの1日分：誰が・どこに・何件・どんな結果だったか（2026-11-15 田中さん「インターン生の架電を分析したい」）=====

@@ -286,7 +286,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelResetTries, mcBalesSfValues, kxInboxAiGet, kxInboxAiPut, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcCompanyCalls, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcBalesSources, mcBalesStages, mcBalesDupRows, mcBalesDupSet, mcBalesBlankCount, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, mcMiitelManualNoSf, fixPersonOwnerSwap, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, kxTaskRecentTitles, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelResetTries, mcBalesSfValues, kxInboxAiGet, kxInboxAiPut, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcCompanyCalls, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcBalesSources, mcBalesStages, mcBalesDupRows, mcBalesDupSet, mcBalesBlankCount, mcBalesNgSet, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, mcMiitelManualNoSf, fixPersonOwnerSwap, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, kxTaskRecentTitles, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -29431,7 +29431,8 @@ app.post("/api/mochica/bales/ext/rows", express.json({ limit: "30mb" }), async (
     }
     let count = null; if (b.done) { count = await mcBalesFinish(listKey, b.error || "");
       // 重複をまとめているリストは、取り込み直したらまとめも作り直す
-      getSettings().then((st) => { if (st && st.mcBalesDedupe && st.mcBalesDedupe[listKey]) return mcBalesDedupeApply(listKey).then((n) => console.log(`[Bales] ${listKey} 重複をまとめた：${n}件`)); }).catch((e) => console.warn("[Bales] 重複のまとめに失敗:", e.message)); }
+      getSettings().then((st) => { if (st && st.mcBalesDedupe && st.mcBalesDedupe[listKey]) return mcBalesDedupeApply(listKey).then((n) => console.log(`[Bales] ${listKey} 重複をまとめた：${n}件`)); }).catch((e) => console.warn("[Bales] 重複のまとめに失敗:", e.message));
+      mcNgApply(listKey).then((n) => console.log(`[Bales] ${listKey} アプローチ禁止に当たった：${n}件`)).catch((e) => console.warn("[Bales] アプローチ禁止の照合に失敗:", e.message)); }
     res.json({ ok: true, n, count });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -29717,6 +29718,48 @@ function mcBalesDupGroups(rows) {
   out.sort((a, b) => b.n - a.n); out.review = review.sort((a, b) => b.companies.length - a.companies.length);
   return out;
 }
+// ===== アプローチ禁止企業（2026-11-23 田中さん）：スプレッドシートの「②企業リスト_All」の F 列（企業名）に当たるリードは、
+//   MOCHICA ユーザーと同じく表・件数から省き、アーカイブの中のカードで出す。毎朝読み直し、取り込み直したら付け直す
+const MC_NG_SHEET = "1Y-qNllbZ9mZ-7P5_PaiTVlNZxJJaW2q5sQqsIUcR9f4", MC_NG_RANGE = "'②企業リスト_All'!F2:F";
+// 企業名から照合の鍵を作る：「（旧：〇〇）」の旧社名も鍵にする。かっこ書き（支店・事業所など）は外す
+function mcNgKeys(name) {
+  const t = String(name || "").normalize("NFKC"); const out = new Set();
+  const olds = [...t.matchAll(/[(（]\s*旧\s*[:：]?\s*([^)）]+)[)）]/g)].map((m) => m[1]);
+  for (const n of [t.replace(/[(（][^)）]*[)）]/g, "").split(/\n/)[0], ...olds]) { const k = mcCoKey(n); if (k.length >= 2) out.add(k); }
+  return [...out];
+}
+async function mcNgRefresh(owner) {
+  const vals = await readSheet(owner, MC_NG_SHEET, MC_NG_RANGE);
+  const keys = new Set(); let names = 0;
+  for (const r of vals || []) { const v = String((r && r[0]) || "").trim(); if (!v) continue; names++; for (const k of mcNgKeys(v)) keys.add(k); }
+  const st = { at: new Date().toISOString(), owner, names, keys: [...keys] };
+  await saveSettings({ mcNgList: st });
+  return st;
+}
+async function mcNgApply(listKey, keysArr) {
+  let keys = keysArr; if (!keys) { const st = await getSettings().catch(() => ({})); keys = (st.mcNgList && st.mcNgList.keys) || []; }
+  const set = new Set(keys); if (!set.size) return mcBalesNgSet(listKey, []);
+  const rows = await mcBalesDupRows(listKey);
+  // 会社名の「（〇〇支店）」なども外して、禁止企業の鍵とまったく同じものだけ当てる（似ている名前で巻き込まないように）
+  const hit = rows.filter((r) => mcNgKeys(r.co).some((k) => set.has(k))).map((r) => r.k);
+  return mcBalesNgSet(listKey, hit);
+}
+async function mcNgRunAll(owner) {
+  const st = await mcNgRefresh(owner);
+  const lists = await mcBalesLists(); let n = 0;
+  for (const l of lists) if (l.status === "done") n += await mcNgApply(l.list_key, st.keys).catch(() => 0);
+  await saveSettings({ mcNgList: { ...st, hits: n } }).catch(() => {});
+  console.log(`[NG] アプローチ禁止企業 ${st.names}社（鍵 ${st.keys.length}）・当たったリード ${n}件`);
+  return { ...st, hits: n, keys: undefined };
+}
+app.post("/api/mochica/bales/ng/refresh", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); res.json({ ok: true, ...(await mcNgRunAll(req.user)) }); }
+  catch (e) { res.status(500).json({ error: `アプローチ禁止企業のシートを読めませんでした：${e.message}` }); }
+});
+// 毎朝 5時台に読み直す（シートに足された企業をすぐ外すため）
+setInterval(() => { const j = new Date(Date.now() + 9 * 3600000); if (j.getUTCHours() !== 5) return; const today = j.toISOString().slice(0, 10);
+  getSettings().then((st) => { const g = st && st.mcNgList; if (!g || !g.owner) return; const last = g.at ? new Date(Date.parse(g.at) + 9 * 3600000).toISOString().slice(0, 10) : "";
+    if (last !== today) mcNgRunAll(g.owner).catch((e) => console.warn("[NG] 読み直しに失敗:", e.message)); }).catch(() => {}); }, 10 * 60 * 1000);
 // まとめる（kinbot の画面だけ。Bales のリードは変えない）／外す。まとめたリストは、取り込み直すたびに自動で作り直す（settings.mcBalesDedupe）
 async function mcBalesDedupeApply(listKey) {
   const gs = mcBalesDupGroups(await mcBalesDupRows(listKey));
@@ -34748,7 +34791,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-23cb MOCHICALL：「かける」が空・待ちのときに理由と対処を出す（インターン判定・リスト・トーク・担当・禁止名簿）／企業調査が済んでいない会社も調べ終わった会社のあとに出す／インターン判定の名前の一致を異体字・姓名の順・かなに強く／管理者に「インサイドの『かける』の状態」／記録の知らせが「記録して次へ」に重ならないよう上に。／2026-11-23ca ダッシュボードに「架電分析」タブ：Zoom Phone の発信（9月〜）と架電メモ（Bales・MOCHICALL）を番号と時刻で結び、担当者接続のうち2分以上・ヒアリング・日程打診の割合、ヒアリング項目・断り理由・人別・月別を出す。／2026-11-23zi MOCHICA ユーザーの見分け方を「商談名に新規が付いていて受注処理完了」に（レコードタイプではなく）。／2026-11-23zh ステージ別のアーカイブの中に「MOCHICAユーザー」のカード（押すと MOCHICA ユーザーの表）。／2026-11-23zg リスト管理から MOCHICA ユーザー（SF の取引先にレコードタイプ「新規」で「08：受注処理完了」の商談があるリード）を省く。／2026-11-23zf ホット度のカードから開いた表の見出しを「ホット（ホット度・すべてのリード から）」に。／2026-11-23ze リスト管理：すべてのリードの隣にホット・ウォーム・コールドのカード（件数・リストアポ率・押すと表）。／2026-11-23zd かけるリストにナーチャリングも含める（リサイクル・アーカイブ以外）。／2026-11-23zc メンバーの画面で、かけるリスト・ナーチャリング・リサイクル・アーカイブのカードを SFリードソースの上に。／2026-11-23zb メンバーのリードソース別の下に、かけるリスト・ナーチャリング・リサイクル・アーカイブのカード（その人のリードで・リストアポ率つき・押すと表）。／2026-11-23za メンバーのリードソース別のカードに全件数の列を足した。／2026-11-23z メンバーのリードソース別を、1枚の SFリードソース カードにまとめた（1行に リードソース・残りの架け先・ナーチャリング・リストアポ率）。／2026-11-23y リスト管理：メンバーのカードを押すと、その人のリードソース別のカード（残りの架け先・ナーチャリング・リストアポ率）。カードを押すとその人のそのリードソースの表。／2026-11-23x リスト管理の「アポ率」を「リストアポ率」に名前を変えた。／2026-11-23w リスト管理のアポ率：アポは最終架電結果がアポ獲得のリードだけ（立ち上げ済みは数えない）、分母は架電したリード。／2026-11-23v リスト管理：それぞれのリスト（すべてのリード・SFリードソース・ステージ別・メンバー別・未割り振り）にアポ率（アポ獲得かコンバート済み ÷ 架電したリード）。／2026-11-23u MOCHICALL：担当者が不在のとき、掛け直す時間を選べるように（1＝自動の掛け直しで今までどおり記録して次へ。30分後〜明日の午後、または日時を手で指定）。／2026-11-23t リスト管理のメンバー別の件数を同時に読むようにして速く。／2026-11-23s リスト管理：所有者のいないリードの「未割り振り」カード（メンバー別・ステージ別のメンバー画面）。／2026-11-23r リスト管理のステージ別：箱を押すとメンバーごとの件数のカード、メンバーを押すとその人のそのステージのリードの表（戻るでメンバーの画面へ）。／2026-11-23q MOCHICALL のアポの日程の候補を kincall と同じ「おすすめ／他の日程」のタブに（週ごとの見出し・空いている人の名前・月のカレンダーで日を選ぶとその日の空き時間をすべて表示）。／2026-11-23p リスト管理のメンバー別カードに、ナーチャリングの件数も出す。／2026-11-23o リスト管理の「すべてのリード」カードにスクロールが出ていたのを直した。／2026-11-23n SHOWIN のリスト管理：重複をまとめた（kinbot の画面だけ・Bales は変えない）。架電がいちばん新しいリードを残し、古い架電の記録は活動コメントに。取り込み直すたびに作り直す。元に戻すボタンあり。／2026-11-23m 重複まとめの下見：電話番号が同じでも会社名が違うものは「要確認」に分け、下見の CSV を出せるように。／2026-11-23l MOCHICALL の SF 項目の補完：取り違えを減らす（1文字の姓・別人の名・丁寧語の否定・ATS と同名の別製品・不在の人数・説明会の月）";
+const BUILD_TAG = "2026-11-23zj リスト管理：アプローチ禁止企業（シート「②企業リスト_All」の F 列）に当たるリードを省き、アーカイブの中のカードで出す。毎朝5時に読み直す。／2026-11-23cb MOCHICALL：「かける」が空・待ちのときに理由と対処を出す（インターン判定・リスト・トーク・担当・禁止名簿）／企業調査が済んでいない会社も調べ終わった会社のあとに出す／インターン判定の名前の一致を異体字・姓名の順・かなに強く／管理者に「インサイドの『かける』の状態」／記録の知らせが「記録して次へ」に重ならないよう上に。／2026-11-23ca ダッシュボードに「架電分析」タブ：Zoom Phone の発信（9月〜）と架電メモ（Bales・MOCHICALL）を番号と時刻で結び、担当者接続のうち2分以上・ヒアリング・日程打診の割合、ヒアリング項目・断り理由・人別・月別を出す。／2026-11-23zi MOCHICA ユーザーの見分け方を「商談名に新規が付いていて受注処理完了」に（レコードタイプではなく）。／2026-11-23zh ステージ別のアーカイブの中に「MOCHICAユーザー」のカード（押すと MOCHICA ユーザーの表）。／2026-11-23zg リスト管理から MOCHICA ユーザー（SF の取引先にレコードタイプ「新規」で「08：受注処理完了」の商談があるリード）を省く。／2026-11-23zf ホット度のカードから開いた表の見出しを「ホット（ホット度・すべてのリード から）」に。／2026-11-23ze リスト管理：すべてのリードの隣にホット・ウォーム・コールドのカード（件数・リストアポ率・押すと表）。／2026-11-23zd かけるリストにナーチャリングも含める（リサイクル・アーカイブ以外）。／2026-11-23zc メンバーの画面で、かけるリスト・ナーチャリング・リサイクル・アーカイブのカードを SFリードソースの上に。／2026-11-23zb メンバーのリードソース別の下に、かけるリスト・ナーチャリング・リサイクル・アーカイブのカード（その人のリードで・リストアポ率つき・押すと表）。／2026-11-23za メンバーのリードソース別のカードに全件数の列を足した。／2026-11-23z メンバーのリードソース別を、1枚の SFリードソース カードにまとめた（1行に リードソース・残りの架け先・ナーチャリング・リストアポ率）。／2026-11-23y リスト管理：メンバーのカードを押すと、その人のリードソース別のカード（残りの架け先・ナーチャリング・リストアポ率）。カードを押すとその人のそのリードソースの表。／2026-11-23x リスト管理の「アポ率」を「リストアポ率」に名前を変えた。／2026-11-23w リスト管理のアポ率：アポは最終架電結果がアポ獲得のリードだけ（立ち上げ済みは数えない）、分母は架電したリード。／2026-11-23v リスト管理：それぞれのリスト（すべてのリード・SFリードソース・ステージ別・メンバー別・未割り振り）にアポ率（アポ獲得かコンバート済み ÷ 架電したリード）。／2026-11-23u MOCHICALL：担当者が不在のとき、掛け直す時間を選べるように（1＝自動の掛け直しで今までどおり記録して次へ。30分後〜明日の午後、または日時を手で指定）。／2026-11-23t リスト管理のメンバー別の件数を同時に読むようにして速く。／2026-11-23s リスト管理：所有者のいないリードの「未割り振り」カード（メンバー別・ステージ別のメンバー画面）。／2026-11-23r リスト管理のステージ別：箱を押すとメンバーごとの件数のカード、メンバーを押すとその人のそのステージのリードの表（戻るでメンバーの画面へ）。／2026-11-23q MOCHICALL のアポの日程の候補を kincall と同じ「おすすめ／他の日程」のタブに（週ごとの見出し・空いている人の名前・月のカレンダーで日を選ぶとその日の空き時間をすべて表示）。／2026-11-23p リスト管理のメンバー別カードに、ナーチャリングの件数も出す。／2026-11-23o リスト管理の「すべてのリード」カードにスクロールが出ていたのを直した。／2026-11-23n SHOWIN のリスト管理：重複をまとめた（kinbot の画面だけ・Bales は変えない）。架電がいちばん新しいリードを残し、古い架電の記録は活動コメントに。取り込み直すたびに作り直す。元に戻すボタンあり。／2026-11-23m 重複まとめの下見：電話番号が同じでも会社名が違うものは「要確認」に分け、下見の CSV を出せるように。／2026-11-23l MOCHICALL の SF 項目の補完：取り違えを減らす（1文字の姓・別人の名・丁寧語の否定・ATS と同名の別製品・不在の人数・説明会の月）";
 const BUILD_FEATURES = [
   "MOCHICALL：「かける」が空のとき、なぜか（インターンと判定されていない・リストのメンバーでない・トークが無い・残りはほかの人の担当・アプローチ禁止の名簿が読めない）と、だれに何を頼めばよいかを出す",
   "MOCHICALL：企業調査が済んでいない会社も、調べ終わった会社のあとに「調査中」で出す（調べ待ちで「かける」が止まらない）",
