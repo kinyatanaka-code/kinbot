@@ -13316,11 +13316,10 @@ export async function mcCompanyCalls(srcKey, sfLeadIds = [], company = "") {
 //   1人1日1つ作って保存する（その日のうちに中身が入れ替わると、かけている途中で表が変わって困るため）。リサイクル・アーカイブは入れない
 //   ① ナーチャリングで次回アクション日（Bales の次のアクションの終わっていない予定）が今日以前 → ② それ以外で次回アクション日が今日以前 → ③ 残りの枠
 //   （2026-11-23 田中さん「予定は次回アクション日が、その日以前で設定されているリード」。①②の中は予定日の新しい順）
-//   ③は「取れそうな率」（リードソース・過去失注かどうか・ホット度ごとの、これまでのアポ÷架電）を1件ずつ出し、
-//   150件の平均がちょうど3%に届くように、取れそうなものと、まだ取れそうな率が低いもの（新規など・長く触っていない順）を混ぜる。
-//   取れそうなものだけで埋めると、良いリードを数日で使い切ってしまうため。3%に届かないときは取れそうな順に埋める
-export const BALES_TODAY_N = 150, BALES_TODAY_RATE = 0.03;
-const BALES_TODAY_V = 2;   // 作り方を変えたら上げる（その日の保存が古い作り方なら作り直す）
+//   ③は「取れそうな率」（リードソース・過去失注かどうか・ホット度ごとの、これまでのアポ÷架電）を1件ずつ出し、高い順に埋める
+//   （はじめは3%に寄せて混ぜていたが、2026-11-23 田中さん「150件の中で MAX のアポ率に」で高い順に変えた）
+export const BALES_TODAY_N = 150;
+const BALES_TODAY_V = 3;   // 作り方を変えたら上げる（その日の保存が古い作り方なら作り直す）
 const jstDay = (t = Date.now()) => new Date(t).toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
 let _mcTodayInit = false;
 async function ensureMcToday() {
@@ -13336,7 +13335,7 @@ async function mcTodayBuild(listKey, run_at, col, val, day) {
   const all = [0, 0], mid = new Map(), fine = new Map();
   for (const g of seg) { const a = Number(g.apo), c = Number(g.called); all[0] += a; all[1] += c; add(mid, `${g.pl}|${g.h}`, a, c); add(fine, `${g.s}|${g.pl}|${g.h}`, a, c); }
   // 件数の少ないかたまりは、ひとつ上のまとまりの率に寄せる（数件の架電で 0% や 50% と決めつけないため）
-  const K = 30, base = all[1] ? all[0] / all[1] : BALES_TODAY_RATE;
+  const K = 30, base = all[1] ? all[0] / all[1] : 0.03;
   const sm = (x, prior) => (x ? (x[0] + K * prior) / (x[1] + K) : prior);
   const rate = (s, pl, h) => { const pm = sm(mid.get(`${pl}|${h}`), base); return sm(fine.get(`${s}|${pl}|${h}`), pm); };
   // その人のかけるリスト（アポ獲得済みは外す）
@@ -13349,25 +13348,12 @@ async function mcTodayBuild(listKey, run_at, col, val, day) {
   const nextDay = (na) => { let t = null; for (let i = 0; i < 50; i++) { if (!na || na[`nextActions.${i}.id`] == null && na[`nextActions.${i}.reservedAt`] == null) break;
     if (String(na[`nextActions.${i}.isDone`]) === "true") continue; const x = Date.parse(na[`nextActions.${i}.reservedAt`]); if (Number.isFinite(x) && (t == null || x < t)) t = x; } return t == null ? "" : jstDay(t); };
   const L = cand.map((c) => { const nd = nextDay(c.na); return { k: c.row_key, p: rate(c.s, c.pl, c.h), nur: c.nur, pl: c.pl, nd, due: !!nd && nd <= day, lc: c.lc ? Date.parse(c.lc) || 0 : 0 }; });
-  const N = BALES_TODAY_N, T = BALES_TODAY_RATE;
+  const N = BALES_TODAY_N;
   const byDue = (a, b) => b.nd.localeCompare(a.nd) || b.p - a.p;
   const pri = [...L.filter((x) => x.nur && x.due).sort(byDue), ...L.filter((x) => !x.nur && x.due).sort(byDue)].slice(0, N);
   const used = new Set(pri.map((x) => x.k)); const rest = L.filter((x) => !used.has(x.k)); const need = N - pri.length;
-  let pick = [];
-  if (need > 0 && rest.length) {
-    const top = [...rest].sort((a, b) => b.p - a.p), old = [...rest].sort((a, b) => a.p - b.p || a.lc - b.lc);   // 混ぜる側は取れそうな率が低い順（同じなら長く触っていない順）。最後の架電が古い順だと過去失注が先に来て 6% 台まで上がったため、3% に寄せるにはこちら
-    const sumP = pri.reduce((t, x) => t + x.p, 0);
-    const n = Math.min(need, rest.length), topSum = top.slice(0, n).reduce((t, x) => t + x.p, 0);
-    if ((sumP + topSum) / (pri.length + n) <= T) pick = top.slice(0, n);   // 取れそうな順に全部入れても3%に届かない
-    else {
-      // 取れそうなものを h 件・残りを長く触っていない順に。平均が3%に届くいちばん小さい h を探す
-      for (let h = 0; h <= n; h++) {
-        const s = new Set(top.slice(0, h).map((x) => x.k)); const fill = []; for (const x of old) { if (fill.length >= n - h) break; if (!s.has(x.k)) fill.push(x); }
-        const c = [...top.slice(0, h), ...fill];
-        if ((sumP + c.reduce((t, x) => t + x.p, 0)) / (pri.length + c.length) >= T) { pick = c; break; }
-      }
-    }
-  }
+  // 残りの枠は、取れそうな率の高い順に埋める（2026-11-23 田中さん「3%ではなく、150件の中で MAX のアポ率になるように」）
+  const pick = need > 0 ? [...rest].sort((a, b) => b.p - a.p || a.lc - b.lc).slice(0, need) : [];
   const out = [...pri, ...pick];
   const info = { n: out.length, exp: out.length ? out.reduce((t, x) => t + x.p, 0) / out.length : 0, due_nurture: pri.filter((x) => x.nur).length, due_other: pri.filter((x) => !x.nur).length,
     pastlost: pick.filter((x) => x.pl).length, newlist: pick.filter((x) => !x.pl).length, pool: L.length, v: BALES_TODAY_V };   // 内訳は足すと件数になるよう、予定の分を除いて過去失注・新規に分ける
