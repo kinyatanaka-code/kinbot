@@ -308,40 +308,42 @@
 .mcc-fill-b{font-size:10.5px;font-weight:800;border-radius:8px;padding:2px 8px;background:var(--c-bg);color:var(--c-muted);white-space:nowrap;}
 .mcc-fill-b.new{background:var(--c-doc-soft);color:#0d5b47;} .mcc-fill-b.upd,.mcc-fill-b.add{background:var(--c-sf-soft);color:var(--c-sf);}
 .mcc-kpis .fill b,.mcc-tbl .num.fill{color:var(--c-sf);}
-/* アポの日程の候補（kincall の「おすすめ／他の日程」と同じ形）（2026-11-23） */
-.mcc-slot-tabs{display:flex;gap:4px;border-bottom:1px solid var(--c-line);margin-bottom:8px;}
-.mcc-slot-tabs button{border:0;background:none;font:inherit;font-size:12.5px;font-weight:800;color:var(--c-muted);padding:8px 12px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;}
-.mcc-slot-tabs button[aria-selected="true"]{color:var(--c-deep);border-bottom-color:var(--c-deep);}
-.mcc-slot-body{display:flex;flex-direction:column;gap:4px;}
-.mcc-slot-wk{font-size:11.5px;font-weight:800;color:var(--c-muted);margin:8px 0 0;}
-.mcc-slot{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;text-align:left;border:1px solid var(--c-line);border-radius:10px;background:#fff;padding:8px 12px;font:inherit;color:var(--c-ink);cursor:pointer;}
-.mcc-slot:hover{border-color:var(--c-accent);}
-.mcc-slot.best{background:var(--c-soft);}
-.mcc-slot.on{background:var(--c-deep);border-color:var(--c-deep);color:#fff;}
-.mcc-slot-when{font-size:13px;font-weight:800;display:flex;align-items:center;gap:4px;flex-wrap:wrap;}
-.mcc-slot-when small{font-size:11px;font-weight:700;opacity:.75;}
-.mcc-slot-badge{font-size:10.5px;font-weight:800;background:var(--c-accent);color:#fff;border-radius:99px;padding:1px 8px;margin-left:4px;}
-.mcc-slot-free{font-size:11.5px;color:var(--c-muted);}
-.mcc-slot.on .mcc-slot-free{color:#fff;opacity:.85;}
-/* チーム制（2026-11-23）：他チームの FS の枠は、自分のチームの枠と見分けがつくように橙の印 */
-.mcc-slot-badge.other{background:var(--c-warn-soft);color:var(--c-warn);border:1px solid #F6D7BC;}
-.mcc-slot.other{border-style:dashed;}
+/* 日程選びの下に架電メモと記録ボタンが見えるよう、候補と日付・時刻は横に並べる */
+#mccSlots{border:1px solid var(--c-line);background:var(--c-bg);border-radius:12px;padding:8px;}
+.mcc-slot-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 12px;margin-bottom:8px;}
+.mcc-slot-head #mccSlotTitle{margin:0;font-size:13px;letter-spacing:0;color:var(--c-ink);}
+#mccSlotTitle small{font-size:11px;color:var(--c-muted);font-weight:600;white-space:nowrap;}
+.mcc-slot-tabs{display:flex;gap:4px;}
+.mcc-slot-tabs button{border:1px solid transparent;border-radius:6px;background:none;font:inherit;font-size:12px;font-weight:700;color:var(--c-muted);padding:4px 8px;cursor:pointer;white-space:nowrap;}
+.mcc-slot-tabs button:hover{color:var(--c-deep);}
+.mcc-slot-tabs button[aria-pressed="true"]{background:#fff;border-color:var(--c-line);color:var(--c-deep);}
+.mcc-slot-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;}
+#mccSlots .mcc-slot{display:grid;justify-items:start;gap:2px;min-width:0;text-align:left;border:1px solid var(--c-line);border-radius:8px;background:#fff;padding:6px 8px;font:inherit;color:var(--c-ink);cursor:pointer;}
+#mccSlots .mcc-slot:hover{border-color:var(--c-accent);}
+#mccSlots .mcc-slot[aria-pressed="true"]{background:var(--c-soft);border-color:var(--c-deep);color:var(--c-deep);}
+.mcc-slot-when{display:flex;flex-wrap:wrap;gap:0 6px;font-size:13px;font-weight:800;line-height:1.35;}
+.mcc-slot-when span{white-space:nowrap;}
+.mcc-slot-free,.mcc-slot-status{font-size:11.5px;color:var(--c-muted);}
+.mcc-slot-status{margin:4px 0 0;overflow-wrap:anywhere;}
+.mcc-slot-error{color:var(--c-danger);}
+.mcc-slot-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:8px;}
+.mcc-slot-fields .mcc-field input,.mcc-slot-fields .mcc-sel{width:100%;min-width:0;max-width:none;height:34px;padding:0 8px;}
 .mcc-warn-tx{color:var(--c-warn);font-weight:700;}
-.mcc-cal{border:1px solid var(--c-line);border-radius:12px;padding:8px;background:#fff;max-width:340px;}
-.mcc-cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;font-size:13px;}
-.mcc-cal-mv{border:0;background:none;font:inherit;font-size:18px;width:32px;height:28px;border-radius:8px;color:var(--c-deep);cursor:pointer;}
-.mcc-cal-mv:hover:not([disabled]){background:var(--c-soft);}
-.mcc-cal-mv[disabled]{opacity:.3;cursor:default;}
-.mcc-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;}
-.mcc-cal-wd{font-size:11px;font-weight:800;color:var(--c-muted);padding:4px 0;}
-.mcc-cal-d{border:0;background:none;font:inherit;font-size:12.5px;height:32px;border-radius:8px;color:var(--c-ink);cursor:pointer;}
-.mcc-cal-d:hover:not([disabled]){background:var(--c-soft);}
-.mcc-cal-d[disabled]{opacity:.3;cursor:default;}
-.mcc-cal-wd.sun,.mcc-cal-d.sun{color:var(--c-danger);}
-.mcc-cal-wd.sat,.mcc-cal-d.sat{color:var(--c-sf);}
-.mcc-cal-d.today{font-weight:800;box-shadow:inset 0 0 0 1px var(--c-accent);}
-.mcc-cal-d.on,.mcc-cal-d.on:hover:not([disabled]){background:var(--c-deep);color:#fff;}
-.mcc-slot-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;}
+#mccSlots .mcc-slot[data-other="1"]{border-style:dashed;}
+.mcc-scheduling .mcc-callrow{margin:4px 0;}
+.mcc-scheduling .mcc-callrow .mcc-btn{height:34px;padding:0 10px;font-size:12px;}
+.mcc-scheduling .mcc-callrow .mcc-key{display:none;}
+.mcc-scheduling .mcc-step{margin:8px 0 4px;}
+.mcc-scheduling .mcc-choice{min-height:38px;padding:4px 10px;}
+.mcc-scheduling .mcc-choices{grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr));gap:4px;margin-bottom:8px;}
+.mcc-scheduling .mcc-apo-date{margin-top:6px;}
+#mccSlotWork:not(:empty){margin-bottom:12px;}
+@media (min-width:1201px) and (min-height:650px){
+  .main:has(.mc-main > [data-pane="call"]:not([hidden]) .mcc-scheduling)::before{right:0;}
+  .mc-main:has(> [data-pane="call"]:not([hidden]) .mcc-scheduling){display:flex;flex:1;min-height:0;padding-bottom:12px;}
+  .mc-main > [data-pane="call"]:not([hidden]):has(.mcc-scheduling),#mcCallView:has(.mcc-scheduling){display:flex;flex:1;min-width:0;min-height:0;}
+  #mcCallView .mcc:has(.mcc-scheduling){flex:1;min-width:0;min-height:0;height:auto;zoom:.9;}
+}
 
 /* ヘッダーに移した今日の数字（2026-11-23）：ヘッダーの高さに合わせて小さめに */
 .mcc-head .mcc-stats{padding:4px 12px;gap:12px;} .mcc-head .mcc-stats b{font-size:16px;}
