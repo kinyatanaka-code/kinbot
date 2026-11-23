@@ -12992,13 +12992,13 @@ export async function prebriefLocal(company) {
   return { key, apo, target, calls, people };
 }
 
-// 採用媒体の検索結果を会社ごとに1週間覚える（同じ会社を何度も検索しないため）
+// 採用媒体の検索結果を会社ごとに1週間覚える（同じ会社を何度も検索しないため）。見つからなかったときは1日だけ覚える
 let _pbMediaInit = false;
 export async function prebriefMediaCache(key, items) {
   if (!pool || !key) return null;
   if (!_pbMediaInit) { _pbMediaInit = true; await pool.query(`CREATE TABLE IF NOT EXISTS prebrief_media (key TEXT PRIMARY KEY, items JSONB, at TIMESTAMPTZ DEFAULT now())`).catch(() => {}); }
   if (items) { await pool.query(`INSERT INTO prebrief_media (key, items, at) VALUES ($1,$2,now()) ON CONFLICT (key) DO UPDATE SET items=EXCLUDED.items, at=now()`, [key, JSON.stringify(items)]).catch(() => {}); return items; }
-  const r = (await pool.query(`SELECT items, at FROM prebrief_media WHERE key=$1 AND at > now() - interval '7 days' AND jsonb_array_length(COALESCE(items,'[]'::jsonb)) > 0`, [key]).catch(() => ({ rows: [] }))).rows[0];
+  const r = (await pool.query(`SELECT items, at FROM prebrief_media WHERE key=$1 AND at > now() - interval '7 days' AND (jsonb_array_length(COALESCE(items,'[]'::jsonb)) > 0 OR at > now() - interval '1 day')`, [key]).catch(() => ({ rows: [] }))).rows[0];
   return r ? { items: r.items || [], at: r.at } : null;
 }
 
