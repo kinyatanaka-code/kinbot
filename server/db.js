@@ -12966,6 +12966,32 @@ export async function mcMiitelBrokenParts(limit = 100) {
   return (await pool.query(`SELECT id, participants, duration_sec, payload - 'mt_phrases' - 'mt_summary' - 'mt_media' - 'mt_cal' AS payload FROM mochica_miitel_events WHERE (participants LIKE '%[object Object]%' OR (duration_sec IS NULL AND (payload ? 'video' OR payload ? 'meeting' OR payload ? 'data'))) AND NOT (payload ? 'mt_pfix') ORDER BY started_at DESC NULLS LAST LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
 }
 
+// ===== レコーディング中の「事前情報」（2026-11-24 田中さん「事前情報・メモ・文字起こしの3つに」）=====
+//   kinbot の中にあるものだけ集める：アポ（スマートリンク）・kincall の架電先と架電の記録・担当者の印象。SF は index.js 側で足す
+export async function prebriefLocal(company) {
+  if (!pool) return null;
+  const key = normCompanyKey(company);
+  const core = String(company || "").normalize("NFKC").replace(/【[^】]*】/g, "").replace(/(株式会社|有限会社|合同会社|㈱|\(株\)|（株）|様)/g, "").replace(/[\s　]/g, "").slice(0, 40);
+  if (!key || core.length < 2) return { key, apo: null, target: null, calls: [], people: [] };
+  const same = (v) => { const k = normCompanyKey(String(v || "").replace(/【[^】]*】/g, "")); return k && (k === key || (key.length >= 3 && (k.includes(key) || key.includes(k)))); };
+  // アポ：同じ会社の、新しいもの
+  const ap = (await pool.query(`SELECT slug, label, setter, setter_email, apo_at, created_at, start_time, client_name, client_email, client_phone, origin_target_id
+      FROM smart_links WHERE label ILIKE '%' || $1 || '%' ORDER BY COALESCE(apo_at, created_at) DESC LIMIT 20`, [core]).catch(() => ({ rows: [] }))).rows.filter((x) => same(x.label));
+  const apo = ap[0] || null;
+  // kincall の架電先：アポを取った架電先 → 同じ会社名の架電先（記録の新しい順）
+  const tg = (await pool.query(`SELECT t.id, t.company, t.person, t.phone, t.email, t.industry, t.employees, t.emp_size, t.hires, t.media_tags, t.posted_media, t.extra,
+      (SELECT max(l.at) FROM call_logs l WHERE l.target_id = t.id) AS last_at
+      FROM call_targets t WHERE t.id = $2 OR t.company ILIKE '%' || $1 || '%' ORDER BY (t.id = $2) DESC, last_at DESC NULLS LAST, t.id DESC LIMIT 30`, [core, apo && apo.origin_target_id ? Number(apo.origin_target_id) : 0]).catch(() => ({ rows: [] }))).rows
+    .filter((x) => (apo && Number(apo.origin_target_id) === x.id) || same(x.company));
+  const target = tg[0] || null;
+  const ids = tg.map((x) => x.id);
+  const calls = ids.length ? (await pool.query(`SELECT at, result, memo, caller FROM call_logs WHERE target_id = ANY($1::int[]) ORDER BY at DESC LIMIT 15`, [ids]).catch(() => ({ rows: [] }))).rows : [];
+  await ensureImpressions().catch(() => {});
+  const people = (await pool.query(`SELECT contact_name, gender, age_band, impressions, updated_at FROM contact_impressions
+      WHERE ($1::int[] <> '{}' AND company_id = ANY($1::int[])) OR company_key = $2 ORDER BY updated_at DESC LIMIT 6`, [ids, key]).catch(() => ({ rows: [] }))).rows;
+  return { key, apo, target, calls, people };
+}
+
 // SF の立ち上げ：kincall の架電先から、会社の従業員数・業種を探す（2026-11-13 田中さん「従業員数は基本 kincall の情報から」）
 export async function findCallTargetCompanyInfo({ company = "", email = "", phone = "", leadId = "" } = {}) {
   if (!pool) return null;

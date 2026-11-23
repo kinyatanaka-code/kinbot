@@ -7451,3 +7451,42 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .kc3-legend span { display:inline-flex; align-items:center; gap:4px; }
 .kc3-legend i { width:9px; height:9px; border-radius:50%; display:inline-block; }
 @media (max-width:1100px) { .kc3-row { grid-template-columns:minmax(0,1fr) 120px 170px 190px 24px; gap:8px; } }
+
+/* ===== レコーディング中の「事前情報」（2026-11-24 田中さん「事前情報・メモ・文字起こしの3つに」）=====
+   企業情報・IS情報・SF情報をカードで横に並べ、商談の前と最中にさっと見られるようにする */
+.pre-wrap { padding: 4px 2px 16px; }
+.pre-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 2px 4px 10px; }
+.pre-head b { font-size: 17px; color: #0d5b47; }
+.pre-warn { font-size: 11.5px; color: #9a6b1a; background: #FFF6E5; border: 1px solid #F3DDB0; border-radius: 8px; padding: 3px 8px; }
+.pre-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
+@media (max-width: 1100px) { .pre-grid { grid-template-columns: 1fr; } }
+.pre-card { background: #fff; border: 1px solid #DDEFE8; border-radius: 16px; padding: 12px 14px; min-width: 0; }
+.pre-card h3 { display: flex; align-items: center; gap: 7px; margin: 0 0 8px; font-size: 13.5px; color: #0d5b47; }
+.pre-card h3 svg { color: #1d9e75; flex: none; }
+.pre-card h3 small { font-size: 11px; font-weight: 600; color: #6B7C80; }
+.pre-open { margin-left: auto; font-size: 11.5px; font-weight: 700; color: #1d9e75; text-decoration: none; border: 1px solid #BFE6D6; border-radius: 999px; padding: 2px 9px; }
+.pre-open:hover { background: #E3F5EE; }
+.pre-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; padding: 6px 0; border-top: 1px dashed #E3EEEA; font-size: 13px; }
+.pre-row:first-of-type { border-top: 0; }
+.pre-k { color: #5C7377; font-size: 12px; font-weight: 700; padding-top: 1px; }
+.pre-v { color: #14312A; min-width: 0; overflow-wrap: anywhere; }
+.pre-v a { color: #0d5b47; font-weight: 600; }
+.pre-none { color: #A3B3B0; }
+.pre-from { color: #6B7C80; font-size: 11px; margin-left: 6px; font-weight: 600; }
+.pre-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.pre-chip { font-size: 11.5px; font-weight: 700; color: #0d5b47; background: #F1F9F6; border: 1px solid #CFE9DF; border-radius: 999px; padding: 2px 9px; text-decoration: none; }
+a.pre-chip:hover { background: #1d9e75; border-color: #1d9e75; color: #fff; }
+.pre-chip.plain { font-weight: 600; }
+.pre-people { display: flex; flex-direction: column; gap: 4px; }
+.pre-person { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.pre-person b { font-size: 13px; margin-right: 2px; }
+.pre-tag { font-size: 11px; font-weight: 700; color: #0B6E78; background: #DDF5F7; border-radius: 999px; padding: 1px 7px; }
+.pre-tag.soft { color: #5C7377; background: #F1F4F4; }
+.pre-sub { font-size: 12px; font-weight: 800; color: #5C7377; margin: 8px 0 4px; }
+.pre-calls { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; padding-right: 2px; }
+.pre-call { background: #F7FBF9; border: 1px solid #E3EEEA; border-radius: 10px; padding: 6px 9px; }
+.pre-call-h { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 11.5px; color: #5C7377; }
+.pre-res { font-weight: 800; color: #0d5b47; }
+.pre-who { margin-left: auto; }
+.pre-call-m { font-size: 12.5px; color: #14312A; margin-top: 3px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pre-long { white-space: pre-wrap; max-height: 160px; overflow-y: auto; font-size: 12.5px; }

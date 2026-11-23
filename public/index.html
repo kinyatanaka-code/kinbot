@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261124b" />
+    <link rel="stylesheet" href="style.css?v=20261124c" />
   </head>
   <body>
     <div class="app">
@@ -150,9 +150,15 @@
 
           <div class="live-tabs" id="liveTabs">
             <button class="live-tab" data-pane="video" hidden>ライブ映像</button>
-            <button class="live-tab active" data-pane="transcript">文字起こし</button>
-            <button class="live-tab" data-pane="ai">AI</button>
+            <!-- 事前情報・メモ・文字起こしの3つ（2026-11-24 田中さん）。AI のタブは出さない（AI の気づきは右下の通知から開ける） -->
+            <button class="live-tab active" data-pane="pre">事前情報</button>
             <button class="live-tab" data-pane="note">メモ</button>
+            <button class="live-tab" data-pane="transcript">文字起こし</button>
+            <button class="live-tab" data-pane="ai" hidden>AI</button>
+          </div>
+
+          <div class="live-pane live-pane-scroll" data-pane="pre">
+            <div class="pre-wrap" id="preBrief"><div class="empty-state">事前情報を読み込んでいます…</div></div>
           </div>
 
           <div class="live-pane" data-pane="video" hidden>
@@ -162,7 +168,7 @@
             </div>
           </div>
 
-          <div class="live-pane" data-pane="transcript">
+          <div class="live-pane" data-pane="transcript" hidden>
             <section class="panel transcript-panel">
               <div class="panel-head">
                 <h2>ライブ文字起こし</h2><span class="hint" id="sttHint">待機中</span>
@@ -283,7 +289,7 @@
       </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-    <script src="app.js?v=20261124b"></script>
+    <script src="app.js?v=20261124c"></script>
     <script>
       (function () {
         const tabs = document.getElementById("recTabs");
@@ -305,7 +311,7 @@
         }
       })();
     </script>
-    <script src="nav.js?v=20261124b"></script>
+    <script src="nav.js?v=20261124c"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
