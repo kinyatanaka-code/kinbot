@@ -2984,3 +2984,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-24 田中さん「左：企業情報・IS情報／中央：SF情報／右：メモ」：事前情報を .pre-layout（2fr＋1fr）に、左列は .pre-col で縦に2枚、メモは右で縦いっぱい（sticky）。
 - 2026-11-24 BUILD_TAG=2026-11-24hq：本番で下見すると対象79件・渡せる人0。インサイド8名とも kinbot 未ログイン・名簿のメール未登録（readiness で確認）。bales-handover は、名簿のインサイドに名前が当たる Bales の所有者なら、行の nextActions.N.owner.email（Bales のアカウントのメール）を担当にする（アカウントのある人が先）。本人がそのメールでログインすれば担当のまま出る。
 - 2026-11-24 田中さん「利用ATSがある企業は採用媒体に ATS 名」「採用媒体は API でリンク付きで」：findJobMediaLinks（companyenrich.js・Brave 2回・求人サイトの URL かつ題名/説明に会社名）→ GET /api/prebrief/media、prebrief_media に7日キャッシュ。ATS は商談の利用中ATS→リードの ATS__c。
+- 2026-11-24 採用媒体の検索：Brave が 402（契約の枠切れ）で断られていた。Gemini 2.5 の google_search で補う（答えの URL と根拠のリンクから媒体のドメインのものだけ）。Brave の契約は田中さんの判断待ち。

@@ -52,7 +52,28 @@ export async function findJobMediaLinks(company) {
     if (!ck(`${r.title} ${r.desc}`).includes(k)) continue;
     for (const [re, label] of JOB_MEDIA_URL) if (re.test(r.url) && !seen.has(label)) seen.set(label, { name: label, url: r.url, title: String(r.title || "").slice(0, 80) });
   }
-  return { ok: true, items: [...seen.values()], raw: a.length + b.length, status };
+  if (a.length + b.length) return { ok: true, items: [...seen.values()], raw: a.length + b.length, status };
+  // Brave が使えない（402＝契約の枠切れ など）ときは、Gemini の Google 検索で探す（2.5 系は1日1,500回まで無料の枠）
+  const g = await jobMediaByGemini(name, k).catch(() => null);
+  if (g) return { ok: true, items: g, raw: g.length || 1, status, by: "gemini" };
+  return { ok: true, items: [], raw: 0, status };
+}
+async function jobMediaByGemini(name) {
+  const key = process.env.GEMINI_API_KEY; if (!key) return null;
+  const q = `「${name}」が求人を出している求人サイト・就活サイトの、その会社の求人ページ（または企業ページ）の URL を、Google 検索で探して挙げてください。` +
+    `対象：doda、マイナビ転職、リクナビNEXT、エン転職、Indeed、engage、Wantedly、Green、type、ビズリーチ、求人ボックス、Airワーク、ハローワーク、バイトル、タウンワーク、マイナビ（新卒・job.mynavi.jp）、リクナビ（新卒・job.rikunabi.com）、キャリタス就活、あさがくナビ、ONE CAREER、OfferBox。` +
+    `その会社のページだと確かめられたものだけ、1行に1つ「媒体名 URL」で。無ければ「なし」。`;
+  const body = { contents: [{ role: "user", parts: [{ text: q }] }], generationConfig: { temperature: 0, maxOutputTokens: 800 }, tools: [{ google_search: {} }] };
+  const r = await withTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${process.env.GEMINI_WEB_MODEL || "gemini-2.5-flash"}:generateContent?key=${key}`,
+    { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, 30000);
+  if (!r.ok) return null;
+  const d = await r.json().catch(() => null); const c = d && d.candidates && d.candidates[0]; if (!c) return null;
+  const text = ((c.content && c.content.parts) || []).map((p) => p.text || "").join("\n");
+  const seen = new Map();
+  // ① 答えの文に書かれた URL（本物の URL）② 検索の根拠のリンク（題名が媒体のドメインのもの。押すとその媒体のページへ飛ぶ）
+  for (const u of text.match(/https?:\/\/[^\s)」）\]]+/g) || []) for (const [re, label] of JOB_MEDIA_URL) if (re.test(u) && !seen.has(label)) seen.set(label, { name: label, url: u.replace(/[。、,.]+$/, ""), title: "" });
+  for (const ch of ((c.groundingMetadata && c.groundingMetadata.groundingChunks) || [])) { const w = ch.web || {}; for (const [re, label] of JOB_MEDIA_URL) if ((re.test(String(w.title || "")) || re.test(String(w.uri || ""))) && !seen.has(label) && w.uri) seen.set(label, { name: label, url: w.uri, title: String(w.title || "") }); }
+  return [...seen.values()];
 }
 
 // 検索結果から「その会社の公式サイトらしいURL」を選ぶ
