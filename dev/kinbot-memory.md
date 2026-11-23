@@ -2988,3 +2988,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-24 BUILD_TAG=2026-11-24hr：下見で足立10・趙6・小賀坂5が当たらなかった（Bales の名前が名字だけ）。名簿のインサイドの名字と1人だけ一致すればその人にする（rosterOf）。
 - 2026-11-24 福井さん「表記ゆれも7つの表記に統合・正規化」「架電後に自動でセールスステージも変更」：SF のリードの状況の一括そろえは管理者の画面 /mcstage.html（API /api/mccall/stage-norm、控えは mc_stage_norm・mc_stage_runs で回ごとに元に戻せる。対応表は server/mcstage.js の normCode：潜在顧客→01、Qualified→03、LS:02　アプローチ済→02、決められない値は残す）。MOCHICALL の記録のあと autoStage で進める（進めるだけ・99 不可・コンバート用の値は書かない・取り消しで戻す、結果は mc_call_logs.sf_stage）。kincall の選択肢も pickLeadStages で7つ。stageBucket は「01：新規」も NEW。
 - 2026-11-24 田中さん「一旦今の感じで作ってみて」（案D）：kinXs ホームの左の列を .h2-left（要アクション → 担当企業 #kh2Mine）に。renderMine(box,{home,items}) で担当企業の画面と同じ中身を出す。
+- 2026-11-24 田中さん「タスクの数が違う（47と13）」：担当企業のタスク数が total（kinXs の自動のお知らせ込み）だった。ホームと同じく お知らせを除いた数＋並べきれなかった分 に。

@@ -2563,7 +2563,9 @@ async function renderMine(boxArg, opts = {}) {
     let t; try { t = st.tk[ck] || (st.tk[ck] = await api(`/api/kinxs/home/tasks?who=${encodeURIComponent(ck)}`)); } catch (e) { const el = box.querySelector("[data-mtk]"); if (el) el.innerHTML = `<div class="kx-note">読めませんでした：${esc(e.message)}</div>`; return; }
     if (my !== loadTasks.seq) return;
     const items = (t.items || []).filter((t0) => t0.kind === "次回アクション" || !/^kinXs$/.test(String(t0.src || "")));
-    const n = box.querySelector("[data-mtk-n]"); if (n) n.innerHTML = `${Math.max(items.length, Number(t.total) || 0)}<small>件</small>`;
+    // 数はホームの要アクションの「タスク」と同じ数え方（2026-11-24 田中さん「数が違う」）：kinXs の自動のお知らせ（期日が過ぎています・接触途絶など）は数えない。
+    //   前は全部の数（total）を出していて、お知らせの分だけ多くなっていた。並べきれなかった分（60件より多いとき）だけ足す
+    const n = box.querySelector("[data-mtk-n]"); if (n) n.innerHTML = `${items.length + Math.max(0, (Number(t.total) || 0) - (t.items || []).length)}<small>件</small>`;
     const el = box.querySelector("[data-mtk]"); if (!el) return;
     const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
     el.innerHTML = items.length ? items.map((t0) => `<div class="mi-tk" ${t0.accountId ? `data-mopen="${esc(t0.accountId)}"` : ""} role="button" tabindex="0"><span class="d ${t0.due && t0.due < today ? "over" : ""}">${t0.due ? `${Number(t0.due.slice(5, 7))}/${Number(t0.due.slice(8, 10))}` : "期日なし"}</span><span class="t">${esc(t0.title || t0.kind || "")}<small>${esc(t0.account || "")}${t0.ownerName ? `・${esc(t0.ownerName)}` : ""}</small></span></div>`).join("") + '<div class="kx-note" style="margin-top:6px">済みにする・消すは、ホームのタスクか、会社の詳しい画面のタスクで</div>'
