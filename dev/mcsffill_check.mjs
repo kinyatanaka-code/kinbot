@@ -81,5 +81,30 @@ t("複数選択は足すだけ（消さない）", () => {
   const p = planFills(readMemo("インスタとYouTubeをやっている"), { SNS__c: "Instagram;Twitter" });
   assert.equal(p[0].kind, "update"); assert.equal(p[0].send, "Instagram;Twitter;Youtube");
 });
+// 2026-11-20 審査（別の文脈）で見つかった取り違え
+t("1文字の姓は本物の名前。仮置きにしない", () => {
+  assert.equal(isPlaceholderName("林"), false);
+  const p = planFills(readInputs({ gate: { name: "森田" } }), { LastName: "林" });
+  assert.equal(p[0].kind, "update"); assert.equal(p[0].on, false);
+});
+t("姓が別の人なら、空の名も最初は入れない（「山田 太郎」を作らない）", () => {
+  const by = Object.fromEntries(planFills(readInputs({ gate: { name: "佐藤 太郎" } }), { LastName: "山田", FirstName: null }).map((x) => [x.api, x]));
+  assert.equal(by.LastName.on, false); assert.equal(by.FirstName.kind, "new"); assert.equal(by.FirstName.on, false);
+  const ok = Object.fromEntries(planFills(readInputs({ gate: { name: "佐藤 太郎" } }), { LastName: "担当者" }).map((x) => [x.api, x]));
+  assert.equal(ok.LastName.on, true); assert.equal(ok.FirstName.on, true);
+});
+t("丁寧語の否定・別製品・説明会の月・不在の人数を拾わない", () => {
+  const c = readMemo("HRMOSは使っていない。HERPは導入していません");
+  assert.equal(val(c, "ATS__c"), undefined);
+  assert.equal(val(readMemo("SNSはやっていません。インスタはやっていません"), "SNS__c"), undefined);
+  assert.equal(val(readMemo("ジョブカンは勤怠で使っている"), "ATS__c"), undefined);
+  assert.equal(val(readMemo("9月終了の説明会"), "update_month2__c"), undefined);
+  assert.equal(val(readMemo("従業員は5名ほど不在"), "NumberOfEmployees"), undefined);
+  assert.equal(val(readMemo("LINEは導入していません"), "Line_Implementation__c"), "なし");
+});
+t("メモから読んだ電話・人数・採用種別は、空の項目でも人がチェックしたときだけ", () => {
+  const by = Object.fromEntries(planFills(readMemo("別の番号 06-1234-5678 の山田さんへ。従業員は約300名。新卒採用"), {}).map((x) => [x.api, x]));
+  for (const k of ["phone2__c", "NumberOfEmployees", "recruting_type__c"]) { assert.equal(by[k].kind, "new"); assert.equal(by[k].on, false, k); }
+});
 t("採用人数の区分", () => { assert.equal(hiresBucket(0), null); assert.equal(hiresBucket(2), "1～2名"); assert.equal(hiresBucket(500), "301名～"); });
 console.log(`\nすべて通りました（${n} 件）`);

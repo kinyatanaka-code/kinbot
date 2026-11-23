@@ -762,6 +762,14 @@ function mccallMock(p) {
   if (p === "/api/mccall/sources/distribute") return { ok: true, dryRun: true, available: 812, total: 200, unassigned: 0, toList: "",
     plan: [{ email: "eda@neo-career.co.jp", name: "江田 直人", n: 100, want: 100, rate: 1.8, calls: 220, apos: 4 }, { email: "morita@neo-career.co.jp", name: "森田 彩", n: 70, want: 100, rate: null, calls: 0, apos: 0 }] };
   if (/^\/api\/mccall\/lists\/\d+\/assign$/.test(p)) return { ok: true, dryRun: true, matched: 98, assigned: 40, per: [{ name: "江田 直人", n: 20 }, { name: "森田 彩", n: 20 }] };
+  // SF に入る項目の下書き（2026-11-20）。新規・更新・追記・同じ の見え方を確かめる
+  if (/^\/api\/mccall\/leads\/\d+\/sf-fill\/preview$/.test(p)) return { ok: true, note: "", plan: [
+    { api: "LastName", label: "担当者（姓）", value: "町田", kind: "new", on: true, why: "受付：担当者の名前" },
+    { api: "Start_Considering_Date__c", label: "検討開始時期", value: "4月", cur: "6月", kind: "update", on: true, why: "ヒアリング：検討時期" },
+    { api: "Client_Issue__c", label: "顧客の課題感", value: "母集団が足りない", kind: "add", on: true, why: "ヒアリング：採用ニーズ" },
+    { api: "ATS__c", label: "利用中ATS", value: "HRMOS", cur: "無し", kind: "update", on: false, why: "HRMOS" },
+    { api: "update_month2__c", label: "現利用サービス更新予定月", value: "3月", kind: "new", on: true, why: "3月更新" },
+    { api: "Number_of_hires__c", label: "採用人数", value: "6～10名", kind: "same", on: false, why: "ヒアリング：採用目標 8名" } ] };
   let m = p.match(/^\/api\/mccall\/leads\/(\d+)$/);
   if (m) {
     const l = MC_LEADS.find((x) => x.id === +m[1]) || MC_LEADS[0];

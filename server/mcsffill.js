@@ -59,7 +59,7 @@ export function hiresBucket(n) {
 // 担当者名の仮置き（SF のリードでよく見る値）。これなら「空」とみなして埋めてよい
 export function isPlaceholderName(v, company = "") {
   const s = sq(v).replace(/[様さん殿]+$/, "");
-  if (!s || s.length <= 1) return true;
+  if (!s) return true;   // 1文字の姓（林・森・原など）は本物の名前なので、文字数では仮置きとみなさない
   if (company && s === sq(company)) return true;
   return /^(\[\[unknown\]\]|unknown|不明|未設定|未入力|なし|無し|-+|ー+|―+|ご?担当者?|採用担当者?|人事(部)?(担当者?)?|総務(部)?(担当者?)?|採用ご?担当者?様?|担当者様)$/.test(s);
 }
@@ -95,7 +95,11 @@ const OWN_MAIL = /@(neo-career|c-career|neocareer)\./i;
 const NOT_SITE = /(^|\.)(mynavi|rikunabi|doda|indeed|en-japan|baitoru|townwork|wantedly|linkedin|facebook|twitter|x|instagram|youtube|tiktok|line|google|salesforce|force|zoom|bales|balescloud|neo-career|c-career)\./i;
 
 // 否定（〜していない・やめた）が後ろに続くか。ATS・SNS の「使っている」を取り違えないために見る
-const negAfter = (text, end) => /^.{0,6}?(は|を|も)?(使って(い)?ない|やって(い)?ない|未導入|導入して(い)?ない|やめ|解約|していない|してない)/.test(text.slice(end, end + 16));
+// 否定の言い方（「使っていない」「導入していません」「未導入」）。丁寧語の「〜ません」も見る
+const NEG = "(使って|やって|導入して|入れて|利用して|して|採って|取って)(い)?(ない|ません)|未導入|やめ|解約|なし|無し";
+const negAfter = (text, end) => new RegExp(`^.{0,6}?(は|を|も)?(${NEG})`).test(text.slice(end, end + 16));
+// ATS と同じ名前の別の製品（ジョブカン勤怠など）の話なら ATS にしない
+const otherUse = (text, end) => /^.{0,8}?(勤怠|労務|経費|給与|会計|ワークフロー|勤務管理)/.test(text.slice(end, end + 16));
 const talkAfter = (text, end) => /^.{0,10}?(検討|比較|提案|営業|話を聞|見積|資料)/.test(text.slice(end, end + 16));
 const pastBefore = (text, start) => /(前は|以前は?|元々|もともと|昔は|去年まで)[^。\n]{0,8}$/.test(text.slice(Math.max(0, start - 14), start));
 
@@ -132,29 +136,29 @@ export function readMemo(memo, { outcome = "" } = {}) {
     if (!NOT_SITE.test(`.${host}`)) { add("Website", u, m[0]); break; }
   }
   // 従業員数
-  { const m = /従業員(?:数)?(?:は|が|:)?\s*(?:約|およそ|だいたい)?\s*([\d,]{1,7})\s*(?:名|人)/.exec(t); if (m) { const n = parseInt(m[1].replace(/,/g, ""), 10); if (n > 0 && n < 1e6) add("NumberOfEmployees", n, m[0]); } }
+  { const m = /従業員(?:数)?(?:は|が|:)?\s*(?:約|およそ|だいたい)?\s*([\d,]{1,7})\s*(?:名|人)(?!\S{0,4}(不在|休み|欠勤|出社|在宅|退職|辞め))/.exec(t); if (m) { const n = parseInt(m[1].replace(/,/g, ""), 10); if (n > 0 && n < 1e6) add("NumberOfEmployees", n, m[0]); } }
   // 採用人数（「採用は10名」「5名ほど採用」）
   { const m = /(?:採用(?:目標|予定|人数)?|採りたい|取りたい)(?:は|が|:)?\s*(?:約|年間|毎年)?\s*(\d{1,4})\s*(?:名|人)/.exec(t) || /(\d{1,4})\s*(?:名|人)(?:ほど|くらい|ぐらい|程度|前後)?を?(?:採用|採り|取り|採る)/.exec(t);
     if (m) { const b = hiresBucket(parseInt(m[1], 10)); if (b) add("Number_of_hires__c", b, m[0]); } }
   // 更新予定月（「3月更新」「更新は4月」）
-  { const m = /(\d{1,2})月(?:に|で|末)?(?:契約)?(?:の)?(?:更新|満了|切り替え|切替|終了)/.exec(t) || /(?:更新|契約満了)(?:は|月は|時期は|が)?\s*(\d{1,2})月/.exec(t);
+  { const m = /(\d{1,2})月(?:に|で|末)?(?:契約)?(?:の)?(?:更新|満了|切り替え|切替)/.exec(t) || /(?:更新|契約満了)(?:は|月は|時期は|が)?\s*(\d{1,2})月/.exec(t);
     if (m && MONTHS.includes(`${+m[1]}月`)) add("update_month2__c", `${+m[1]}月`, m[0]); }
   // 検討開始時期（「4月から検討」「来年2月頃に動く」）
   { const m = /(\d{1,2})月(?:頃|ごろ|中|以降|から|に|末)*(?:検討|考え|動き|動く|始め|開始|見直)/.exec(t);
     if (m && MONTHS.includes(`${+m[1]}月`)) add("Start_Considering_Date__c", `${+m[1]}月`, m[0]); }
   // ATS：「ATS は使っていない」→ 無し。名前が出たら、検討・比較の話なら競合、前は〜・やめた なら使わない、それ以外は利用中
-  if (/(ATS|採用管理(システム|ツール)?)(は|を|も)?(使って(い)?ない|入れて(い)?ない|未導入|無し|なし|ない)/i.test(t)) add("ATS__c", "無し", "ATS は使っていない");
+  if (new RegExp(`(ATS|採用管理(システム|ツール)?)(は|を|も)?(${NEG}|ない)`, "i").test(t)) add("ATS__c", "無し", "ATS は使っていない");
   const comps = [];
   for (const [re, v] of ATS_ALIAS) {
     const m = re.exec(t); if (!m) continue; const end = m.index + m[0].length;
-    if (negAfter(t, end) || pastBefore(t, m.index)) continue;
+    if (negAfter(t, end) || pastBefore(t, m.index) || otherUse(t, end)) continue;
     if (talkAfter(t, end)) { if (!comps.includes(v)) comps.push(v); continue; }
     add("ATS__c", v, m[0]);
   }
   if (/(マイナビ|リクナビ|キャリタス就活)(の管理画面)?で管理|媒体(の管理画面)?で管理/.test(t)) add("ATS__c", "母集団形成の媒体で管理", "媒体で管理");
   if (comps.length) add("Competitors__c", comps, comps.join("・"));
   // LINE（公式アカウントの有無。ATS とは別の項目）
-  if (/LINE(は|を|も)?(使って(い)?ない|やって(い)?ない|未導入|導入して(い)?ない|なし|無し)/i.test(t)) add("Line_Implementation__c", "なし", "LINE は使っていない");
+  if (new RegExp(`LINE(公式)?(アカウント)?(は|を|も)?(${NEG})`, "i").test(t)) add("Line_Implementation__c", "なし", "LINE は使っていない");
   else if (/LINE公式|公式LINE|公式ライン|LINE@|LINE(を|で)(使って|運用|配信|導入)/i.test(t)) add("Line_Implementation__c", "あり", "LINE を使っている");
   // SNS
   { const v = []; for (const [re, name] of SNS_ALIAS) { const m = re.exec(t); if (m && !negAfter(t, m.index + m[0].length)) v.push(name); } if (v.length) add("SNS__c", v, v.join("・")); }
@@ -162,7 +166,7 @@ export function readMemo(memo, { outcome = "" } = {}) {
   { const v = [];
     for (const [re, name] of [[/新卒/, "新卒"], [/中途/, "中途"], [/アルバイト|バイト|パート/, "アルバイト"]]) {
       const m = re.exec(t); if (!m) continue; const after = t.slice(m.index + m[0].length, m.index + m[0].length + 14);
-      if (/^(採用)?(は|を|も)?(して(い)?ない|やって(い)?ない|予定(は|が)?(ない|無い)|なし|無し|採って(い)?ない|取って(い)?ない)/.test(after)) continue;
+      if (new RegExp(`^(採用)?(は|を|も)?(${NEG}|予定(は|が)?(ない|無い|ありません))`).test(after)) continue;
       v.push(name);
     }
     if (v.includes("新卒") && v.includes("中途")) add("recruting_type__c", ["新卒＋中途", ...v.filter((x) => x === "アルバイト")], "新卒・中途");
@@ -202,6 +206,8 @@ export function readInputs({ hearing = null, gate = null, reason = "", outcome =
   return out;
 }
 
+// メモから読んだ値のうち、空の項目でも人がチェックしたときだけ入れるもの（文脈で取り違えやすい：別の人の番号・その日いない人数・採用の話でない「新卒」）
+const MEMO_ASK = new Set(["MobilePhone", "phone2__c", "NumberOfEmployees", "recruting_type__c"]);
 const splitMulti = (v) => String(v ?? "").split(";").map((x) => x.trim()).filter(Boolean);
 function same(type, cur, val) {
   if (type === "phone") return digits(cur) === digits(val);
@@ -239,9 +245,13 @@ export function planFills(cands, cur = {}, { day = "" } = {}) {
       if (c.api === "phone2__c" && cur.Phone && same("phone", cur.Phone, c.value)) kind = "same";
     }
     // 最初からチェックを入れるか：空を埋める・追記は入れる。書き換えは「人が欄で選んだ値」かつ「人の項目でない」ときだけ。退職の印はいつも人が選ぶ
-    const on = kind === "same" ? false : c.api === "Retire_check__c" ? false : kind === "update" ? c.src !== "memo" && !F.who : true;
+    const on = kind === "same" ? false : c.api === "Retire_check__c" ? false : kind === "update" ? c.src !== "memo" && !F.who : !(c.src === "memo" && MEMO_ASK.has(c.api));
     out.push({ api: c.api, label: F.label, value, cur: cv == null ? "" : F.type === "append" ? String(cv).slice(0, 80) : String(cv), send, kind, src: c.src, why: c.why || "", on });
   }
+  // 名は姓と同じ人のときだけ最初から入れる（SF の姓「山田」に、受付で聞いた「佐藤 太郎」の名だけ入って「山田 太郎」にならないように）
+  const ln = out.find((p) => p.api === "LastName"), fn = out.find((p) => p.api === "FirstName");
+  if (fn && ln && ln.kind === "update") fn.on = false;
+  if (fn && !ln && !isPlaceholderName(cur.LastName, cur.Company)) fn.on = false;
   return out;
 }
 
