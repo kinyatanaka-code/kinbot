@@ -13191,6 +13191,8 @@ export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset 
   const sfW = many(sf).map(sfCond).filter(Boolean); if (sfW.length) w.push(`(${sfW.join(" OR ")})`);
   //   リードの出どころ（Bales の leadSources。1件に複数あり、平らにして leadSources.0.name〜4.name に入っている）（2026-11-23 田中さん「リードのでどころでリスト作って」）
   if (Object.hasOwn(BALES_STG, stg)) w.push(BALES_STG[stg]);
+  // 今日かけるリスト：その人（col/val）の今日の分の行だけ
+  if (stg === "today") { const t = await mcBalesToday(listKey, { col, val }); p.push(t ? t.keys : []); w.push(`row_key = ANY($${p.length}::text[])`); }
   const srcs = many(src); if (srcs.length) { const sw = []; const names = srcs.filter((x) => x !== "-");
     if (names.length) { p.push(names); sw.push(`ARRAY[${BALES_SRC_COLS}] && $${p.length}::text[]`); }
     if (srcs.includes("-")) sw.push(`COALESCE(array_to_string(ARRAY[${BALES_SRC_COLS}], ''), '') = ''`);
@@ -13303,6 +13305,81 @@ export async function mcCompanyCalls(srcKey, sfLeadIds = [], company = "") {
 
 // SF と結びつける：今の取り込みの行（row_key と data）を渡す／結果を書く／進み具合を残す
 // 選んだリードをホットな順に並べる（割り振りで偏らないように）
+// ===== 今日かけるリスト（2026-11-23 田中さん「かけるリストの左隣に今日かけるリスト。ナーチャリングで次かける日が今日のものを優先、アポ率が3%になる150件を自動で」）=====
+//   1人1日1つ作って保存する（その日のうちに中身が入れ替わると、かけている途中で表が変わって困るため）。リサイクル・アーカイブは入れない
+//   ① ナーチャリングで次にかける日（Bales の次のアクションの終わっていない予定）が今日 → ② それ以外で次にかける日が今日 → ③ 残りの枠
+//   ③は「取れそうな率」（リードソース・過去失注かどうか・ホット度ごとの、これまでのアポ÷架電）を1件ずつ出し、
+//   150件の平均がちょうど3%に届くように、取れそうなものと長く触っていないもの（未架電・最後の架電が古い順）を混ぜる。
+//   取れそうなものだけで埋めると、良いリードを数日で使い切ってしまうため。3%に届かないときは取れそうな順に埋める
+export const BALES_TODAY_N = 150, BALES_TODAY_RATE = 0.03;
+const jstDay = (t = Date.now()) => new Date(t).toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+let _mcTodayInit = false;
+async function ensureMcToday() {
+  if (!pool || _mcTodayInit) return; _mcTodayInit = true;
+  await pool.query(`CREATE TABLE IF NOT EXISTS mochica_bales_today (list_key TEXT, owner_key TEXT, day TEXT, keys JSONB, info JSONB, made_at TIMESTAMPTZ DEFAULT now(), PRIMARY KEY (list_key, owner_key, day))`).catch(() => {});
+}
+const VIS = `dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND NOT ${BALES_OUT}`;
+async function mcTodayBuild(listKey, run_at, col, val, day) {
+  // これまでのアポ率をかたまりごとに（リスト全体・見えているリード全部で数える。1人分だと件数が少なくぶれるため）
+  const seg = (await pool.query(`SELECT COALESCE(NULLIF(r.data->>'leadSources.0.name',''),'-') AS s, (${BALES_PL}) AS pl, LEAST(GREATEST(COALESCE(r.hot,0),1),3) AS h, ${BAPO_SEL}
+    FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.run_at=$2 AND ${VIS} GROUP BY 1,2,3`, [listKey, run_at])).rows;
+  const add = (m, k, a, c) => { const x = m.get(k) || [0, 0]; x[0] += a; x[1] += c; m.set(k, x); };
+  const all = [0, 0], mid = new Map(), fine = new Map();
+  for (const g of seg) { const a = Number(g.apo), c = Number(g.called); all[0] += a; all[1] += c; add(mid, `${g.pl}|${g.h}`, a, c); add(fine, `${g.s}|${g.pl}|${g.h}`, a, c); }
+  // 件数の少ないかたまりは、ひとつ上のまとまりの率に寄せる（数件の架電で 0% や 50% と決めつけないため）
+  const K = 30, base = all[1] ? all[0] / all[1] : BALES_TODAY_RATE;
+  const sm = (x, prior) => (x ? (x[0] + K * prior) / (x[1] + K) : prior);
+  const rate = (s, pl, h) => { const pm = sm(mid.get(`${pl}|${h}`), base); return sm(fine.get(`${s}|${pl}|${h}`), pm); };
+  // その人のかけるリスト（アポ獲得済みは外す）
+  const p = [listKey, run_at]; let ow = "";
+  if (col) { p.push(String(col).slice(0, 80)); p.push(String(val)); ow = ` AND COALESCE(${colX(col, `$3`, "r.")},'') = $4`; }
+  const cand = (await pool.query(`SELECT r.row_key, COALESCE(NULLIF(r.data->>'leadSources.0.name',''),'-') AS s, (${BALES_PL}) AS pl, LEAST(GREATEST(COALESCE(r.hot,0),1),3) AS h,
+      (${BALES_STG.nurture.replace(/data->>/g, "r.data->>")}) AS nur, r.data->>'lastCalledAt' AS lc,
+      (SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(r.data) e WHERE e.key ~ '^nextActions\\.[0-9]+\\.(reservedAt|isDone|id)$') AS na
+    FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.run_at=$2 AND ${VIS} AND ${BALES_STG.call.replace(/data->>/g, "r.data->>")} AND NOT ${BAPO}${ow}`, p)).rows;
+  const nextDay = (na) => { let t = null; for (let i = 0; i < 50; i++) { if (!na || na[`nextActions.${i}.id`] == null && na[`nextActions.${i}.reservedAt`] == null) break;
+    if (String(na[`nextActions.${i}.isDone`]) === "true") continue; const x = Date.parse(na[`nextActions.${i}.reservedAt`]); if (Number.isFinite(x) && (t == null || x < t)) t = x; } return t == null ? "" : jstDay(t); };
+  const L = cand.map((c) => ({ k: c.row_key, p: rate(c.s, c.pl, c.h), nur: c.nur, pl: c.pl, due: nextDay(c.na) === day, lc: c.lc ? Date.parse(c.lc) || 0 : 0 }));
+  const N = BALES_TODAY_N, T = BALES_TODAY_RATE;
+  const pri = [...L.filter((x) => x.nur && x.due).sort((a, b) => b.p - a.p), ...L.filter((x) => !x.nur && x.due).sort((a, b) => b.p - a.p)].slice(0, N);
+  const used = new Set(pri.map((x) => x.k)); const rest = L.filter((x) => !used.has(x.k)); const need = N - pri.length;
+  let pick = [];
+  if (need > 0 && rest.length) {
+    const top = [...rest].sort((a, b) => b.p - a.p), old = [...rest].sort((a, b) => a.lc - b.lc || b.p - a.p);
+    const sumP = pri.reduce((t, x) => t + x.p, 0);
+    const n = Math.min(need, rest.length), topSum = top.slice(0, n).reduce((t, x) => t + x.p, 0);
+    if ((sumP + topSum) / (pri.length + n) <= T) pick = top.slice(0, n);   // 取れそうな順に全部入れても3%に届かない
+    else {
+      // 取れそうなものを h 件・残りを長く触っていない順に。平均が3%に届くいちばん小さい h を探す
+      for (let h = 0; h <= n; h++) {
+        const s = new Set(top.slice(0, h).map((x) => x.k)); const fill = []; for (const x of old) { if (fill.length >= n - h) break; if (!s.has(x.k)) fill.push(x); }
+        const c = [...top.slice(0, h), ...fill];
+        if ((sumP + c.reduce((t, x) => t + x.p, 0)) / (pri.length + c.length) >= T) { pick = c; break; }
+      }
+    }
+  }
+  const out = [...pri, ...pick];
+  const info = { n: out.length, exp: out.length ? out.reduce((t, x) => t + x.p, 0) / out.length : 0, due_nurture: pri.filter((x) => x.nur).length, due_other: pri.filter((x) => !x.nur).length,
+    pastlost: out.filter((x) => x.pl).length, newlist: out.filter((x) => !x.pl).length, pool: L.length };
+  return { keys: out.map((x) => x.k), info };
+}
+// その人の今日のリスト（無ければ作る。rebuild で作り直す）
+export async function mcBalesToday(listKey, { col = "", val = "", rebuild = false } = {}) {
+  if (!pool) return null; await ensureMcBales(); await ensureMcToday();
+  const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return null;
+  const day = jstDay(), ok = `${String(col).slice(0, 80)}|${String(val).slice(0, 200)}`;
+  let t = rebuild ? null : (await pool.query(`SELECT keys, info, made_at FROM mochica_bales_today WHERE list_key=$1 AND owner_key=$2 AND day=$3`, [listKey, ok, day])).rows[0];
+  if (!t) {
+    const b = await mcTodayBuild(listKey, l.run_at, col, val, day);
+    t = (await pool.query(`INSERT INTO mochica_bales_today (list_key, owner_key, day, keys, info) VALUES ($1,$2,$3,$4,$5)
+      ON CONFLICT (list_key, owner_key, day) DO UPDATE SET keys=EXCLUDED.keys, info=EXCLUDED.info, made_at=now() RETURNING keys, info, made_at`, [listKey, ok, day, JSON.stringify(b.keys), JSON.stringify(b.info)])).rows[0];
+  }
+  const keys = Array.isArray(t.keys) ? t.keys : [];
+  // 今日もうかけた件数（取り込み直すと Bales の最後の架電日時が入る）・その中のアポ
+  const c = keys.length ? (await pool.query(`SELECT count(*) FILTER (WHERE r.data->>'lastCalledAt' IS NOT NULL AND to_char((r.data->>'lastCalledAt')::timestamptz AT TIME ZONE 'Asia/Tokyo','YYYY-MM-DD') = $3)::int AS called_today,
+      count(*) FILTER (WHERE ${BAPO})::int AS apo FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.row_key = ANY($2::text[])`, [listKey, keys, day]).catch(() => ({ rows: [{}] }))).rows[0] : {};
+  return { day, keys, ...(t.info || {}), made_at: t.made_at, called_today: c.called_today || 0, apo_today: c.apo || 0 };
+}
 export async function mcBalesHotOrder(listKey, keys = []) {
   if (!pool || !keys.length) return []; await ensureMcBales();
   return (await pool.query(`SELECT r.row_key FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1 AND r.row_key = ANY($2::text[]) ORDER BY COALESCE(r.hot,0) DESC, r.seq`, [listKey, keys])).rows;
