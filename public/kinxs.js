@@ -2532,8 +2532,18 @@ async function renderMine(boxArg, opts = {}) {
   const pubd = (x) => !!(x.published || x.publishedOn || (x.places || []).length);
   // 数え方：キックオフは要アクションと同じ（受注して、キックオフがまだ）。検収書・納品メールは納品前でまだのもの。掲載は納品したあと。
   //   2026年10月より前に受注した会社（納品後とみなす決まり・ksMonth が空）は、納品メールの対応が必要には数えない（前のものまで出てしまうため）
+  // 今月納品待ち・来月納品待ち（2026-11-24 田中さん。11/20 の打ち合わせ「大事なのは今月納品待ちが何かわかること。来月も出てくるといい」）
+  //   納品＝検収書の回収なので、まだ納品していない会社を「納品する予定の月」で分ける。予定の月は、手で決めた検収書の回収月 → 回収MTGで聞いた納品月 → 受注の翌月 の順に使う。
+  //   先月までに納品予定だったのにまだの会社も「今月納品待ち」に入れる（遅れているものほど見落とさないように）
+  const thisYm = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 7);
+  const nextYm = (() => { const d = new Date(Date.parse(thisYm + "-01T00:00:00Z")); d.setUTCMonth(d.getUTCMonth() + 1); return d.toISOString().slice(0, 7); })();
+  const dlvYm = (x) => x.kenshuMonth || x.deliveryMonth || x.ksMonth || "";
+  const waitIng = (x) => !x.delivered && !!dlvYm(x);
+  const dlvNote = (x) => { const m = dlvYm(x); return `${Number(m.slice(5))}月予定${m < thisYm ? "（遅れ）" : ""}・検収書：${x.kenshuSt || "未回収"}・納品メール：${x.mail || "未送付"}`; };
   const KS = [
     ["all", "担当ユーザー数", "#0d5b47", () => true, (x) => x.label],
+    ["dw", "今月納品待ち", "#1d9e75", (x) => waitIng(x) && dlvYm(x) <= thisYm, dlvNote, (a, b) => dlvYm(a).localeCompare(dlvYm(b)) || String(a.name).localeCompare(String(b.name), "ja")],
+    ["dn", "来月納品待ち", "#5DCAA5", (x) => waitIng(x) && dlvYm(x) === nextYm, dlvNote, (a, b) => String(a.name).localeCompare(String(b.name), "ja")],
     ["ko", "キックオフ未実施", "#E0A100", (x) => (x.actions || []).some((a) => a.kind === "キックオフ未実施"), (x) => ((x.actions || []).find((a) => a.kind === "キックオフ未実施") || {}).detail || ""],
     ["ks", "検収書の回収が必要", "#C43D3D", (x) => !x.delivered && !(String(x.kenshuSt || "").startsWith("回収済み") || x.kenshuSt === "対象外"), (x) => `検収書：${x.kenshuSt || "未回収"}${x.ksMonth ? `・回収予定 ${Number(x.ksMonth.slice(5))}月` : ""}`],
     ["ml", "納品メールの対応が必要", "#3F72C9", (x) => !String(x.mail || "").startsWith("送付済み") && (!x.delivered || !!x.ksMonth), (x) => `納品メール：${x.mail || "未送付"}`],
@@ -2543,7 +2553,7 @@ async function renderMine(boxArg, opts = {}) {
   const draw = () => {
     const mine = all.filter((x) => !st.who || (kxSurname(x.cs) || "") === st.who);
     const cur = KS.find((k) => k[0] === st.k);
-    const list = cur ? mine.filter(cur[3]).sort((a, b) => String(b.booked || "").localeCompare(String(a.booked || ""))) : [];
+    const list = cur ? mine.filter(cur[3]).sort(cur[5] || ((a, b) => String(b.booked || "").localeCompare(String(a.booked || "")))) : [];
     const whoSel = `<label class="kx-note" style="display:flex;align-items:center;gap:6px">CS 担当<select class="kx-in" data-mwho style="width:auto"><option value="">全員</option>${names.map((n) => `<option ${n === st.who ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label>`;
     box.innerHTML = `${home ? `<div class="h2-h"><h2>担当企業</h2><span class="h2-big">${mine.length}<small>社</small></span><span style="margin-left:auto">${whoSel}</span><a class="h2-link" href="/kinxs?p=mine">担当企業へ ›</a></div>` : `<div class="mi-tools">${whoSel}</div>`}
       <div class="mi-kpis">${KS.map(([k, l, c, f]) => `<button type="button" class="mi-kpi ${st.k === k ? "on" : ""}" style="--c:${c}" data-mk="${k}"><span class="l"><i></i>${esc(l)}</span><span class="v">${mine.filter(f).length}<small>社</small></span></button>`).join("")}
