@@ -13,7 +13,7 @@ const apoTxt = (apo, called) => { apo = Number(apo || 0); called = Number(called
 const hotLine = (h) => (h ? `<span class="bl-lc-hot mini" title="ホット ${Number(h.hot || 0).toLocaleString()}・ウォーム ${Number(h.warm || 0).toLocaleString()}・コールド ${Number(h.cold || 0).toLocaleString()}"><i class="hot"></i>ホ ${Number(h.hot || 0).toLocaleString()}<i class="warm"></i>ウ ${Number(h.warm || 0).toLocaleString()}<i class="cold"></i>コ ${Number(h.cold || 0).toLocaleString()}</span>` : "");
 const HOTS = [["hot", "ホット", "担当者名・ニーズ・検討時期の3つ"], ["warm", "ウォーム", "3つのうち2つ"], ["cold", "コールド", "1つ以下・まだ判定していない"]];
 // stg=mcuser（MOCHICA ユーザー）の表の見出し用。STG の箱には出さない
-const STG_EXTRA = { mcuser: "MOCHICAユーザー", ng: "アプローチ禁止", pastlost: "過去失注リスト", out: "対象外" };
+const STG_EXTRA = { mcuser: "MOCHICAユーザー", ng: "アプローチ禁止", pastlost: "過去失注リスト", newlist: "新規リスト", out: "対象外" };
 const STG = [["call", "かけるリスト", "リサイクル・アーカイブ以外"], ["nurture", "ナーチャリング", "ジャッジ・営業フォロー・資料送付"], ["recycle", "リサイクル", "ステージがリサイクル"], ["archive", "アーカイブ", "ステージがアーカイブ"]];
 (function () {
   const $ = (id) => document.getElementById(id);
@@ -197,6 +197,7 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
     root.innerHTML = `<div class="bl-home"><button type="button" class="bl-back" data-mback>‹ リスト管理に戻る</button>
       <div class="bl-home-h"><h2>${esc(label)}<small style="font-size:12px;font-weight:600;color:#5C7377;margin-left:8px">リードソース別</small></h2></div>
       <div class="bl-lgrid" data-mstg style="margin-bottom:10px"></div>
+      <div class="bl-mstg2" data-mstg2 style="margin-bottom:10px"></div>
       <div class="bl-lgrid" data-mhot style="margin-bottom:10px"></div>
       <div class="bl-lgrid" data-msrc><div class="mc-note">読み込んでいます…</div></div></div>`;   // かける・ナーチャリング・リサイクル・アーカイブは SFリードソースの上（2026-11-23 田中さん「下じゃなくて上に」）
     root.querySelector("[data-mback]").addEventListener("click", () => goHome());
@@ -218,9 +219,14 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
       const hb = root.querySelector("[data-mhot]");
       if (hb) { hb.innerHTML = HOTS.map(([k, l2, dsc]) => `<button type="button" class="bl-lc hotc ${k}" data-mhc="${k}"><b><i class="bl-hdot ${k}"></i>${l2}</b><span class="n">${Number(d[`h_${k}`] || 0).toLocaleString()}<small>件</small></span>${apoTxt(d[`h_${k}_apo`], d[`h_${k}_called`])}<small>${dsc}</small></button>`).join("");
         hb.querySelectorAll("[data-mhc]").forEach((b) => b.addEventListener("click", () => { cur = m0.list_key; mode = "list"; memberF = label; fcol = oc; fval = mh.blank ? "" : mh.name; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; hotF = b.dataset.mhc; retMem = mh; page = 0; openList(); })); }
-      // かける・ナーチャリング・リサイクル・アーカイブ ＋ 過去失注リスト（SF に商談名「新規」の商談がある会社）（2026-11-23 田中さん）
-      sb.innerHTML = [...STG, ["pastlost", "過去失注リスト", "SF に商談名「新規」の商談がある会社"]].map(([k, l, dsc]) => `<button type="button" class="bl-lc stg ${k}" data-mst="${k}"><b>${l}</b><span class="n">${Number(d[k] || 0).toLocaleString()}<small>件</small></span>${apoTxt(d[`${k}_apo`], d[`${k}_called`])}<small>${dsc}</small></button>`).join("");
-      sb.querySelectorAll("[data-mst]").forEach((b) => b.addEventListener("click", () => { cur = m0.list_key; mode = "list"; memberF = label; fcol = oc; fval = mh.blank ? "" : mh.name; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = b.dataset.mst; retMem = mh; page = 0; openList(); }));
+      // 並び（2026-11-23 田中さん）：1行目 かけるリスト・ナーチャリング／2行目（新規リスト・過去失注リスト）・リサイクル・アーカイブ
+      //   （ ）の2枚はかけるリストの内訳。足すとかけるリストの件数になる（新規の商談が無い会社／ある会社で分けているため）
+      const card = ([k, l, dsc]) => `<button type="button" class="bl-lc stg ${k}" data-mst="${k}"><b>${l}</b><span class="n">${Number(d[k] || 0).toLocaleString()}<small>件</small></span>${apoTxt(d[`${k}_apo`], d[`${k}_called`])}<small>${dsc}</small></button>`;
+      const S = Object.fromEntries(STG.map((x) => [x[0], x]));
+      sb.innerHTML = [S.call, S.nurture].map(card).join("");
+      const sb2 = root.querySelector("[data-mstg2]");
+      if (sb2) sb2.innerHTML = `<div class="bl-mgrp"><span class="bl-mgrp-h">かけるリストの内訳</span><div class="bl-mgrp-in">${[["newlist", "新規リスト", "SF に「新規」の商談が無い会社"], ["pastlost", "過去失注リスト", "SF に「新規」の商談がある会社"]].map(card).join("")}</div></div>${[S.recycle, S.archive].map(card).join("")}`;
+      root.querySelectorAll("[data-mst]").forEach((b) => b.addEventListener("click", () => { cur = m0.list_key; mode = "list"; memberF = label; fcol = oc; fval = mh.blank ? "" : mh.name; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = b.dataset.mst; retMem = mh; page = 0; openList(); }));
     }).catch(() => {});
     box.querySelectorAll("[data-ms]").forEach((b) => b.addEventListener("click", () => { cur = m0.list_key; mode = "list"; memberF = label; fcol = oc; fval = mh.blank ? "" : mh.name; q = ""; crF = ""; ownF = ""; sfF = ""; stgF = ""; srcF = b.dataset.ms; retMem = mh; page = 0; openList(); }));
   }
