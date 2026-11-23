@@ -2968,3 +2968,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-23 田中さん「kinXs のメニューボタンをもう少し大きく」：パソコンの左メニューの親ボタンを 文字15px・アイコン21px・上下12px に。右に出る子は14px。
 - 2026-11-23 田中さん「kinbot のサブメニューみたいに kinXs のサブメニューも大きく」：右に出る子を幅300px・名前＋一言の説明（.kx-st/.kx-sd）に。スマホでは説明を出さない。
 - 2026-11-23 福井さん「（Railway に MOCHCA_GEMINI_API_KEY と DOC_ROOM_KEY を）追加した。各種機能を適切に使用されるように」→ 本番を読むと shobo.configured:false・doc-room も未設定のまま（入れた先が別プロジェクト fortunate-vibrancy の kinbot だった。本番は independent-expression の kinbot）。gemini_failover.js の SHOBO 専用キーを SHOBO_GEMINI_API_KEY → MOCHICA_GEMINI_API_KEY → MOCHCA_GEMINI_API_KEY の順で読むようにし、/api/gemini-key-status の shobo に keyName を足した。DOC_ROOM_KEY は名前どおりなのでコードはそのまま。
+- 2026-11-24 福井さん「（資料送付のいつも使う資料を）MOCHICA参考資料.pptx (1) にして」：ひな形の画面（tplDialog・formTplDialog）は「リストの管理」タブの中にしかなく、11/23 にタブをしまってから開けなかった → 施策タブの上に「資料送付のひな形・いつも使う資料」「問い合わせフォームのひな形」のボタンを足した。あわせて SHOBO 専用キー（MOCHCA_GEMINI_API_KEY）で本物の段階分けが通ることを確認（calls 1・約1円）。

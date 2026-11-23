@@ -1634,8 +1634,12 @@
     if (!MS.from) { const n = new Date(); MS.to = ymd(n); MS.from = ymd(new Date(n.getTime() - 29 * 86400e3)); }
     box.innerHTML = `<div class="mcc-card"><h2>施策（売り先×売り方）</h2>
       <p class="mcc-note">施策はリスト（売り先）とトーク（売り方）の組み合わせです。トークを直すと新しい版になり、版ごとに数字を分けて出します。</p>
+      <div style="margin:8px 0"><button class="mcc-btn" id="mccMTpl">資料送付のひな形・いつも使う資料</button> <button class="mcc-btn" id="mccMFTpl">問い合わせフォームのひな形</button></div>
       <div class="mcc-filters"><input type="date" class="mcc-sel" id="mccMf" value="${MS.from}" /><span>〜</span><input type="date" class="mcc-sel" id="mccMt" value="${MS.to}" /></div>
       <div id="mccMres"><p class="mcc-note">読み込んでいます…</p></div></div>`;
+    // 「リストの管理」タブをしまってから、ひな形を開く場所が無くなっていた（2026-11-23 福井さん「いつも使う資料を MOCHICA参考資料にして」）。
+    //   売り方（施策）の画面から開けるようにする
+    $("mccMTpl").addEventListener("click", tplDialog); $("mccMFTpl").addEventListener("click", formTplDialog);
     const go = () => { MS.from = $("mccMf").value; MS.to = $("mccMt").value; drawMeasures(); };
     ["mccMf", "mccMt"].forEach((id) => $(id).addEventListener("change", go));
     let j; try { j = await api(`/api/mccall/measures?${new URLSearchParams({ from: MS.from, to: MS.to })}`); }
