@@ -41,7 +41,7 @@ const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォ�
   let feeds = [], fday = "", wdiag = null, diag = null, lists = [], cur = null, q = "", fcol = "", fval = "", page = 0, poll = null, mtCos = null;
   // 画面の形：「リスト管理」の一覧（カード）→ 押すとそのリストの表（2026-11-22 田中さん：ホワイトボードの絵のとおり）
   //   home＝全てのリード・メンバー別・見張りのカード／list＝1つのリスト（メンバーのカードは、そのリストを所有者で絞ったもの）
-  let mode = "home", memberF = "", members = null, memPick = null, srcF = "", stgF = "", stgHome = "", retStage = "";   // stgHome：ステージ別の箱を押して開いた「メンバーごと」の画面。retStage：そこから表を開いたときの戻り先   // stgF：ステージ別（nurture・recycle・archive）   // srcF：リードの出どころで絞ったリスト（2026-11-23）
+  let mode = "home", memberF = "", members = null, memPick = null, srcF = "", stgF = "", stgHome = "", retStage = "", memHome = null, retMem = null;   // memHome：メンバーを押して開いた「リードソース別」の画面（{ name, blank }）。retMem：そこから表を開いたときの戻り先   // stgHome：ステージ別の箱を押して開いた「メンバーごと」の画面。retStage：そこから表を開いたときの戻り先   // stgF：ステージ別（nurture・recycle・archive）   // srcF：リードの出どころで絞ったリスト（2026-11-23）
   let hotF = "", hotSort = false, crF = "", ownF = "", sfF = "";   // 所有者・SF の絞り込み（2026-11-22）
   // 架電結果：MOCHICALL（SF）と同じ8つにそろえる（サーバーの BALES_CR と同じ）（2026-11-22 田中さん）。
   //   担当者接触ニーズなし→お断り、資料送付→営業フォロー。空・どれにも当たらないものは「-」（当たらない結果は最終活動コメントの頭に出す）
@@ -89,10 +89,11 @@ const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォ�
   // 一覧へ戻る。ブラウザの「戻る」でも戻れるよう、リストを開くときに履歴を1つ足しておく（2026-11-22 田中さん「戻れるように」）
   function goHome(fromPop) { if (!fromPop && history.state && history.state.blList) { history.back(); return; }
     // ステージ別のメンバーの画面から表を開いていたら、そこへ戻る
+    if (mode === "list" && retMem) { mode = "member"; memHome = retMem; retMem = null; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; draw(); window.scrollTo(0, 0); return; }
     if (mode === "list" && retStage) { mode = "stage"; stgHome = retStage; retStage = ""; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; draw(); window.scrollTo(0, 0); return; }
-    stgHome = ""; retStage = ""; mode = "home"; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; draw(); window.scrollTo(0, 0); }
+    stgHome = ""; retStage = ""; memHome = null; retMem = null; mode = "home"; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; draw(); window.scrollTo(0, 0); }
   function openList() { try { history.pushState({ blList: 1 }, "", location.href); } catch {} draw(); window.scrollTo(0, 0); }
-  window.addEventListener("popstate", () => { if (mode === "list" || mode === "stage") goHome(true); });
+  window.addEventListener("popstate", () => { if (mode === "list" || mode === "stage" || mode === "member") goHome(true); });
   function draw() {
     const root = $("mcBalesView"); if (!root) return;
     if (mode === "list" && cur && (lists.some((l) => l.list_key === cur) || feeds.some((f) => f.feed === cur))) {
@@ -102,6 +103,7 @@ const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォ�
       return;
     }
     if (mode === "stage" && stgHome) return stageView(root);
+    if (mode === "member" && memHome) return memberView(root);
     home(root);
   }
   async function home(root) {
@@ -158,7 +160,8 @@ const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォ�
     const shown = bl.all ? [...shown0, { v: "", n: bl.all }] : shown0;   // 最後に「未割り振り」（v が空）
     box.innerHTML = shown.length ? shown.map((v) => `<div class="bl-lc mem${v.v ? "" : " none"}" role="button" tabindex="0" data-mem="${esc(v.v)}"><span class="av">${v.v ? esc(String(v.v).replace(/\s/g, "").slice(0, 1)) : "−"}</span><b>${v.v ? esc(v.v) : "未割り振り"}</b><span class="bl-lc-k">残りの架け先</span><span class="n">${Number(act.get(v.v) || 0).toLocaleString()}<small>件</small></span><span class="bl-lc-nur">ナーチャリング <b>${Number(nur.get(v.v) || 0).toLocaleString()}</b>件</span>${apoTxt(...(apoM.get(v.v) || [0, 0]))}<small>全 ${Number(v.n || 0).toLocaleString()}件（${esc(m0.name || "")} から）</small>${v.v && Array.isArray(members) && members.length ? `<button type="button" class="bl-lc-x" data-mx="${esc(v.v)}" title="メンバー別から外す">×</button>` : ""}</div>`).join("")
       : '<div class="mc-note">所有者の入ったリードがありません。</div>';
-    box.querySelectorAll("[data-mem]").forEach((el) => { const go = () => { cur = m0.list_key; mode = "list"; memberF = el.dataset.mem || "未割り振り"; fcol = oc; fval = el.dataset.mem; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; openList(); }; el.addEventListener("click", go); el.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); }); });
+    // メンバーのカードを押すと、その人のリードソース別のカード（2026-11-23 田中さん）
+    box.querySelectorAll("[data-mem]").forEach((el) => { const go = () => { mode = "member"; memHome = { name: el.dataset.mem, blank: !el.dataset.mem }; openList(); }; el.addEventListener("click", go); el.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); }); });
     box.querySelectorAll("[data-mx]").forEach((b) => b.addEventListener("click", async (e) => { e.stopPropagation(); members = (members || []).filter((x) => x !== b.dataset.mx); try { await api("/api/mochica/bales/members", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ members }) }); } catch {} home(root); }));
     // 「メンバー追加」：所有者のなかから、カードにする人を選ぶ（2026-11-22 田中さん「メンバー追加にしてほしい」）
     const am = root.querySelector("[data-addmem]");
@@ -174,6 +177,22 @@ const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォ�
           closeSheet(); home(root); });
       }
     };
+  }
+  // メンバー → その人のリードソース別のカード（残りの架け先・ナーチャリング・リストアポ率）。カードを押すと、その人のそのリードソースの表（2026-11-23 田中さん）
+  async function memberView(root) {
+    headActs(null);
+    const m0 = mainList(); const oc = ownerCol(m0); const mh = memHome; const label = mh.blank ? "未割り振り" : mh.name;
+    root.innerHTML = `<div class="bl-home"><button type="button" class="bl-back" data-mback>‹ リスト管理に戻る</button>
+      <div class="bl-home-h"><h2>${esc(label)}<small style="font-size:12px;font-weight:600;color:#5C7377;margin-left:8px">リードソース別</small></h2></div>
+      <div class="bl-lgrid" data-msrc><div class="mc-note">読み込んでいます…</div></div></div>`;
+    root.querySelector("[data-mback]").addEventListener("click", () => goHome());
+    if (!m0 || !oc) return;
+    let it = []; try { it = (await api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/sources?col=${encodeURIComponent(oc)}&${mh.blank ? "blank=1" : `val=${encodeURIComponent(mh.name)}`}`)).items || []; } catch {}
+    const box = root.querySelector("[data-msrc]"); if (!box || !root.isConnected || mode !== "member") return;
+    // 先頭に「全部」（その人の全リード）。件数は各リードソースの重なりを含まないよう、全部のカードは別に足し上げない（出どころが複数あるリードがあるため）
+    const card = (attr, title, v, sub) => `<button type="button" class="bl-lc src" ${attr}>${sub ? `<span class="bl-lc-k">${sub}</span>` : ""}<b>${esc(title)}</b><span class="bl-lc-k">残りの架け先</span><span class="n">${Number(v.active || 0).toLocaleString()}<small>件</small></span><span class="bl-lc-nur">ナーチャリング <b>${Number(v.nurture || 0).toLocaleString()}</b>件</span>${apoTxt(v.apo, v.called)}<small>全 ${Number(v.n || 0).toLocaleString()}件</small></button>`;
+    box.innerHTML = it.length ? it.map((v) => card(`data-ms="${esc(v.v)}"`, v.v === "-" ? "リードソースなし" : v.v, v, "SFリードソース")).join("") : '<div class="mc-note">この人のリードがありません。</div>';
+    box.querySelectorAll("[data-ms]").forEach((b) => b.addEventListener("click", () => { cur = m0.list_key; mode = "list"; memberF = label; fcol = oc; fval = mh.blank ? "" : mh.name; q = ""; crF = ""; ownF = ""; sfF = ""; stgF = ""; srcF = b.dataset.ms; retMem = mh; page = 0; openList(); }));
   }
   // ステージ別 → メンバーごとの件数。メンバーを押すと、その人のそのステージのリードの表
   async function stageView(root) {
@@ -300,7 +319,7 @@ const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォ�
       tcols = ORDER.map((lb) => (lb === "__cr" ? CR_COL : cols.find((c) => c.label === lb))).filter(Boolean);
       if (tcols.length <= 1) tcols = [...cols, CR_COL];   // Bales の見出しが違う形のときは、今までの列のまま
     } else { const i = cols.findIndex((c) => c.label === "最終活動日"); tcols = i >= 0 ? [...cols.slice(0, i + 1), CR_COL, ...cols.slice(i + 1)] : [...cols, CR_COL]; }
-    box.innerHTML = `<div class="bl-head"><div><button type="button" class="bl-back" data-home2>‹ リスト管理に戻る</button><h3>${memberF ? `${esc(memberF)} のリード <small style="font-size:12px;font-weight:600">（${stgF ? `${esc((STG.find(([k]) => k === stgF) || [, stgF])[1])}・` : ""}${esc(l.name || l.list_key)} から）</small>` : stgF ? `${esc((STG.find(([k]) => k === stgF) || [, stgF])[1])} <small style="font-size:12px;font-weight:600">（ステージ別・${esc(l.name || l.list_key)} から）</small>` : srcF ? `${esc(srcF === "-" ? "リードソースなし" : srcF)} <small style="font-size:12px;font-weight:600">（SFリードソース・${esc(l.name || l.list_key)} から）</small>` : esc(l.name || l.list_key)} <span class="bl-cnt">${Number(r.total || 0).toLocaleString()}件</span></h3><small>${l.dup_hidden ? `重複 ${Number(l.dup_hidden).toLocaleString()}件をまとめて表示中（Bales はそのまま）<button type="button" class="bl-duplk" data-dup="off">元に戻す</button>　` : l.status === "done" && !memberF && !srcF && !stgF ? `<button type="button" class="bl-duplk" data-dup="on">重複をまとめる</button>　` : ""}最後に取り込んだ日時：${l.status === "running" ? "取り込み中" : esc(dt(l.done_at || l.run_at))}${l.error ? ` ・ ${esc(l.error)}` : ""}</small></div>
+    box.innerHTML = `<div class="bl-head"><div><button type="button" class="bl-back" data-home2>‹ リスト管理に戻る</button><h3>${memberF ? `${esc(memberF)} のリード <small style="font-size:12px;font-weight:600">（${srcF ? `${esc(srcF === "-" ? "リードソースなし" : srcF)}・` : ""}${stgF ? `${esc((STG.find(([k]) => k === stgF) || [, stgF])[1])}・` : ""}${esc(l.name || l.list_key)} から）</small>` : stgF ? `${esc((STG.find(([k]) => k === stgF) || [, stgF])[1])} <small style="font-size:12px;font-weight:600">（ステージ別・${esc(l.name || l.list_key)} から）</small>` : srcF ? `${esc(srcF === "-" ? "リードソースなし" : srcF)} <small style="font-size:12px;font-weight:600">（SFリードソース・${esc(l.name || l.list_key)} から）</small>` : esc(l.name || l.list_key)} <span class="bl-cnt">${Number(r.total || 0).toLocaleString()}件</span></h3><small>${l.dup_hidden ? `重複 ${Number(l.dup_hidden).toLocaleString()}件をまとめて表示中（Bales はそのまま）<button type="button" class="bl-duplk" data-dup="off">元に戻す</button>　` : l.status === "done" && !memberF && !srcF && !stgF ? `<button type="button" class="bl-duplk" data-dup="on">重複をまとめる</button>　` : ""}最後に取り込んだ日時：${l.status === "running" ? "取り込み中" : esc(dt(l.done_at || l.run_at))}${l.error ? ` ・ ${esc(l.error)}` : ""}</small></div>
         </div>
       <div class="bl-sfst" data-sfst></div>
       <div class="bl-find"><button type="button" class="mt-btn ghost" data-colsel>表示項目</button><select data-hot><option value="">ホット度：すべて</option><option value="hot" ${hotF === "hot" ? "selected" : ""}>ホットだけ</option><option value="warm+" ${hotF === "warm+" ? "selected" : ""}>ウォーム以上</option><option value="warm" ${hotF === "warm" ? "selected" : ""}>ウォームだけ</option><option value="cold" ${hotF === "cold" ? "selected" : ""}>コールドだけ</option></select><label class="bl-hsort"><input type="checkbox" data-hsort ${hotSort ? "checked" : ""}>ホット順</label>${stCol ? `<select data-f><option value="">${esc(stCol.label)}：すべて</option>${vals.map((v) => `<option value="${esc(v.v)}" ${fcol === stCol.key && fval === v.v ? "selected" : ""}>${esc(v.v)}（${v.n}）</option>`).join("")}</select>` : ""}</div>

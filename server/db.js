@@ -13192,12 +13192,17 @@ export async function mcBalesSfValues(listKey) {
   return { leads, won: Number(c.won || 0), lost: Number(c.lost || 0), open: Number(c.open || 0), none: Number(c.none || 0) };
 }
 // リードの出どころごとの件数（リスト管理の「出どころ」のカード）。出どころの無いリードは「-」
-export async function mcBalesSources(listKey) {
+export async function mcBalesSources(listKey, { col = "", val = null } = {}) {
   if (!pool) return []; await ensureMcBales();
-  const base = `FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1 AND r.dup_of IS NULL`;
-  const named = (await pool.query(`SELECT v, count(*) AS n, ${BAPO_SEL} ${base.replace("WHERE", ", LATERAL (SELECT DISTINCT x AS v FROM unnest(ARRAY[" + BALES_SRC_COLS.replace(/data->>/g, "r.data->>") + "]) x WHERE COALESCE(x,'') <> '') s WHERE")} GROUP BY v ORDER BY 2 DESC LIMIT 200`, [listKey])).rows.map((x) => ({ v: x.v, n: Number(x.n), ...apoOf(x) }));
-  const nr = (await pool.query(`SELECT count(*) AS n, ${BAPO_SEL} ${base} AND COALESCE(array_to_string(ARRAY[${BALES_SRC_COLS.replace(/data->>/g, "r.data->>")}], ''), '') = ''`, [listKey])).rows[0]; const none = Number(nr.n);
-  return none ? [...named, { v: "-", n: none, ...apoOf(nr) }] : named;
+  // col・val を付けると、その人（所有者）のリードだけで数える。val が空文字なら未割り振り（2026-11-23 田中さん「メンバーを選んだらリードソース別のカード」）
+  const args = [listKey]; let who = "";
+  if (col && val != null) { args.push(String(col).slice(0, 80), String(val)); who = ` AND COALESCE(r.data->>$2,'') = $3`; }
+  const stgSel = `, count(*) FILTER (WHERE ${BALES_STG.active.replace(/data->>/g, "r.data->>")}) AS active, count(*) FILTER (WHERE ${BALES_STG.nurture.replace(/data->>/g, "r.data->>")}) AS nurture`;
+  const base = `FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1 AND r.dup_of IS NULL${who}`;
+  const more = (x) => ({ ...apoOf(x), active: Number(x.active || 0), nurture: Number(x.nurture || 0) });
+  const named = (await pool.query(`SELECT v, count(*) AS n, ${BAPO_SEL}${stgSel} ${base.replace("WHERE", ", LATERAL (SELECT DISTINCT x AS v FROM unnest(ARRAY[" + BALES_SRC_COLS.replace(/data->>/g, "r.data->>") + "]) x WHERE COALESCE(x,'') <> '') s WHERE")} GROUP BY v ORDER BY 2 DESC LIMIT 200`, args)).rows.map((x) => ({ v: x.v, n: Number(x.n), ...more(x) }));
+  const nr = (await pool.query(`SELECT count(*) AS n, ${BAPO_SEL}${stgSel} ${base} AND COALESCE(array_to_string(ARRAY[${BALES_SRC_COLS.replace(/data->>/g, "r.data->>")}], ''), '') = ''`, args)).rows[0]; const none = Number(nr.n);
+  return none ? [...named, { v: "-", n: none, ...more(nr) }] : named;
 }
 export async function mcBalesValues(listKey, col, { stg = "", blank = false } = {}) {
   if (!pool) return []; await ensureMcBales();
