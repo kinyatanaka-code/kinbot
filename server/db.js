@@ -13149,6 +13149,9 @@ export const BALES_MCU = `EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN j
 // 所有者の列で数える・絞るときは、kinbot で割り振った担当（assign_name）を先に見る（無ければ Bales の所有者）
 const isOwnCol = (col) => /operator|owner|所有|担当/i.test(String(col || ""));
 const colX = (col, ref, a = "") => (isOwnCol(col) ? `COALESCE(NULLIF(${a}assign_name,''), ${a}data->>${ref})` : `${a}data->>${ref}`);
+// 過去失注リスト（2026-11-23 田中さん）：SF と結びついた取引先に、商談名に「新規」が付いた商談が1つでもあるリード
+//   （受注処理完了まで行った MOCHICA ユーザーは、ふだんの表からもう省いているので、残るのは新規商談をして取れなかった会社）
+export const BALES_PL = `EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(sf->'opps') = 'array' THEN sf->'opps' ELSE '[]'::jsonb END) po WHERE po->>'name' LIKE '%新規%')`;
 export const BALES_SRC_COLS = [0, 1, 2, 3, 4].map((i) => `data->>'leadSources.${i}.name'`).join(",");
 export function balesCr(v) { const t = String(v || ""); for (const [k, re] of BALES_CR) if (new RegExp(re).test(t)) return k; return "-"; }
 export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100, hot = "", sort = "", cr = "", col2 = "", val2 = "", sf = "", src = "", stg = "" } = {}) {
@@ -13175,6 +13178,7 @@ export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset 
   const sfW = many(sf).map(sfCond).filter(Boolean); if (sfW.length) w.push(`(${sfW.join(" OR ")})`);
   //   リードの出どころ（Bales の leadSources。1件に複数あり、平らにして leadSources.0.name〜4.name に入っている）（2026-11-23 田中さん「リードのでどころでリスト作って」）
   if (Object.hasOwn(BALES_STG, stg)) w.push(BALES_STG[stg]);
+  if (stg === "pastlost") w.push(BALES_PL);
   const srcs = many(src); if (srcs.length) { const sw = []; const names = srcs.filter((x) => x !== "-");
     if (names.length) { p.push(names); sw.push(`ARRAY[${BALES_SRC_COLS}] && $${p.length}::text[]`); }
     if (srcs.includes("-")) sw.push(`COALESCE(array_to_string(ARRAY[${BALES_SRC_COLS}], ''), '') = ''`);
@@ -13243,6 +13247,7 @@ export async function mcBalesStages(listKey, { col = "", val = null } = {}) {
   if (!pool) return {}; await ensureMcBales();
   const sel = Object.entries(BALES_STG).map(([k, c]) => { const cc = c.replace(/data->>/g, "r.data->>"); return `count(*) FILTER (WHERE ${cc}) AS ${k}, count(*) FILTER (WHERE ${cc} AND ${BAPO}) AS ${k}_apo, count(*) FILTER (WHERE ${cc} AND ${BCALLED}) AS ${k}_called`; }).join(", ") + `, count(*) FILTER (WHERE ${BAPO}) AS total_apo, count(*) FILTER (WHERE ${BCALLED}) AS total_called`
     // ホット度ごと（すべてのリードの隣のカード）（2026-11-23 田中さん）。コールドは判定前も含む（表の「コールドだけ」と同じ）
+    + `, count(*) FILTER (WHERE ${BALES_PL}) AS pastlost, count(*) FILTER (WHERE ${BALES_PL} AND ${BAPO}) AS pastlost_apo, count(*) FILTER (WHERE ${BALES_PL} AND ${BCALLED}) AS pastlost_called`
     + Object.entries({ hot: "r.hot >= 3", warm: "r.hot = 2", cold: "COALESCE(r.hot,0) <= 1" }).map(([k, c]) => `, count(*) FILTER (WHERE ${c}) AS h_${k}, count(*) FILTER (WHERE ${c} AND ${BAPO}) AS h_${k}_apo, count(*) FILTER (WHERE ${c} AND ${BCALLED}) AS h_${k}_called`).join("");
   const r = (await pool.query(`SELECT ${sel}, count(*) AS total FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1 AND r.dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE${col && val != null ? ` AND COALESCE(${colX(col, "$2", "r.")},'') = $3` : ""}`, col && val != null ? [listKey, String(col).slice(0, 80), String(val)] : [listKey])).rows[0] || {};
   return Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Number(v)]));
