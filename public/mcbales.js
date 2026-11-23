@@ -579,14 +579,11 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
     // 名前がそのまま合わなければ、苗字だけ（「福井」→「福井聖」）で1人に決まるときだけ結びつける
     const byPrefix = (k) => { const hits = k.length >= 2 ? users.filter((u) => nmKey(u.name).startsWith(k)) : []; return hits.length === 1 ? hits[0] : null; };
     const ppl = names.map((nm) => { const u = uOf.get(nmKey(nm)) || byPrefix(nmKey(nm)); return { name: nm, email: u ? String(u.email).toLowerCase() : "" }; });
-    let tg = { lists: [] }; if (ppl.some((p) => p.email)) { try { tg = await api("/api/mccall/assign-targets"); } catch {} }
-    const lists0 = tg.lists || [];
+    // MOCHICALL のリストに入れる欄は外した（2026-11-23 田中さん「これはいらない」）。割り振りは kinbot の中の担当だけ
     const n = selRows.size || total;
     const sh = sheet(`<h3 class="bl-sh-t">割り振る</h3>
       <p class="mc-note" style="line-height:1.8">${selRows.size ? `選んだ <b>${n.toLocaleString()}件</b>` : `いまの表の条件に合う <b>${n.toLocaleString()}件</b>（選んでいないので全部）`}を、選んだ人で交互に分けます（ホットなリードから順に配るので偏りません）。<br>分けたリードは、その人の担当になります（メンバー別のカード・所有者の列に出ます）。</p>
       <label class="mc-note" style="display:block;margin:12px 0 4px;font-weight:800">分ける人（リスト管理のメンバー別）</label><div class="bl-mpick" data-am>${ppl.map((p, i) => `<label><input type="checkbox" value="${i}"><span>${esc(p.name)}</span>${p.email ? "<small>MOCHICALL にも入る</small>" : ""}</label>`).join("")}</div>
-      ${ppl.some((p) => p.email) ? `<label class="mc-note" style="display:block;margin:12px 0 4px;font-weight:800">MOCHICALL の入れるリスト<small style="font-weight:600;margin-left:6px">（kinbot のアカウントがある人の分だけ入れます）</small></label>
-        <select class="kx-in" data-al style="width:100%"><option value="">MOCHICALL には入れない</option>${lists0.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select>` : ""}
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button type="button" class="mt-btn" data-ago>割り振る</button></div>`);
     sh.querySelector("[data-ago]").addEventListener("click", async (e) => {
       const btn = e.currentTarget; const pick = [...sh.querySelectorAll("[data-am] input:checked")].map((x) => ppl[Number(x.value)]);
