@@ -49,7 +49,7 @@ t("比べる形：髙/高・﨑/崎・邊/辺・澤/沢 をそろえる", () => 
 });
 t("ダッシュボードの結びつけ（whoOf）：メール登録が名前より先。登録された名簿の人に、同じ名前の別アカウントは結びつかない", () => {
   const names = new Map([["a@x", ["Raia Naito"]], ["b@x", ["内藤 頼郁亜"]], ["c@x", ["森 康晴"]]]);
-  const people = new Map([["a@x", { kind: "is", key: "内藤賴郁亜" }]]);
+  const people = new Map([["a@x", { is: "内藤賴郁亜" }]]);
   assert.equal(whoOf("a@x", R, names, people), "らいあないとう");
   assert.equal(whoOf("b@x", R, names, people), "");
   assert.equal(whoOf("c@x", R, names, people), "森康晴");

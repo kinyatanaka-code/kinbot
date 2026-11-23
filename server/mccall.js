@@ -1570,7 +1570,7 @@ export function registerMcCall(app, deps) {
     for (const p of MCDASH_ROSTER.is) {
       const e = rosterEmailOf(reg, "is", p.sf);
       if (e) { seen.add(e); people.push({ name: uName.get(e) || p.sf, email: e, roster: true, key: p.sf, noEmail: false }); continue; }
-      const hit = users.filter((x) => !reg.has(String(x.email).toLowerCase()) && rosterHit(x.name, [p]));
+      const hit = users.filter((x) => !(reg.get(String(x.email).toLowerCase()) || {}).is && rosterHit(x.name, [p]));
       if (!hit.length) { people.push({ name: p.sf || p.name, email: "", roster: true, key: p.sf, noEmail: true }); continue; }
       for (const x of hit) { const e2 = String(x.email).toLowerCase(); if (!seen.has(e2)) { seen.add(e2); people.push({ name: x.name || e2, email: e2, roster: true, key: p.sf, noEmail: true }); } }
     }
@@ -1615,7 +1615,7 @@ export function registerMcCall(app, deps) {
     const reg = await loadPeople(true);
     const rows = rosterRows().map((r) => {
       const email = rosterEmailOf(reg, r.kind, r.key);
-      const guess = email ? "" : (users.find((u) => !reg.has(u.email) && (r.kind === "admin" ? startsWithSurname(u.name, r.key) : rosterHit(u.name, [r.p]))) || {}).email || "";
+      const guess = email ? "" : (users.find((u) => !(reg.get(u.email) || {})[r.kind] && (r.kind === "admin" ? startsWithSurname(u.name, r.key) : rosterHit(u.name, [r.p]))) || {}).email || "";
       return { kind: r.kind, kindLabel: PEOPLE_KINDS[r.kind], key: r.key, label: r.label, email, guess };
     });
     res.json({ ok: true, rows, users: users.sort((a, b) => a.name.localeCompare(b.name, "ja")) });

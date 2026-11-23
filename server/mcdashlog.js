@@ -66,8 +66,9 @@ export function whoOf(email, roster, names, people = null) {
   // 名簿にメールで登録された人は、名前を見ずにその人にする（2026-11-23）。メールが未登録の人だけ名前で補う
   const e = String(email || "").toLowerCase();
   const rec = people && people.get(e);
-  if (rec) { const p = rec.kind === "is" ? roster.find((x) => x.sf === rec.key) : null; return p ? p.zoom : ""; }
-  const taken = new Set(people ? [...people.values()].filter((v) => v.kind === "is").map((v) => v.key) : []);
+  if (rec && rec.is) { const p = roster.find((x) => x.sf === rec.is); return p ? p.zoom : ""; }
+  if (rec) return "";   // 営業・管理者として登録された人はインサイドの名簿に入れない
+  const taken = new Set(people ? [...people.values()].filter((v) => v.is).map((v) => v.is) : []);
   const open = roster.filter((x) => !taken.has(x.sf));
   const list = names.get(e) || [];
   for (const n of list) {

@@ -54,6 +54,8 @@ register("data:text/javascript," + encodeURIComponent(`export async function res
   return n(s, c); }`));
 
 // ---------- 環境変数 ----------
+// PGlite の場所は、下で MCCALL_ の環境変数を消す前に読んでおく（消したあとに読むと、指定しても効かない）
+const PGLITE_DIR = process.env.MCCALL_TEST_PGLITE || "";
 for (const k of Object.keys(process.env)) if (/KEY|TOKEN|SECRET|PASSWORD|_URL$|^SF_|^ZOOM|^BALES|^MIITEL|^GOOGLE|^GEMINI|^GROQ|^OPENAI|^ANTHROPIC|^RECALL|^DEEPGRAM|^MUX|^CSP_|^MC_FORM|^DRIVE|^GITHUB|^GH_|^KINBOT|^MCCALL_/i.test(k)) delete process.env[k];
 const ADMIN = { email: "kanri@test.local", name: "試験 管理者" };
 // 名簿の8名を、わざと名簿と違う書き方で登録する（異体字・姓名の順・空白・添え書き）
@@ -73,7 +75,7 @@ Object.assign(process.env, {
 });
 
 // ---------- 手元のデータベース（PGlite・メモリの中だけ） ----------
-const pgDir = process.env.MCCALL_TEST_PGLITE || path.join(HERE, "demo");
+const pgDir = PGLITE_DIR || path.join(HERE, "demo");
 let PGlite, PGLiteSocketServer;
 try {
   const req = createRequire(path.join(pgDir, "package.json"));
@@ -232,6 +234,18 @@ await t("メールで登録した管理者は、苗字が違っても管理者�
   await assert.rejects(call(OUTSIDER.email, "GET", "/api/mccall/readiness"));
   await assert.rejects(call(A, "PUT", "/api/mccall/people", { kind: "is", key: "森康晴", email: "nobody@test.local" }));
   await assert.rejects(call(I1, "PUT", "/api/mccall/people", { kind: "is", key: "森康晴", email: I1 }), "インターンは登録できない");
+});
+await t("営業と管理者を兼ねる人（齊藤さん等）：同じメールを営業と管理者の両方に登録でき、片方を外してももう片方は残る", async () => {
+  await call(A, "PUT", "/api/mccall/people", { kind: "sales", key: "齊藤玲耶", email: OUTSIDER.email });
+  await call(A, "PUT", "/api/mccall/people", { kind: "admin", key: "齊藤", email: OUTSIDER.email });
+  const ppl = await call(A, "GET", "/api/mccall/people");
+  assert.equal(ppl.rows.find((r) => r.kind === "sales" && r.key === "齊藤玲耶").email, OUTSIDER.email);
+  assert.equal(ppl.rows.find((r) => r.kind === "admin" && r.key === "齊藤").email, OUTSIDER.email);
+  assert.ok((await call(OUTSIDER.email, "GET", "/api/mccall/readiness")).ok, "管理者として入れる");
+  await call(A, "PUT", "/api/mccall/people", { kind: "admin", key: "齊藤", email: "" });
+  await assert.rejects(call(OUTSIDER.email, "GET", "/api/mccall/readiness"));
+  assert.equal((await call(A, "GET", "/api/mccall/people")).rows.find((r) => r.kind === "sales" && r.key === "齊藤玲耶").email, OUTSIDER.email, "営業の登録は残る");
+  await call(A, "PUT", "/api/mccall/people", { kind: "sales", key: "齊藤玲耶", email: "" });
 });
 await t("アプローチ禁止の名簿が読めない：エラーにせず、止めている理由（stop=ban）を返す", async () => {
   await q(`ALTER TABLE approach_bans RENAME TO approach_bans_test_off`);

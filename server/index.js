@@ -34,8 +34,8 @@ import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar }
 import { askBot } from "./askbot.js";
 import { registerMcCall } from "./mccall.js";
 import { handleZoomPhoneEvent } from "./mcplay.js";
-import { rosterHit, startsWithSurname } from "./mcname.js";
-import { loadPeople, registeredKeys, MCCALL_ADMIN_SURNAMES } from "./mcpeople.js";   // 名簿の人をメールで結びつける（判定はメールが最優先）（2026-11-23）   // 名前の照合（異体字・姓名の順などをそろえる）（2026-11-23）
+import { rosterHit, startsWithSurname } from "./mcname.js";   // 名前の照合（異体字・姓名の順などをそろえる）（2026-11-23）
+import { loadPeople, registeredKeys, MCCALL_ADMIN_SURNAMES } from "./mcpeople.js";   // 名簿の人をメールで結びつける（判定はメールが最優先）（2026-11-23）
 import { registerMcDash, MCDASH_ROSTER } from "./mcdash.js";   // SHOBO のダッシュボード（SF・Zoom Phone・シフト表を毎回読む）（2026-11-17）   // SHOBO の架電（DOC の kincall とは別の表）（2026-11-16）
 import { mcAuditMiddleware, registerMcAudit } from "./mcaudit.js";   // MOCHICA の書き込み操作を「いつ・だれが・何を」DBに残す（2026-11-19 福井さん）
 import { registerTeleapoScience } from "./teleapo_routes.js";   // テレアポ科学モデル v1：文字起こし→問題の場所の診断（2026-11-16）
@@ -892,7 +892,7 @@ async function internAccess(email) {
     const rec = people.get(k);
     const isKeys = registeredKeys(people, "is");
     const open = MCDASH_ROSTER.is.filter((p) => !isKeys.has(p.sf));
-    const inRoster = rec ? rec.kind === "is" : !!(rosterHit(u && u.name, open) || rosterHit(m && m.name, open));
+    const inRoster = rec ? !!rec.is : !!(rosterHit(u && u.name, open) || rosterHit(m && m.name, open));
     const kc = !!(m && Array.isArray(m.roles) && m.roles.includes("kincall"));
     const biz = m && Array.isArray(m.businesses) ? m.businesses : [];
     v = { mc: inRoster || (kc && biz.includes("MOCHICA")), doc: kc && (biz.includes("DOC") || (!biz.length && !inRoster)) };
@@ -914,11 +914,12 @@ async function mcCallAdmins() {
     //   メールが登録された苗字は、名前では補わない（同じ苗字の別の人が管理者にならないように）
     const people = await loadPeople();
     const uByEmail = new Map((users || []).map((u) => [String(u.email || "").toLowerCase(), u]));
-    for (const [email, r] of people) if (r.kind === "admin") v.set(email, (uByEmail.get(email) || {}).name || (mByEmail.get(email) || {}).name || email);
+    for (const [email, r] of people) if (r.admin) v.set(email, (uByEmail.get(email) || {}).name || (mByEmail.get(email) || {}).name || email);
     const adminKeys = registeredKeys(people, "admin");
     const openSurnames = MCCALL_ADMIN_SURNAMES.filter((s) => !adminKeys.has(s));
     for (const u of users || []) {
-      const email = String(u.email || "").toLowerCase(); if (!email || people.has(email)) continue;
+      // インサイドとして登録された人・管理者として登録ずみの人は、苗字では見ない（営業として登録された人は、管理者の苗字の照合を続ける）
+      const email = String(u.email || "").toLowerCase(); const pr = people.get(email); if (!email || (pr && (pr.is || pr.admin))) continue;
       const m = mByEmail.get(email);
       const name = u.name || (m && m.name);
       if (!openSurnames.some((s) => startsWithSurname(name, s))) continue;

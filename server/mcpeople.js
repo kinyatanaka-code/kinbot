@@ -29,12 +29,13 @@ let _ready = false;
 let _cache = null;
 async function ensurePeople() {
   if (_ready) return;
+  // 1つのメールが種類ごとに1行（営業と管理者を兼ねる人＝齊藤・餌取・本炭さんがいるため、メールだけを主キーにしない）
   await P().query(`CREATE TABLE IF NOT EXISTS mc_people (
-    email TEXT PRIMARY KEY, kind TEXT NOT NULL, roster_key TEXT NOT NULL, by_user TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+    email TEXT NOT NULL, kind TEXT NOT NULL, roster_key TEXT NOT NULL, by_user TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (email, kind))`);
   await P().query(`CREATE INDEX IF NOT EXISTS ix_mc_people_key ON mc_people(kind, roster_key)`);
   _ready = true;
 }
-// メール → { kind, key }。30秒は覚えておく（ログインのたびに判定で読むため）。
+// メール → { 種類: 鍵 }（例 { sales: "齊藤玲耶", admin: "齊藤" }）。30秒は覚えておく（ログインのたびに判定で読むため）。
 //   読めないときは空で返す（名前の照合で補えるので、ログインや架電を止めない）
 export async function loadPeople(force = false) {
   if (!P()) return new Map();
@@ -42,7 +43,8 @@ export async function loadPeople(force = false) {
   try {
     await ensurePeople();
     const { rows } = await P().query(`SELECT email, kind, roster_key FROM mc_people`);
-    const map = new Map(rows.map((r) => [String(r.email).toLowerCase(), { kind: r.kind, key: r.roster_key }]));
+    const map = new Map();
+    for (const r of rows) { const e = String(r.email).toLowerCase(); map.set(e, { ...(map.get(e) || {}), [r.kind]: r.roster_key }); }
     _cache = { at: Date.now(), map };
     return map;
   } catch (e) {
@@ -52,19 +54,19 @@ export async function loadPeople(force = false) {
 }
 // その種類でメールが登録済みの鍵（名前の照合から外す＝同じ名前の別の人が入り込まないように）
 export function registeredKeys(people, kind) {
-  const s = new Set(); for (const v of people.values()) if (v.kind === kind) s.add(v.key); return s;
+  const s = new Set(); for (const v of people.values()) if (v[kind]) s.add(v[kind]); return s;
 }
 // 鍵 → 登録されたメール
 export function emailOf(people, kind, key) {
-  for (const [e, v] of people) if (v.kind === kind && v.key === key) return e;
+  for (const [e, v] of people) if (v[kind] === key) return e;
   return "";
 }
-// 名簿の1行にメールを結びつける（空なら外す）。1行に1つのメール、1つのメールは1行だけ
+// 名簿の1行にメールを結びつける（空なら外す）。1行に1つのメール。1つのメールは種類ごとに1行だけ（営業と管理者の両方には入れる）
 export async function setPerson(kind, key, email, by) {
   await ensurePeople();
   const e = String(email || "").trim().toLowerCase();
   await P().query(`DELETE FROM mc_people WHERE kind=$1 AND roster_key=$2`, [kind, key]);
   if (e) await P().query(`INSERT INTO mc_people (email, kind, roster_key, by_user, updated_at) VALUES ($1,$2,$3,$4,now())
-    ON CONFLICT (email) DO UPDATE SET kind=$2, roster_key=$3, by_user=$4, updated_at=now()`, [e, kind, key, by || null]);
+    ON CONFLICT (email, kind) DO UPDATE SET roster_key=$3, by_user=$4, updated_at=now()`, [e, kind, key, by || null]);
   _cache = null;
 }
