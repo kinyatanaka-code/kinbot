@@ -13309,7 +13309,7 @@ export async function mcCompanyCalls(srcKey, sfLeadIds = [], company = "") {
 //   1人1日1つ作って保存する（その日のうちに中身が入れ替わると、かけている途中で表が変わって困るため）。リサイクル・アーカイブは入れない
 //   ① ナーチャリングで次にかける日（Bales の次のアクションの終わっていない予定）が今日 → ② それ以外で次にかける日が今日 → ③ 残りの枠
 //   ③は「取れそうな率」（リードソース・過去失注かどうか・ホット度ごとの、これまでのアポ÷架電）を1件ずつ出し、
-//   150件の平均がちょうど3%に届くように、取れそうなものと長く触っていないもの（未架電・最後の架電が古い順）を混ぜる。
+//   150件の平均がちょうど3%に届くように、取れそうなものと、まだ取れそうな率が低いもの（新規など・長く触っていない順）を混ぜる。
 //   取れそうなものだけで埋めると、良いリードを数日で使い切ってしまうため。3%に届かないときは取れそうな順に埋める
 export const BALES_TODAY_N = 150, BALES_TODAY_RATE = 0.03;
 const jstDay = (t = Date.now()) => new Date(t).toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
@@ -13345,7 +13345,7 @@ async function mcTodayBuild(listKey, run_at, col, val, day) {
   const used = new Set(pri.map((x) => x.k)); const rest = L.filter((x) => !used.has(x.k)); const need = N - pri.length;
   let pick = [];
   if (need > 0 && rest.length) {
-    const top = [...rest].sort((a, b) => b.p - a.p), old = [...rest].sort((a, b) => a.lc - b.lc || b.p - a.p);
+    const top = [...rest].sort((a, b) => b.p - a.p), old = [...rest].sort((a, b) => a.p - b.p || a.lc - b.lc);   // 混ぜる側は取れそうな率が低い順（同じなら長く触っていない順）。最後の架電が古い順だと過去失注が先に来て 6% 台まで上がったため、3% に寄せるにはこちら
     const sumP = pri.reduce((t, x) => t + x.p, 0);
     const n = Math.min(need, rest.length), topSum = top.slice(0, n).reduce((t, x) => t + x.p, 0);
     if ((sumP + topSum) / (pri.length + n) <= T) pick = top.slice(0, n);   // 取れそうな順に全部入れても3%に届かない
