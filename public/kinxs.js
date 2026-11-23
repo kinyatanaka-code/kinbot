@@ -258,22 +258,30 @@ const KX_TEST = (() => { try { return localStorage.getItem("kxTest") === "1"; } 
 const kxUsersUrl = () => `/api/kinxs/users${KX_TEST ? "?test=1" : ""}`;
 const VIEW = ({ mail: "mail", ar: "ar", missing: "missing", home: "home", renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings", plan: "plan", trend: "trend", call: "call", pub: "pub", mine: "mine", voice: "voice", access: "access", docai: "docai" })[new URLSearchParams(location.search).get("p")] || "home";
 document.querySelectorAll(".kx-nav[data-view], .kx-side-set[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
-// メニューの親子：いまのページがある組は開いておく。矢印で開け閉めしたら、このブラウザで覚えておく（2026-11-17）
+// メニューの親子（2026-11-23 田中さん「kinbot みたいにサブメニューはカーソルを合わせたら横に出てくる感じに」）：
+//   パソコンでは、親にカーソルを合わせると子が右に出る（左メニューは巻き取れるので、出す場所は親の高さに合わせてここで決める）。
+//   スマホ（幅860px以下）は今まで通り全部並べる。いまのページがある組は親を点灯する
 (function kxNavGroups() {
-  let saved = {}; try { saved = JSON.parse(localStorage.getItem("kxNavOpen") || "{}") || {}; } catch {}
+  const side = document.querySelector(".kx-side");
+  const wide = () => window.matchMedia("(min-width:861px)").matches;
   document.querySelectorAll(".kx-grp").forEach((g) => {
-    const has = !!g.querySelector(`.kx-nav[data-view="${VIEW}"]`);
-    g.classList.toggle("has-on", has);
-    const open = has || saved[g.dataset.grp] === true;
-    g.classList.toggle("open", open);
-    const tg = g.querySelector(".kx-grp-tg"); if (!tg) return;
-    tg.setAttribute("aria-expanded", open ? "true" : "false");
-    const setOpen = (on) => { g.classList.toggle("open", on); tg.setAttribute("aria-expanded", on ? "true" : "false"); saved[g.dataset.grp] = on; try { localStorage.setItem("kxNavOpen", JSON.stringify(saved)); } catch {} };
-    tg.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); setOpen(!g.classList.contains("open")); });
-    // カーソルを合わせたら開く。閉じるのは矢印のクリックだけ（2026-11-17 田中さん「カーソルを合わせたらタブが開かれるように／閉じるときはクリックで」）。
-    //   マウスが無い画面（スマホ）では動かない
-    if (window.matchMedia && window.matchMedia("(hover: hover)").matches) g.querySelector(".kx-grp-h").addEventListener("mouseenter", () => { if (!g.classList.contains("open")) setOpen(true); });
+    g.classList.toggle("has-on", !!g.querySelector(`.kx-nav[data-view="${VIEW}"]`));
+    const h = g.querySelector(".kx-grp-h"), sub = g.querySelector(".kx-sub"); if (!h || !sub) return;
+    if (!sub.querySelector(".kx-sub-head")) { const hd = document.createElement("div"); hd.className = "kx-sub-head"; hd.textContent = ((h.querySelector(".kx-nav") || {}).textContent || "").trim(); sub.prepend(hd); }
+    let tm = 0;
+    const show = () => { if (!wide()) return; clearTimeout(tm);
+      document.querySelectorAll(".kx-grp.fly").forEach((o) => { if (o !== g) o.classList.remove("fly"); });
+      const r = h.getBoundingClientRect(), sr = side ? side.getBoundingClientRect() : r;
+      sub.style.left = `${Math.round(sr.right + 8)}px`; sub.style.top = `${Math.round(r.top - 12)}px`;
+      g.classList.add("fly");
+      // 画面の下からはみ出すときは上にずらす
+      const hh = sub.offsetHeight; if (r.top - 12 + hh > window.innerHeight - 8) sub.style.top = `${Math.max(8, Math.round(window.innerHeight - hh - 8))}px`; };
+    const hide = () => { clearTimeout(tm); tm = setTimeout(() => g.classList.remove("fly"), 120); };   // 親から子へ移る間に消えないよう少し待つ
+    g.addEventListener("mouseenter", show); g.addEventListener("mouseleave", hide);
+    g.addEventListener("focusin", show); g.addEventListener("focusout", () => setTimeout(() => { if (!g.contains(document.activeElement)) g.classList.remove("fly"); }, 0));
   });
+  // 左メニューを巻き取ったら、出ている子は閉じる（置いた場所がずれるため）
+  if (side) side.addEventListener("scroll", () => document.querySelectorAll(".kx-grp.fly").forEach((o) => o.classList.remove("fly")), { passive: true });
 })();
 if ($("vAr")) $("vAr").hidden = VIEW !== "ar"; if ($("vMail")) $("vMail").hidden = VIEW !== "mail"; $("vList").hidden = VIEW !== "list"; if ($("vHome")) $("vHome").hidden = VIEW !== "home"; if ($("vMissing")) $("vMissing").hidden = VIEW !== "missing"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings"; if ($("vPlan")) $("vPlan").hidden = VIEW !== "plan"; if ($("vTrend")) $("vTrend").hidden = VIEW !== "trend"; if ($("vAccess")) $("vAccess").hidden = VIEW !== "access"; if ($("vDocAi")) $("vDocAi").hidden = VIEW !== "docai"; if ($("vCall")) $("vCall").hidden = VIEW !== "call"; if ($("vPub")) $("vPub").hidden = VIEW !== "pub"; if ($("vMine")) $("vMine").hidden = VIEW !== "mine"; if ($("vVoice")) $("vVoice").hidden = VIEW !== "voice";
 // ブラウザのタブは、どの画面でも「kinXs」だけ
@@ -3307,9 +3315,11 @@ function arFormAlertHtml(d) {
 // サイドメニューの「DOC自動更新」に未確認の数
 function arBadgeSet(n) {
   const nav = document.querySelector(".kx-nav[data-view='ar']"); if (!nav) return;
-  let b = nav.querySelector(".ar-badge"); if (!n) { if (b) b.remove(); return; }
+  let b = nav.querySelector(".ar-badge"); if (!n) { if (b) b.remove(); document.querySelectorAll('.kx-grp[data-grp="renew"] .kx-grp-h .ar-badge').forEach((x) => x.remove()); return; }
   if (!b) { b = document.createElement("span"); b.className = "ar-badge ar-badge-nav"; b.title = "未確認の解約申請"; nav.appendChild(b); }
   b.textContent = String(n);
+  // 子は畳んでいて見えないので、親の「更新管理」にも同じ数を出す（2026-11-23）
+  const p = document.querySelector('.kx-grp[data-grp="renew"] .kx-grp-h > .kx-nav'); if (p) { let pb = p.querySelector(".ar-badge"); if (!pb) { pb = document.createElement("span"); pb.className = "ar-badge ar-badge-nav"; pb.title = "未確認の解約申請"; p.appendChild(pb); } pb.textContent = String(n); }
 }
 if (VIEW !== "ar") api("/api/kinxs/autorenew-badge").then((r) => arBadgeSet((r && r.n) || 0)).catch(() => {});
 // 申請詳細（2026-11-16 改修指示書 6-2）：全回答・判定結果・紐付け先・自動返信・操作（紐付けの変更・確認済・メモ・無視）・紐付けの履歴・同じ契約の過去の申請
