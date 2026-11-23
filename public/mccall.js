@@ -4,7 +4,7 @@
 //   （2026-11-17 クリックだけにした版を、福井さんの指示でキー操作ありに戻した。クリックでもすべて操作できる）
 //   確認はブラウザの小窓（alert/confirm）を使わない。知らせは上の1か所に1件ずつ。
 //   2026-11-20 福井さん「架電を阻害する機能や表示は一切削除」：リストの一覧と「次の企業」の先出しをなくし、1社ずつしか見えない。
-//   発信してからでないと結果を選べない（飛ばすのはいつでもできる）。つながらない・現アナ・不在は押した瞬間に記録して次へ。
+//   発信してからでないと結果を選べない（飛ばすのはいつでもできる）。つながらない・現アナは押した瞬間に記録して次へ。不在は掛け直す時間を選ぶ（自動なら1を押すだけ）。
 (function () {
   const $ = (id) => document.getElementById(id);
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -278,16 +278,17 @@
   // 中央：発信 → 到達の段階 → 中身。選ぶたびに同じ場所で入れ替わる（一度に聞くのは1つ）
   function choicesFor() {
     const f = S.f, R = S.meta.reach;
-    // 1段目は「つながらない・現アナ・不在」を直に並べ、押した瞬間に記録して次へ（メモは書かない。2026-11-20 福井さん）
+    // 1段目は「つながらない・現アナ・不在」を直に並べる。つながらない・現アナは押した瞬間に記録して次へ（メモは書かない。2026-11-20 福井さん）。不在は時間を選ぶ段へ（2026-11-23）
     if (f.step === "reach") return [
       ...["no_answer", "busy", "voicemail", "invalid"].map((o) => ({ k: `none:${o}`, label: R.none.outcomes[o], sub: "押すと記録して次へ", cls: o === "invalid" ? "bad" : "" })),
-      { k: "gate:absent", label: R.gate.outcomes.absent, sub: "押すと記録して次へ（自動で掛け直し）" },
+      { k: "gate:absent", label: R.gate.outcomes.absent, sub: "掛け直す時間を選ぶ（自動も可）" },
       { k: "gate:blocked", label: R.gate.outcomes.blocked, cls: "bad" }, { k: "gate:callback_req", label: R.gate.outcomes.callback_req, sub: "時刻を選ぶ" },
       { k: "gate:inquiry", label: R.gate.outcomes.inquiry, sub: "HP のフォームから送る" },
       { k: "person", label: R.person.label, sub: "アポ・資料・フォロー・断られた", cls: "good" }];
     if (f.step === "outcome") return Object.entries(R[f.reach].outcomes).map(([k, l]) => ({ k, label: l, cls: k === "apo" ? "good" : k === "reject" || k === "invalid" ? "bad" : "" }));
     if (f.step === "reason") return S.meta.rejectReasons.map((r) => ({ k: r, label: r }));
-    if (f.step === "when") return whenChoices();
+    // 不在のときは、いちばん上に「自動で掛け直し」を置く（これまでどおり1を押すだけで記録して次へ進めるように）
+    if (f.step === "when") return [...(f.outcome === "absent" ? [{ k: "auto", label: "自動で掛け直し", sub: "押すと記録して次へ" }] : []), ...whenChoices()];
     return [];
   }
   function whenChoices() {
@@ -300,8 +301,9 @@
     return [["明日の午前", at(10, 0, 1)], ["明日の午後", at(14, 0, 1)], ["来週", at(10, 0, 7)], ["1か月後", at(10, 0, 30)]];
   }
   const AUTO = new Set(["no_answer", "busy", "voicemail", "absent"]);
-  // 押した瞬間に記録して次の会社へ進む結果（福井さんが選んだもの：応答なし・話し中・留守電・現アナ・担当者が不在）
-  const INSTANT = new Set(["no_answer", "busy", "voicemail", "invalid", "absent"]);
+  // 押した瞬間に記録して次の会社へ進む結果（福井さんが選んだもの：応答なし・話し中・留守電・現アナ）
+  //   担当者が不在は 2026-11-23 福井さん「再架電の時間を手動で指定できるように」で外し、時間を選ぶ段をはさむ（自動の掛け直しは1を押すだけ）
+  const INSTANT = new Set(["no_answer", "busy", "voicemail", "invalid"]);
   function ready() {
     const f = S.f; if (!f.outcome) return false;
     if (f.outcome === "reject" && !f.reason) return false;
@@ -359,6 +361,7 @@
       ${ivrHtml(L, ph)}
       ${!canPick ? `<div class="mcc-empty" style="padding:24px 12px">まず発信してください（<b>C</b> か「にかける」を押す）。<br>発信すると結果を選べます。かけない会社は「飛ばす」（<b>S</b>）。</div>` : `<div class="mcc-step">${f.step === "reach" ? "どこまで届きましたか" : `<button class="mcc-btn" id="mccBack" style="height:28px;padding:0 8px" aria-keyshortcuts="Backspace">${ICO.back}戻る</button><span class="crumb">${esc(crumb())}</span>`}</div>
       ${cs.length ? `<div class="mcc-choices ${cs.length > 4 ? "two" : ""}">${cs.map((c, i) => `<button class="mcc-choice ${c.cls || ""}" data-c="${esc(c.k)}" data-l="${esc(c.label)}" aria-keyshortcuts="${i + 1}"><span class="mcc-key">${i + 1}</span><span>${esc(c.label)}${c.sub ? `<small>${esc(c.sub)}</small>` : ""}</span></button>`).join("")}</div>` : ""}`}
+      ${f.step === "when" ? whenManualHtml(f) : ""}
       ${f.step === "apo" ? slotsHtml() + `<label class="mcc-field" style="margin-top:8px">アポの日時（必須。おすすめを押すと入ります）<input type="datetime-local" id="mccApo" value="${esc(f.apoAt)}" /></label>${f.apoWho ? `<p class="mcc-note">この時間に空いているクローザー：${esc(f.apoWho)}</p>` : ""}` : ""}
       ${f.outcome === "doc_send" ? `<div class="mcc-next">資料はまだ送っていません。<button class="mcc-chip" id="mccDocNow">資料を送る</button></div>` : ""}
       ${f.outcome === "inquiry" ? `<div class="mcc-next">${f.formSent ? `問い合わせフォームから<b>${esc(f.formSent)}</b>。記録して次へ進んでください。` : "問い合わせフォームからは、まだ送っていません。"}<button class="mcc-chip" id="mccFormNow">${f.formSent ? "もう一度開く" : "フォームから送る"}</button></div>` : ""}
@@ -372,7 +375,7 @@
       ${f.step === "reach" ? "" : `<label class="mcc-field" style="margin-top:12px">メモ（任意。Ctrl+Enter で記録）<textarea id="mccMemo" placeholder="話したこと・次に聞くこと（例：HRMOS 利用・3月更新・人事部長の山田様 yamada@〜）">${esc(f.memo)}</textarea></label>`}
       ${f.step === "reach" ? "" : `<div id="mccFill"></div>`}
       <div class="mcc-foot" ${f.step === "reach" ? "hidden" : ""}><button class="mcc-btn primary big" id="mccRec" ${ready() ? "" : "disabled"} aria-keyshortcuts="Enter">記録して次へ<span class="mcc-key" style="background:rgba(255,255,255,.18);color:#fff;border-color:transparent">Enter</span></button>
-        <span class="hint">${ready() ? "Enter で記録（押してもよい）" : f.step === "apo" ? "日時を入れてください" : "数字キーかクリックで選べます"}</span></div>`;
+        <span class="hint" id="mccHint">${footHint()}</span></div>`;
     const c = $("mccCenter");
     c.querySelectorAll("[data-c]").forEach((b) => b.addEventListener("click", () => choose(b.dataset.c, b.dataset.l)));
     const bk = $("mccBack"); if (bk) bk.addEventListener("click", back);
@@ -388,6 +391,7 @@
     $("mccRec").addEventListener("click", record);
     const dial = $("mccDial"); if (dial) dial.addEventListener("click", () => { S.f.phone = ph; if (!S.f.dialed) { S.f.dialed = true; setTimeout(drawCenter, 0); } });
     const apo = $("mccApo"); if (apo) { apo.addEventListener("input", () => { S.f.apoAt = apo.value; S.f.apoWho = ""; refreshFoot(); }); apo.addEventListener("keydown", (e) => { if (e.key === "Enter" && ready()) { e.preventDefault(); record(); } }); setTimeout(() => apo.focus(), 0); }
+    const na = $("mccNextAt"); if (na) { na.addEventListener("input", () => pickManual(na.value)); na.addEventListener("keydown", (e) => { if (e.key === "Enter" && S.f.nextAt && ready()) { e.preventDefault(); record(); } }); }
     const nr = $("mccNoRetry"); if (nr) nr.addEventListener("click", () => { S.f.noRetry = true; drawCenter(); });
     c.querySelectorAll("[data-later]").forEach((b) => b.addEventListener("click", () => { S.f.nextAt = b.dataset.later; S.f.nextLabel = b.dataset.ll || ""; S.f.noRetry = !b.dataset.later ? S.f.noRetry : false; drawCenter(); }));
     c.querySelectorAll("[data-hr]").forEach((b) => b.addEventListener("click", () => { S.f.gate.hours = S.f.gate.hours === b.dataset.hr ? "" : b.dataset.hr; saveGate(); drawCenter(); }));
@@ -449,7 +453,28 @@
     if (!h.when && !h.need && !h.contact && !h.target) return;
     try { const j = await post(`/api/mccall/leads/${L.id}/hearing`, { ...h, inbound: isInbound(L.id) ? S.inbound.id : null }); L.hearing = j.hearing; S.cache.delete(L.id); } catch (e) { setNotice([{ kind: "danger", text: `ヒアリングを保存できませんでした：${e.message}` }]); }
   }
-  function refreshFoot() { const b = $("mccRec"); if (b) b.disabled = !ready(); }
+  function refreshFoot() { const b = $("mccRec"); if (b) b.disabled = !ready(); const h = $("mccHint"); if (h) h.textContent = footHint(); }
+  function footHint() {
+    const f = S.f;
+    if (f.step === "when" && f.outcome === "absent" && !f.nextAt) return "Enter で自動の掛け直しにして記録（時間を選んでもよい）";
+    return ready() ? "Enter で記録（押してもよい）" : f.step === "apo" ? "日時を入れてください" : f.step === "when" ? "時間を選ぶか、日時を指定してください" : "数字キーかクリックで選べます";
+  }
+  // 掛け直す日時を手で指定する（2026-11-23 福井さん：担当者が不在のとき、受付で聞いた戻り時間などに合わせて掛け直せるように）
+  //   過去の日時は入れない（すぐ順番が回ってきてしまうため）。指定したら Enter でそのまま記録できる
+  function whenManualHtml(f) {
+    const v = f.nextAt && f.nextLabel === MANUAL ? toLocalInput(f.nextAt) : "";
+    return `<div class="mcc-gateform" style="margin-top:12px"><label class="mcc-field full">日時を指定して掛け直す<input type="datetime-local" id="mccNextAt" min="${toLocalInput(new Date().toISOString())}" step="300" value="${esc(v)}" /></label>
+      <p class="mcc-note full" id="mccNextNote">${manualNote(f)}</p></div>`;
+  }
+  const MANUAL = "指定した日時";
+  const manualNote = (f) => (f.nextAt && f.nextLabel === MANUAL ? `次は <b>${esc(tm(f.nextAt))}</b> に掛け直します。Enter で記録` : "例：受付で「15時に戻る」と聞いたら、その時刻を入れる");
+  function pickManual(val) {
+    const f = S.f; const d = val ? new Date(val) : null; const note = $("mccNextNote");
+    if (!d || isNaN(d)) { if (f.nextLabel === MANUAL) { f.nextAt = ""; f.nextLabel = ""; } }
+    else if (d.getTime() < Date.now() - 60e3) { f.nextAt = ""; f.nextLabel = ""; refreshFoot(); if (note) note.innerHTML = "過去の日時は選べません。これから先の日時を入れてください"; return; }
+    else { f.nextAt = d.toISOString(); f.nextLabel = MANUAL; f.noRetry = false; }
+    refreshFoot(); if (note) note.innerHTML = manualNote(f);
+  }
   async function saveGate() {
     if (!S.d) return; const L = S.d.lead; const g = { name: S.f.gate.name || (L.gate && L.gate.name) || "", hours: S.f.gate.hours || (L.gate && L.gate.hours) || "", direct: S.f.gate.direct || (L.gate && L.gate.direct) || "" };
     if (!g.name && !g.hours && !g.direct) return;
@@ -459,11 +484,14 @@
     const f = S.f;
     if (f.step === "reach") {
       if (k === "person") { f.reach = k; f.step = "outcome"; }
-      else { const [r, o] = k.split(":"); f.reach = r; f.outcome = o; if (INSTANT.has(o)) { drawCenter(); record(); return; } f.step = o === "callback_req" ? "when" : "ready"; }
+      else { const [r, o] = k.split(":"); f.reach = r; f.outcome = o; if (INSTANT.has(o)) { drawCenter(); record(); return; } f.step = o === "callback_req" || o === "absent" ? "when" : "ready"; }
     }
     else if (f.step === "outcome") { f.outcome = k; f.step = k === "reject" ? "reason" : k === "callback_req" ? "when" : k === "apo" ? "apo" : "ready"; }
     else if (f.step === "reason") { f.reason = k; f.step = "ready"; }
-    else if (f.step === "when") { f.nextAt = k; f.nextLabel = label; f.step = "ready"; }
+    else if (f.step === "when") {
+      if (k === "auto") { f.nextAt = ""; f.nextLabel = ""; drawCenter(); record(); return; }
+      f.nextAt = k; f.nextLabel = label; f.step = "ready";
+    }
     drawCenter();
   }
   function back() {
@@ -732,7 +760,7 @@
   }
   function help() {
     dialog("キー操作", "", "閉じる", () => {}, `<div class="mcc-help"><dl>
-      <dt><kbd>1</kbd>〜<kbd>9</kbd></dt><dd>いま出ている選択肢を選ぶ（発信してから。応答なし・話し中・留守電・現アナ・不在は押すとすぐ記録して次へ）</dd><dt><kbd>Enter</kbd></dt><dd>記録して次の企業へ</dd>
+      <dt><kbd>1</kbd>〜<kbd>9</kbd></dt><dd>いま出ている選択肢を選ぶ（発信してから。応答なし・話し中・留守電・現アナは押すとすぐ記録して次へ。不在は次に掛け直す時間を選ぶ。1 なら自動）</dd><dt><kbd>Enter</kbd></dt><dd>記録して次の企業へ</dd>
       <dt><kbd>Backspace</kbd></dt><dd>ひとつ前の選択に戻る</dd><dt><kbd>C</kbd></dt><dd>選んでいる番号に発信</dd>
       <dt><kbd>S</kbd></dt><dd>この企業を飛ばす（いちばん後ろへ）</dd><dt><kbd>Z</kbd></dt><dd>いま記録したものを元に戻す</dd>
       <dt><kbd>Ctrl</kbd>+<kbd>Enter</kbd></dt><dd>メモを書いている途中でも記録する</dd><dt><kbd>Esc</kbd></dt><dd>入力欄から出る・窓を閉じる</dd></dl></div>`);
