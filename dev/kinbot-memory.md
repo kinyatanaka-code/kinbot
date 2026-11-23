@@ -2974,3 +2974,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-24 田中さん「レコーディングを事前情報・メモ・文字起こしの3つに」：GET /api/meetings/:id/prebrief（prebriefLocal＝smart_links・call_targets・call_logs・contact_impressions、SF＝会社名で Opportunity を探しクロス/MOCHICA の直近・商談メモ・失注理由・詳細・採用人数）。採用媒体のリンクは媒体名＋会社名の検索（掲載URLは持っていない）。AI タブは hidden（通知からは開ける）。
 - 2026-11-24 田中さん「見守っていますはいらない・下にメモ欄・メモタブいらない」：kinbotBar を隠し、#liveNote を事前情報の下へ（タブは 事前情報・文字起こし）。会社名の先頭の Zoom/Teams/Meet を落とす。
 - 2026-11-24 福井さん「福井聖のアカウントが MOCHICALL だけになった。元に戻して、自分だけは開発者権限でいつでもアカウント情報を変えられるように」：本番で mcIntern:true（名簿のインサイド登録か役割「MOCHICALLだけ」のどちらか）になっていた。auth.js に DEVELOPER_EMAILS（福井聖）を足して管理者（ADMINS）に固定、internAccess は開発者を常にインターン外、mcCallAdmins にも常に入れる。画面の登録で開発者が締め出されないため。
+- 2026-11-24 田中さん「SF からも埋めてほしい」：事前情報の企業情報の空欄を SF の取引先（Website・Industry・NumberOfEmployees・Phone）・取引先責任者（名前・メール）・リードで埋め、出どころを小さく表示。商談日＝appointment__c（初回アポ設定日）、次回商談日＝next_opp_day__c。

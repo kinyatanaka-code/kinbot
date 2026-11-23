@@ -521,21 +521,23 @@ function renderPreBrief(box, d) {
   const people = (is.people || []).length ? is.people.map((p) => `<div class="pre-person"><b>${e(p.name || "担当者")}</b>${p.gender ? `<span class="pre-tag">${e(p.gender)}</span>` : ""}${p.age ? `<span class="pre-tag">${e(p.age)}</span>` : ""}${(p.tags || []).map((t) => `<span class="pre-tag soft">${e(t)}</span>`).join("")}</div>`).join("") : dash;
   const calls = (is.calls || []).length ? `<div class="pre-calls">${is.calls.map((x) => `<div class="pre-call"><div class="pre-call-h"><span>${e(ymdh(x.at))}</span><span class="pre-res">${e(x.result)}</span><span class="pre-who">${e(x.caller)}</span></div>${x.memo ? `<div class="pre-call-m">${e(x.memo)}</div>` : ""}</div>`).join("")}</div>` : dash;
   const lt = sf.latest;
+  // SF で埋めたところは小さく出どころを添える
+  const fromSf = (k) => (c.from && c.from[k] ? `<small class="pre-from">（${e(c.from[k])}）</small>` : "");
   const opps = (sf.opps || []).length ? sf.opps.map((o) => `<span class="pre-chip plain">${e(o.type)} ${e(o.date)}・${e(o.stage)}</span>`).join("") : dash;
   const ic = (p) => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
   box.innerHTML = `
     <div class="pre-head"><b>${e(c.name || d.company || "会社名がわかりません")}</b>${!d.found || (!d.found.kincall && !d.found.apo) ? '<span class="pre-warn">kincall・アポの記録が見つかりませんでした（会社名で探しています）</span>' : ""}</div>
     <div class="pre-grid">
       <section class="pre-card"><h3>${ic('<path d="M4 21V5.5A1.5 1.5 0 0 1 5.5 4h7A1.5 1.5 0 0 1 14 5.5V21"/><path d="M14 10h4.5a1.5 1.5 0 0 1 1.5 1.5V21"/><path d="M2.5 21h19"/>')}企業情報</h3>
-        ${row("会社名", v(c.name))}${row("ホームページ", link(c.url))}${row("業種", v(c.industry))}${row("従業員数", c.employees ? `${e(c.employees)}名` : dash)}
-        ${row("電話番号", tel)}${row("担当者名", v(c.person))}${row("メール", mail)}${row("採用媒体", `<span class="pre-chips">${media}</span>`)}</section>
+        ${row("会社名", v(c.name))}${row("ホームページ", link(c.url) + fromSf("url"))}${row("業種", v(c.industry) + fromSf("industry"))}${row("従業員数", c.employees ? `${e(c.employees)}名${fromSf("employees")}` : dash)}
+        ${row("電話番号", tel + fromSf("phone"))}${row("担当者名", v(c.person) + fromSf("person"))}${row("メール", mail + fromSf("email"))}${row("採用媒体", `<span class="pre-chips">${media}</span>`)}</section>
       <section class="pre-card"><h3>${ic('<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/>')}IS情報<small>kincall の記録</small></h3>
         ${row("アポ取得日", is.apoAt ? e(ymd(is.apoAt)) : dash)}${row("アポ獲得者", v(is.setter))}${row("担当者", `<div class="pre-people">${people}</div>`)}
         <div class="pre-sub">架電メモ</div>${calls}</section>
       <section class="pre-card"><h3>${ic('<path d="M7 18a4 4 0 0 1-.6-8 5.5 5.5 0 0 1 10.7-1.4A3.8 3.8 0 0 1 17.5 18z"/>')}SF情報${lt && lt.url ? `<a class="pre-open" href="${e(lt.url)}" target="_blank" rel="noopener">SFで開く</a>` : ""}</h3>
         ${sf.note ? `<div class="pre-warn">${e(sf.note)}</div>` : ""}
         ${row("採用人数", sf.hires !== "" && sf.hires != null ? `${e(sf.hires)}${sf.hiresFrom === "kincall" ? '<small class="pre-from">（kincall）</small>' : ""}` : dash)}
-        ${row("直近の商談日", lt ? `${e(lt.type)}　${e(lt.date)}<small class="pre-from">${e(lt.stage)}</small>` : dash)}
+        ${row("直近の商談日", lt ? `${e(lt.type)}　${e(lt.date)}<small class="pre-from">${e(lt.stage)}</small>${lt.next ? `<br><small class="pre-from" style="margin-left:0">次回商談日 ${e(lt.next)}</small>` : ""}` : dash)}
         ${row("クロス・MOCHICA", `<span class="pre-chips">${opps}</span>`)}
         ${row("商談メモ", lt && lt.memo ? `<div class="pre-long">${e(lt.memo)}</div>` : dash)}
         ${row("失注理由", lt && lt.lossReason ? `${e(lt.lossReason)}${lt.lossDate ? `<small class="pre-from">${e(lt.lossType)} ${e(lt.lossDate)} の失注</small>` : ""}` : dash)}
