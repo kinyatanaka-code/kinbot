@@ -23,6 +23,27 @@
     { const hr = $("mcHeadR"); if (hr) hr.hidden = k !== "mtg"; }
   };
   document.querySelectorAll("[data-go]").forEach((a) => a.addEventListener("click", () => go(a.dataset.go)));
+  // サイドバーを開く・閉じる（2026-11-23 福井さん）。閉じるとアイコンだけの細い帯になる。
+  //   一度押したら、その選び方を覚えておく（どの画面でも同じ）。まだ押していない人は、今までどおりテレアポ中だけ自動でたたむ
+  {
+    const KEY = "mc_side"; const pref = () => { try { return localStorage.getItem(KEY) || ""; } catch { return ""; } };
+    const sync = () => {
+      const p = pref(); const mini = p ? p === "mini" : document.body.classList.contains("mcc-calling");
+      document.body.classList.toggle("mc-side-mini", mini);
+      const b = $("mcSideBtn"); if (b) { b.setAttribute("aria-expanded", String(!mini)); b.title = mini ? "メニューを開く" : "メニューを閉じる"; b.querySelector(".side-label").textContent = "メニューを閉じる"; }
+    };
+    window.mcSideSync = sync;
+    const nav = document.querySelector(".sidebar"); const brand = nav && nav.querySelector(".side-brand");
+    if (brand) {
+      const b = document.createElement("button"); b.type = "button"; b.id = "mcSideBtn"; b.className = "side-item mc-side-btn";
+      b.innerHTML = '<svg class="mc-side-chev" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span class="side-label"></span>';
+      b.addEventListener("click", () => { const mini = !document.body.classList.contains("mc-side-mini"); try { localStorage.setItem(KEY, mini ? "mini" : "full"); } catch {} sync(); });
+      brand.after(b);
+    }
+    // たたんだ間は文字を隠すので、項目の名前は指を置くと出るようにする
+    document.querySelectorAll(".sidebar .side-item").forEach((a) => { if (!a.title) a.title = (a.textContent || "").trim(); });
+    sync();
+  }
   window.addEventListener("hashchange", () => go(location.hash.slice(1)));
   async function loadHome() {
     try { const d = await api("/api/mochica/summary");

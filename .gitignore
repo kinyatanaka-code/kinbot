@@ -21,3 +21,7 @@ dev/ADVISOR_OUT.md
 
 # 自動改善のとちゅうで npm install が作る。CLAUDE.mdの決まりどおり、上げない。
 package-lock.json
+
+# MOCHICALL のデモ環境（dev/demo/start.mjs）の手元の DB と偽の SF の中身
+dev/demo/.data/
+dev/demo/.data-sf.json

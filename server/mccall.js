@@ -19,7 +19,7 @@ import { notifyPerson } from "./chat.js";
 import { teamOf, teamLabel, splitFree, slotScore, pickFs } from "./mcteam.js";   // IS と FS のチーム（2026-11-23）
 import { fixMojibake } from "./docs.js";
 import { pastApproach, balesItems, dedupeTimeline, startZoomSync } from "./mchist.js";   // リードの過去アプローチを BALES・SF・Zoom Phone・DOC から集める（2026-11-20）
-import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord, connectionInfo as sfConnInfo } from "./salesforce.js";
+import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord, connectionInfo as sfConnInfo, describeObject } from "./salesforce.js";
 import { judgeHot } from "./mchot.js";
 import { lookupMynaviFree } from "./mcresearch.js";   // マイナビの調べも AI・有料の検索を使わない（2026-11-20 福井さん）
 import { fetchPageText } from "./companyenrich.js";
@@ -31,16 +31,20 @@ import { formRun } from "./mcform.js";   // 問い合わせフォームの自動
 import { MCDASH_ROSTER } from "./mcdash.js";   // インサイド8名の名簿（「かける」の状態を管理者に見せるため）
 import { rosterHit, startsWithSurname } from "./mcname.js";   // 名前の照合（異体字・姓名の順などをそろえる）
 import { loadPeople, emailOf as rosterEmailOf, setPerson, rosterRows, PEOPLE_KINDS } from "./mcpeople.js";   // 名簿の人をメールで結びつける（2026-11-23）
+import { HEAR_ITEMS, cleanHearing, mergeHearing, hearingLines as hearLines, apoCheck, valueText, mailDefaults, MAIL_ITEMS, HEAR_MAIL_SUBJECT, hearMailBody, realName } from "./mchearing.js";   // アポの必須ヒアリングとヒアリングのメール（2026-11-23）   // 問い合わせフォームの自動送信（2026-11-20）
 export { hiresBucket };
 
 const BIZ = "MOCHICA";
 
 // 到達の段階と、その中身。key は画面とサーバーで同じものを使う
 export const REACH = {
-  none: { label: "つながらない", outcomes: { no_answer: "応答なし", busy: "話し中", voicemail: "留守電", invalid: "現アナ（番号が使えない）" } },
+// 結果の名前は SF の「活動の結果」・kincall・Bales と同じ言葉にそろえる（2026-11-23 福井さん「選択肢はこの10個に」）。
+//   key（記録に残る値）は今までのものをそのまま使う（集計・掛け直しの決まり・過去の記録を変えないため）。
+//   話し中・留守電・掛け直しを指定された は画面のボタンから外したが、過去の記録の名前を出すために残す。営業時間外（closed）は新しく足した
+  none: { label: "つながらない", outcomes: { no_answer: "コールのみ", busy: "話し中", voicemail: "留守電", invalid: "現在使われておりません", closed: "営業時間外" } },
   // inquiry＝「HP の問い合わせフォームから送って」と言われた（受付でも担当者でも言われるので両方に置く。key と名前は同じにする）（2026-11-20 福井さん）
-  gate: { label: "受付まで", outcomes: { absent: "担当者が不在", blocked: "受付で断られた", callback_req: "掛け直しを指定された", inquiry: "問い合わせフォームへ" } },
-  person: { label: "担当者と話せた", outcomes: { apo: "アポ獲得", doc_send: "資料を送る", follow: "また話す（フォロー）", reject: "断られた", inquiry: "問い合わせフォームへ" } },
+  gate: { label: "受付まで", outcomes: { absent: "担当者不在", blocked: "受付ブロック", callback_req: "掛け直しを指定された", inquiry: "問い合わせ" } },
+  person: { label: "担当者と話せた", outcomes: { apo: "担当者接触：アポ獲得", doc_send: "資料送付", follow: "担当者接触：営業フォロー", reject: "担当者接触：お断り", inquiry: "問い合わせ" } },
 };
 const FORM_ST = { sent: "送信しました", unsure: "送信を押しましたが、届いたか分かりません", failed: "送れませんでした" };
 export const REJECT_REASONS = ["今は必要ない", "他社を使っている", "時期が合わない", "予算が無い", "採用の予定が無い", "その他"];
@@ -49,7 +53,7 @@ export const REJECT_REASONS = ["今は必要ない", "他社を使っている",
 //   選んだ文句は mc_call_logs.reason に残し、レポートで担当者の断り理由と同じように数える。その他はメモに書く
 export const GATE_REASONS = ["営業電話はお断り", "担当者名が分からないとつなげない", "資料をメールで送って", "本社・別部署で採用している", "今は採用していない", "必要ない・間に合っている", "その他"];
 // 自動で掛け直す結果（つながらなかった・担当者がいなかった）。届かなかった回数 miss_streak もこの結果だけを数える
-const AUTO_RETRY = new Set(["no_answer", "busy", "voicemail", "absent"]);
+const AUTO_RETRY = new Set(["no_answer", "busy", "voicemail", "absent", "closed"]);
 // これ以上かけない結果
 const FINAL = new Set(["invalid", "apo", "reject"]);
 
@@ -129,6 +133,10 @@ async function ensure() {
     // 資料送付の記録。架電の記録（mc_call_logs）に入れるとコール数に数えてしまうので別にする（2026-11-17）
     await q(`CREATE TABLE IF NOT EXISTS mc_doc_sends (
       id SERIAL PRIMARY KEY, lead_id INT, sender TEXT, to_addr TEXT, cc TEXT, subject TEXT, url TEXT, doc_name TEXT,
+      sf_task_id TEXT, sf_err TEXT, created_at TIMESTAMPTZ DEFAULT now())`);
+    // ヒアリングのメールの送信の記録（2026-11-23）。資料送付と分けて、何を聞いたか（keys）を残す
+    await q(`CREATE TABLE IF NOT EXISTS mc_hear_mails (
+      id SERIAL PRIMARY KEY, lead_id INT, sender TEXT, to_addr TEXT, cc TEXT, subject TEXT, keys JSONB,
       sf_task_id TEXT, sf_err TEXT, created_at TIMESTAMPTZ DEFAULT now())`);
     // 問い合わせフォームの送信の記録（2026-11-20）。送れなかった・送れたか分からないものも残す（黙って失敗しない）
     await q(`CREATE TABLE IF NOT EXISTS mc_form_sends (
@@ -370,23 +378,8 @@ async function mynaviOf(company) {
 // ---- ヒアリング（2026-11-18 福井さん「検討時期・採用ニーズの明記／接触人数・採用目標人数のヒヤリング」） ----
 //   検討時期は SF の「検討開始時期」と同じ 1月〜12月（SF の選択肢に合わせる。未定も残せる）。
 //   接触人数は「説明会・面接の参加人数」（福井さん決定）。人数は数字だけにして、あとで集計できるようにする
-const MONTHS = Array.from({ length: 12 }, (_, i) => `${i + 1}月`);
-const intOrNull = (v) => { const n = parseInt(String(v ?? "").normalize("NFKC").replace(/[^0-9]/g, ""), 10); return Number.isFinite(n) && n >= 0 && n < 1e6 ? n : null; };
-export function cleanHearing(h = {}) {
-  const when = String(h.when || "").trim();
-  const o = { when: MONTHS.includes(when) || when === "未定" ? when : "", need: clip(h.need, 400), contact: intOrNull(h.contact), target: intOrNull(h.target) };
-  return o.when || o.need || o.contact != null || o.target != null ? o : null;
-}
-// 前の値に、新しく聞けた項目だけを重ねる（空のまま記録しても、前に聞いた値を消さないため）
-function mergeHearing(old, neu) {
-  if (!neu) return old || null; const o = { ...(old || {}) };
-  for (const k of ["when", "need", "contact", "target"]) if (neu[k] !== "" && neu[k] != null) o[k] = neu[k];
-  return o;
-}
-export function hearingLines(h) {
-  if (!h) return [];
-  return [h.when && `検討時期：${h.when}`, h.need && `採用ニーズ：${h.need}`, h.contact != null && `説明会・面接の参加人数：${h.contact}名`, h.target != null && `採用目標人数：${h.target}名`].filter(Boolean);
-}
+// 項目の定義・形のそろえ方・アポにしてよいかの判定は server/mchearing.js（28項目。画面にも /api/mccall/meta で渡す）
+export const hearingLines = (h) => hearLines(h, NEED_CHOICES);
 // 採用目標人数 → SF の「採用人数(選択リスト)」の選択肢は server/mcsffill.js の hiresBucket（上で読み込んで、ここからも出している）
 
 // ---- 条件で割り振る（2026-11-19 福井さん「SHOBO のリスト管理を kinbot 準拠で」） ----
@@ -458,8 +451,12 @@ export const PAINS = [
   ["工数・人手不足", "工数|手が回ら|マンパワー|人手|負担|時間が(ない|無い|足り)|兼任|ひとりで|1人で"],
   ["採用単価が高い", "単価|費用が|コストが|高い|高額"],
   ["応募者の質・ミスマッチ", "ミスマッチ|質が|定着|早期離職|すぐ辞め|合わない"],
-  ["採用担当の不在・交代", "担当者?(が)?(不在|いない|居ない|交代|変わ)|採用担当.{0,4}(退職|異動)"],
+  ["採用担当の不在・交代", "担当者?(が)?(不在|いない|居ない|交代|変わ)|採用担当.{0,4}(退職|異動)|採用担当の(不在|交代)"],
 ];
+// ヒアリングの「採用ニーズ」の選択肢（2026-11-23 福井さん「採用ニーズを選択肢に」）。
+//   困りごとは上の PAINS と同じ名前にする（選んだ値がそのまま「困りごと」の条件で絞れるように。そのため名前が自分の行の言葉に当たるようにしてある：採用担当の行に「採用担当の(不在|交代)」を足した）。
+//   値は「困りごと：〜／ほしい人：〜」の文で持つ（前からの自由記入と同じ列・SF の顧客の課題感にもそのまま書けるように）
+export const NEED_CHOICES = { pains: [...PAINS.map(([l]) => l), "特に困っていない"], who: ["新卒", "中途", "パート・アルバイト"] };
 // multi：1社に値が複数ある軸（text[] を返す）。「どれか」が一致すれば残す。needs：その軸を選んでいるときだけ画面に出す
 export const SEG_DIMS = {
   // どこから足したリードか（2026-11-19 福井さん「SF・BALES・SHOBO から」）。SHOBO＝CSV で SHOBO に直接入れたもの
@@ -638,7 +635,8 @@ export function registerMcCall(app, deps) {
   const _sfCur = new Map();
   async function sfCurrent(owner, leadId, fresh = false) {
     const c = _sfCur.get(leadId); if (!fresh && c && Date.now() - c.at < 120e3) return c.cur;
-    const cur = ((await sfQuery(owner, `SELECT ${FILL_SOQL_FIELDS.join(", ")} FROM Lead WHERE Id='${leadId}'`)).records || [])[0];
+    // Status（リードの状況）も一緒に読む。架電中にリードの状況を変える欄で、今の値を出すため
+    const cur = ((await sfQuery(owner, `SELECT ${[...new Set([...FILL_SOQL_FIELDS, "Status"])].join(", ")} FROM Lead WHERE Id='${leadId}'`)).records || [])[0];
     if (!cur) throw new Error("SF にこのリードが見つかりません（消されたか、統合された可能性があります）");
     _sfCur.set(leadId, { at: Date.now(), cur }); if (_sfCur.size > 500) _sfCur.delete(_sfCur.keys().next().value);
     return cur;
@@ -1709,6 +1707,11 @@ export function registerMcCall(app, deps) {
     const sends = (await P().query(`SELECT * FROM mc_doc_sends WHERE lead_id=$1 ORDER BY created_at DESC LIMIT 20`, [id]).catch(() => ({ rows: [] }))).rows;
     for (const s of sends) tl.push({ at: s.created_at, src: "kinbot", who: names.get(String(s.sender || "").toLowerCase()) || s.sender, title: "資料送付",
       text: [`${s.to_addr} に送付${s.cc ? `（CC ${s.cc}）` : ""}`, s.doc_name ? `資料：${s.doc_name}` : "", s.sf_err ? "SF の活動には書けませんでした" : ""].filter(Boolean).join("\n") });
+    // ヒアリングのメールも同じ時系列に（何を聞いたかが分かるように）
+    const hmails = (await P().query(`SELECT * FROM mc_hear_mails WHERE lead_id=$1 ORDER BY created_at DESC LIMIT 20`, [id]).catch(() => ({ rows: [] }))).rows;
+    const hlabel = new Map(HEAR_ITEMS.map((x) => [x.k, x.label]));
+    for (const s of hmails) tl.push({ at: s.created_at, src: "kinbot", who: names.get(String(s.sender || "").toLowerCase()) || s.sender, title: "ヒアリングのメール",
+      text: [`${s.to_addr} に送付${s.cc ? `（CC ${s.cc}）` : ""}`, (s.keys || []).length ? `聞いたこと：${s.keys.map((k) => hlabel.get(k) || k).join("・")}` : "", s.sf_err ? "SF の活動には書けませんでした" : ""].filter(Boolean).join("\n") });
     // 問い合わせフォームの送信も同じ時系列に（送れなかったものも、なぜかが分かるように出す）
     const forms = (await P().query(`SELECT * FROM mc_form_sends WHERE lead_id=$1 ORDER BY created_at DESC LIMIT 20`, [id]).catch(() => ({ rows: [] }))).rows;
     for (const s of forms) tl.push({ at: s.created_at, src: "kinbot", who: names.get(String(s.sender || "").toLowerCase()) || s.sender, title: "問い合わせフォーム",
@@ -1717,7 +1720,7 @@ export function registerMcCall(app, deps) {
     //   SHOBO から書いた SF の活動は kinbot の記録と同じものなので、二重に出さないよう外す
     const past = await pastApproach({ lead: { ...lead, sf_lead_id: lead.sf_lead_id || (sf && sf.lead && sf.lead.id) || null }, phones: phones.map((p) => p.digits), names,
       sfOwner: () => sfActor(req), coKey: companyKey, outcomeLabel, ownBalesKey: lead.src === "bales" ? String(lead.src_key) : "",
-      skipTaskIds: [...logs.map((g) => g.sf_task_id), ...sends.map((s) => s.sf_task_id), ...forms.map((s) => s.sf_task_id)].filter(Boolean) });
+      skipTaskIds: [...logs.map((g) => g.sf_task_id), ...sends.map((s) => s.sf_task_id), ...hmails.map((s) => s.sf_task_id), ...forms.map((s) => s.sf_task_id)].filter(Boolean) });
     tl.push(...past.items);
     tl.sort((a, b) => new Date(b.at) - new Date(a.at));
     const tlAll = dedupeTimeline(tl); tl.length = 0; tl.push(...tlAll);
@@ -1734,8 +1737,8 @@ export function registerMcCall(app, deps) {
       // 架電で聞いたヒアリングをいちばん上に（いちばん新しく、本人から聞いた値なので）
       const H = lead.hearing || {}; const kv = (arr) => arr.filter(([, v]) => v != null && v !== "").map(([k, v]) => [k, String(v)]);
       const by = H.at ? { at: H.at, who: names.get(String(H.by || "").toLowerCase()) || H.by || "" } : null;
-      return { need: { kb: kv([["採用ニーズ", H.need], ["採用目標人数", H.target != null ? `${H.target}名` : ""], ["説明会・面接の参加人数", H.contact != null ? `${H.contact}名` : ""]]), by, sf: sfv(["顧客の課題感", "顧客の現状", "採用人数(選択リスト)", "利用中ATS"]), hit: hit("need") },
-        when: { kb: kv([["検討時期", H.when]]), by, sf: sfv(["検討開始時期", "現利用サービス更新予定月"]), hit: hit("when") } };
+      return { need: { kb: kv([["採用ニーズ", H.need], ["採用目標人数", H.target != null ? `${H.target}名` : ""], ["接触人数", H.contact != null ? `${H.contact}名` : ""]]), by, sf: sfv(["顧客の課題感", "顧客の現状", "採用人数(選択リスト)", "利用中ATS"]), hit: hit("need") },
+        when: { kb: kv([["次卒の選考開始", H.when]]), by, sf: sfv(["検討開始時期", "現利用サービス更新予定月"]), hit: hit("when") } };
     })();
     for (const t of tl) delete t.memo;
     const mynavi = await mynaviOf(lead.company).catch(() => null);
@@ -1786,6 +1789,40 @@ export function registerMcCall(app, deps) {
     catch (e) { note = `SF の今の値を読めませんでした（${String(e.message).slice(0, 60)}）。記録したときに比べ直します`; }
     if (cur && cur.IsConverted) return res.json({ ok: true, plan: [], note: "このリードは SF でコンバート済みなので、リードの項目には入りません（活動は残ります）" });
     res.json({ ok: true, plan: planFills(cands, cur || {}, { day }), note, known: !!cur });
+  }));
+  // リードの状況（SF の Lead.Status）を架電中に変える（2026-11-23 福井さん「リードのリードステージを変更できるように」）。
+  //   選択肢は SF の選択リストをそのまま使う（kincall と同じ。組織の値と食い違って書けない、をなくすため）。30分だけ覚える
+  let _stPick = null;
+  async function statusPicklist(owner) {
+    if (_stPick && Date.now() - _stPick.at < 30 * 60e3) return _stPick.v;
+    const f = ((await describeObject(owner, "Lead")).fields || []).find((x) => x.name === "Status");
+    const v = ((f && f.picklistValues) || []).filter((x) => x.active).map((x) => ({ value: x.value, label: x.label || x.value }));
+    _stPick = { at: Date.now(), v }; return v;
+  }
+  async function statusLead(req, id) {
+    const lead = (await P().query(`SELECT list_id, sf_lead_id FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
+    if (!lead) return { code: 404, error: "このリードは見つかりません" };
+    if (!(await inboundAllows(me(req), id, (req.body || {}).inbound || req.query.inbound).catch(() => false)) && !(await myListIds(req)).includes(lead.list_id)) return { code: 403, error: "このリストはあなたの担当ではありません" };
+    if (!lead.sf_lead_id || !/^00Q[0-9A-Za-z]{12,15}$/.test(lead.sf_lead_id)) return { code: 200, none: "SF のリードと結びついていないので変えられません" };
+    return { lead };
+  }
+  app.get("/api/mccall/leads/:id/sf-status", guard(async (req, res) => {
+    const r = await statusLead(req, parseInt(req.params.id, 10));
+    if (r.error) return res.status(r.code).json({ error: r.error }); if (r.none) return res.json({ ok: true, options: [], note: r.none });
+    const owner = await sfActor(req);
+    const [options, cur] = await Promise.all([statusPicklist(owner), sfCurrent(owner, r.lead.sf_lead_id)]);
+    res.json({ ok: true, options, current: cur.Status || "", converted: !!cur.IsConverted });
+  }));
+  app.post("/api/mccall/leads/:id/sf-status", guard(async (req, res) => {
+    const r = await statusLead(req, parseInt(req.params.id, 10));
+    if (r.error) return res.status(r.code).json({ error: r.error }); if (r.none) return res.status(400).json({ error: r.none });
+    const owner = await sfActor(req); const st = String((req.body || {}).status || "");
+    if (!(await statusPicklist(owner)).some((x) => x.value === st)) return res.status(400).json({ error: "SF のリードの状況にない値です。選び直してください" });
+    const cur = await sfCurrent(owner, r.lead.sf_lead_id, true);
+    if (cur.IsConverted) return res.status(400).json({ error: "このリードは SF でコンバート済みなので、リードの状況は変えられません" });
+    await sfUpdateRecord(owner, "Lead", r.lead.sf_lead_id, { Status: st }); _sfCur.delete(r.lead.sf_lead_id);
+    console.log(`[mccall] リードの状況を変えた lead=${parseInt(req.params.id, 10)} ${cur.Status || "（空）"}→${st} by ${me(req)}`);
+    res.json({ ok: true, current: st, prev: cur.Status || "" });
   }));
   // 自動の掛け直しを解除する
   app.post("/api/mccall/leads/:id/clear-next", guard(async (req, res) => {
@@ -1858,6 +1895,11 @@ export function registerMcCall(app, deps) {
     res.json({ ok: true });
   }));
 
+  // ヒアリング欄の担当者の名前・メール・電話が空のときに使う値（受付で聞いた名前・直した会社の情報・かけた番号）。画面の hv と同じ順
+  function apoContact(lead, gate, phone) {
+    const inf = lead.info || {};
+    return { name: realName((gate && gate.name) || (lead.gate && lead.gate.name)) || realName(lead.person), mail: inf.email || ((inf.contacts || []).find((c) => c.email) || {}).email || "", tel: phone || lead.phone || "" };
+  }
   // ---- 記録する ----
   app.post("/api/mccall/leads/:id/log", guard(async (req, res) => {
     const id = parseInt(req.params.id, 10); const b = req.body || {}; const u = me(req);
@@ -1894,6 +1936,12 @@ export function registerMcCall(app, deps) {
     // ヒアリングは担当者と話せたときだけ記録に付ける（受付・不在で前の値が SF に二重に書かれないように）
     const hNew = reach === "person" ? cleanHearing(b.hearing || {}) : null;
     const hearing = hNew ? { ...mergeHearing(lead.hearing, hNew), at: now.toISOString(), by: u } : null;
+    // アポは必須のヒアリング（担当者の基本3・必須7）がそろうまで記録しない（2026-11-23 福井さん）。
+    //   画面でも記録のボタンを止めているが、古い画面や直接の呼び出しでも抜けないよう、ここで必ず確かめる
+    if (outcome === "apo") {
+      const ck = apoCheck(hearing || lead.hearing, apoContact(lead, gate, b.phone), NEED_CHOICES);
+      if (ck.block.length) return res.status(400).json({ error: `アポにするには、ヒアリングの必須項目を埋めてください：${ck.block.join("、")}`, missing: ck.block });
+    }
     const log = (await P().query(`INSERT INTO mc_call_logs (lead_id, list_id, caller, phone, reach, outcome, reason, gate, memo, next_at, apo_at, cross_from, prev)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id, created_at`,
       [id, lead.list_id, u, clip(b.phone || lead.phone, 40), reach, outcome, reason || null, gate, clip(b.memo, 2000) || null, nextAt, apoAt, lead.cross_from, prev])).rows[0];
@@ -2076,7 +2124,7 @@ export function registerMcCall(app, deps) {
       const company = String(lead.company || "").trim(); const person = String((lead.gate && lead.gate.name) || lead.person || "").trim();
       // MOCHICALL で直したメール（いちばん新しく、人が確かめた値）を先に使う
       const inf = lead.info || {};
-      const to = inf.email || ((inf.contacts || []).find((c) => c.email) || {}).email || emailOf(data, sf);
+      const to = (lead.hearing && lead.hearing.mail) || inf.email || ((inf.contacts || []).find((c) => c.email) || {}).email || emailOf(data, sf);
       const sender = (await nameMap()).get(me(req)) || "";
       const fill = (t) => String(t || "").replace(/\{担当者\}/g, person || "ご担当者").replace(/\{会社名\}/g, company).replace(/\{差出人\}/g, sender).replace(/\{資料名\}/g, doc.name || "ご案内資料");
       res.json({ ok: true, to, cc: conf.cc, company, person, subject: fill(conf.subject), body: fill(conf.body), docId: doc.id, docName: doc.name,
@@ -2123,6 +2171,65 @@ export function registerMcCall(app, deps) {
           if (!t || !t.id) throw new Error("SF から活動の番号が返ってきませんでした");
           await P().query(`UPDATE mc_doc_sends SET sf_task_id=$2 WHERE id=$1`, [row.id, t.id]);
         } catch (e) { sfNote = "メールは送りましたが、SF の活動には書けませんでした"; await P().query(`UPDATE mc_doc_sends SET sf_err=$2 WHERE id=$1`, [row.id, String(e.message).slice(0, 300)]).catch(() => {}); }
+      } else sfNote = "SF のリードと結びついていないので、SF には残していません（kinbot にだけ残ります）";
+      res.json({ ok: true, to, sf: sfNote });
+    } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+  }));
+
+  // ===== ヒアリングのメール（2026-11-23 福井さん「メールでヒアリングできるように」）=====
+  //   電話で聞ききれなかった項目を、担当者にメールで聞く。送るのは本人の Gmail から（資料送付と同じ）。
+  //   聞く項目は画面で選ぶ（最初は、必須でまだ聞けていない項目にチェック）。返ってきた答えは、架電者がヒアリング欄に入れる
+  async function hearMailBase(req, id, keys0) {
+    const { lead, data, sf } = await leadFor(req, id);
+    const ban = await approachBanHitLead(lead).catch(() => ({ reason: "アプローチ禁止の名簿を確認できなかったため、念のため止めています" }));
+    if (ban) { const e = new Error(`「${lead.company}」はアプローチ禁止のため、メールは送れません`); e.status = 403; throw e; }
+    const h = lead.hearing || {}; const inf = lead.info || {};
+    const okKeys = new Set(MAIL_ITEMS.map((x) => x.k));
+    const keys = Array.isArray(keys0) ? keys0.map(String).filter((k) => okKeys.has(k)) : mailDefaults(h, NEED_CHOICES);
+    const company = String(lead.company || "").trim();
+    const person = realName(h.name) || realName(lead.gate && lead.gate.name) || realName(lead.person);
+    const to = h.mail || inf.email || ((inf.contacts || []).find((c) => c.email) || {}).email || emailOf(data, sf);
+    return { lead, h, keys, company, person, to };
+  }
+  app.post("/api/mccall/leads/:id/hear-mail/preview", guard(async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10); const b = req.body || {};
+      const { h, keys, company, person, to } = await hearMailBase(req, id, b.keys);
+      const sender = (await nameMap()).get(me(req)) || "";
+      const last = (await P().query(`SELECT created_at FROM mc_hear_mails WHERE lead_id=$1 ORDER BY created_at DESC LIMIT 1`, [id])).rows[0] || null;
+      res.json({ ok: true, to, company, person, keys,
+        items: MAIL_ITEMS.map((it) => ({ k: it.k, no: it.no || "", label: it.label, group: it.group, heard: !!valueText(it, h, NEED_CHOICES) })),
+        subject: HEAR_MAIL_SUBJECT.replace(/\{会社名\}/g, company), body: hearMailBody({ company, person, sender, keys }),
+        google: await googleConnected(me(req)).catch(() => false), last: last ? last.created_at : null,
+        warn: to ? "" : "担当者のメールアドレスが見つかりませんでした。宛先を入れてください" });
+    } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+  }));
+  app.post("/api/mccall/leads/:id/hear-mail/send", guard(async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10); const b = req.body || {}; const u = me(req);
+      const { lead, keys } = await hearMailBase(req, id, b.keys);
+      const to = String(b.to || "").trim(); const subject = clip(b.subject, 300); const body = String(b.body || "").slice(0, 8000);
+      if (!isMail(to)) return res.status(400).json({ error: "宛先のメールアドレスを正しく入れてください" });
+      if (!subject || !body.trim()) return res.status(400).json({ error: "件名と本文を入れてください" });
+      if (!(await googleConnected(u).catch(() => false))) return res.status(400).json({ error: "あなたの Google 連携がまだです。設定 → 外部連携 → Google でつないでから、もう一度送ってください" });
+      const cc = [...new Set(String(b.cc || "").split(/[,\s、]+/).filter(isMail).map((x) => x.toLowerCase()))].filter((x) => x !== to.toLowerCase() && x !== u).join(", ");
+      try { await gmailSend(u, { to, subject, bodyText: body, cc }); }
+      catch (e) { return res.status(500).json({ error: e.needScope ? "Gmail で送る許可がありません。設定 → 外部連携 → Google を一度外して、もう一度つなぎ、Gmail の項目を許可してください" : `送れませんでした：${String(e.message).slice(0, 120)}` }); }
+      const row = (await P().query(`INSERT INTO mc_hear_mails (lead_id, sender, to_addr, cc, subject, keys) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+        [id, u, to, cc || null, subject, JSON.stringify(keys)])).rows[0];
+      // 聞いた担当者のメールは、ヒアリング欄にも残す（次に資料やアポの案内を送るときの宛先になる）
+      if (!(lead.hearing && lead.hearing.mail)) await P().query(`UPDATE mc_call_leads SET hearing=COALESCE(hearing,'{}'::jsonb) || jsonb_build_object('mail', $2::text) WHERE id=$1`, [id, to]).catch(() => {});
+      // SF のリードに「ヒアリングのメール」の活動を残す。書けなかったら sf_err に残し、画面にも返す（黙って失敗しない）
+      let sfNote = "";
+      if (lead.sf_lead_id && /^00Q[0-9A-Za-z]{12,15}$/.test(lead.sf_lead_id)) {
+        try {
+          const lab = new Map(HEAR_ITEMS.map((x) => [x.k, x.label]));
+          const t = await leadTask(await sfActor(req), { WhoId: lead.sf_lead_id, Subject: "[MOCHICA] ヒアリングのメール", Type: "Email", Status: "完了",
+            ActivityDate: new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10),
+            Description: [`送った人：${(await nameMap()).get(u) || u}（SHOBO）`, `宛先：${to}`, cc ? `CC：${cc}` : "", `件名：${subject}`, `聞いたこと：${keys.map((k) => lab.get(k) || k).join("・")}`].filter(Boolean).join("\n") });
+          if (!t || !t.id) throw new Error("SF から活動の番号が返ってきませんでした");
+          await P().query(`UPDATE mc_hear_mails SET sf_task_id=$2 WHERE id=$1`, [row.id, t.id]);
+        } catch (e) { sfNote = "メールは送りましたが、SF の活動には書けませんでした"; await P().query(`UPDATE mc_hear_mails SET sf_err=$2 WHERE id=$1`, [row.id, String(e.message).slice(0, 300)]).catch(() => {}); }
       } else sfNote = "SF のリードと結びついていないので、SF には残していません（kinbot にだけ残ります）";
       res.json({ ok: true, to, sf: sfNote });
     } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
@@ -2427,6 +2534,6 @@ export function registerMcCall(app, deps) {
     // 管理者の名前はインターンにも返す（「かける」が止まったときに、だれに知らせればよいかを画面に出すため）
     //   環境変数で足した管理者は名前が分からずメールアドレスのままなので、管理者以外には出さない
     const admins = (deps.adminNames ? await deps.adminNames().catch(() => []) : []).filter((x) => isAdmin(req) || !String(x).includes("@"));
-    res.json({ ok: true, reach: REACH, rejectReasons: REJECT_REASONS, gateReasons: GATE_REASONS, admin: isAdmin(req), admins, me: me(req) });
+    res.json({ ok: true, reach: REACH, rejectReasons: REJECT_REASONS, gateReasons: GATE_REASONS, needChoices: NEED_CHOICES, hearItems: HEAR_ITEMS, admin: isAdmin(req), admins, me: me(req) });
   }));
 }
