@@ -13327,10 +13327,14 @@ async function ensureMcToday() {
   await pool.query(`CREATE TABLE IF NOT EXISTS mochica_bales_today (list_key TEXT, owner_key TEXT, day TEXT, keys JSONB, info JSONB, made_at TIMESTAMPTZ DEFAULT now(), PRIMARY KEY (list_key, owner_key, day))`).catch(() => {});
 }
 const VIS = `dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND NOT ${BALES_OUT}`;
+const _mcSegCache = new Map();
 async function mcTodayBuild(listKey, run_at, col, val, day) {
   // これまでのアポ率をかたまりごとに（リスト全体・見えているリード全部で数える。1人分だと件数が少なくぶれるため）
-  const seg = (await pool.query(`SELECT COALESCE(NULLIF(r.data->>'leadSources.0.name',''),'-') AS s, (${BALES_PL}) AS pl, LEAST(GREATEST(COALESCE(r.hot,0),1),3) AS h, ${BAPO_SEL}
+  //   メンバー別のカードで全員分を続けて作るので、15分は覚えておく（毎回リスト全体を数え直さないため）
+  const ck = `${listKey}|${new Date(run_at).getTime()}`, cc = _mcSegCache.get(ck);
+  const seg = cc && Date.now() - cc.at < 15 * 60 * 1000 ? cc.seg : (await pool.query(`SELECT COALESCE(NULLIF(r.data->>'leadSources.0.name',''),'-') AS s, (${BALES_PL}) AS pl, LEAST(GREATEST(COALESCE(r.hot,0),1),3) AS h, ${BAPO_SEL}
     FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.run_at=$2 AND ${VIS} GROUP BY 1,2,3`, [listKey, run_at])).rows;
+  if (!cc || cc.seg !== seg) _mcSegCache.set(ck, { at: Date.now(), seg });
   const add = (m, k, a, c) => { const x = m.get(k) || [0, 0]; x[0] += a; x[1] += c; m.set(k, x); };
   const all = [0, 0], mid = new Map(), fine = new Map();
   for (const g of seg) { const a = Number(g.apo), c = Number(g.called); all[0] += a; all[1] += c; add(mid, `${g.pl}|${g.h}`, a, c); add(fine, `${g.s}|${g.pl}|${g.h}`, a, c); }
