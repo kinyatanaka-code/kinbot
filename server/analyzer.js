@@ -2295,6 +2295,23 @@ const PHASE_PROMPT = `あなたは商談の文字起こしを、話の段階ご�
 ・note には、その章で何を話したかを20〜35字で書く。「（20〜35字）」のような文字数の指示を本文に書かない。会社名や個人名は入れない。
 ・話が戻ったら、同じ phase が再び出てもよい。`;
 
+// 段階分けの文字起こしを、決めた文字数に入るように間引く（予備の Groq の小さい枠に入れるため）。
+// 発言をかたまりに分け、かたまりごとにいちばん長い発言だけを残す（「はい」などの相づちより、話の中身が分かる発言を残したい）。
+function compactPhaseLines(arr, budget) {
+  if (!(budget >= 800)) return null;   // これより小さい枠では、段階を決められるだけの中身を送れない
+  const rows = Math.max(1, Math.min(arr.length, Math.floor(budget / 40)));
+  const cap = Math.max(12, Math.min(90, Math.floor(budget / rows) - 14));
+  const out = [];
+  for (let k = 0; k < rows; k++) {
+    const a = Math.floor((k * arr.length) / rows), b = Math.max(a + 1, Math.floor(((k + 1) * arr.length) / rows));
+    let best = a;
+    for (let i = a + 1; i < b && i < arr.length; i++) if (String(arr[i].text || "").length > String(arr[best].text || "").length) best = i;
+    const u = arr[best] || {};
+    out.push(`${best}|${String((u.speaker && u.speaker.name) || "話者").slice(0, 6)}: ${String(u.text || "").replace(/\s+/g, " ").slice(0, cap)}`);
+  }
+  return { rows, text: out.join("\n") };
+}
+
 export async function splitPhases({ transcript, repName }) {
   const arr = Array.isArray(transcript) ? transcript : [];
   if (arr.length < 6) return [];
@@ -2308,7 +2325,26 @@ export async function splitPhases({ transcript, repName }) {
     `自社の営業担当: ${repName || "（未指定）"}\n全${arr.length}発言\n\n` +
     `"""\n${lines.join("\n").slice(-24000)}\n"""\n\n段階ごとに区切ってJSONで返してください。`;
   // 商談全体を段階配列(JSON)で返すため、1200では長い商談で途中切れ(MAX_TOKENS)しやすい。余裕を持たせる。
-  const text = await callLLM(PHASE_PROMPT, user, 4000);
+  let text;
+  try { text = await callLLM(PHASE_PROMPT, user, 4000); }
+  catch (e) {
+    // Gemini が混んでいて予備の Groq に回ったのに、長い商談が Groq の1分の枠（無料の段は8,000）に入らず 413 で止まっていた（2026-11-23 福井さん）。
+    // 413 は待っても通らないので、発言を間引いて枠に入る大きさにして、Groq にもう一度だけ頼む。区切りは粗くなるが、何も出ないよりよい（あとで「作り直す」で作り直せる）
+    const msg = String(e.message || "");
+    if (!/Groq[^／]*413|Request too large/i.test(msg) || !process.env.GROQ_API_KEY) throw e;
+    const m = msg.match(/Limit\s+(\d+),\s*Requested\s+(\d+)/i);
+    const limit = m ? Number(m[1]) : 6000;
+    // 1文字あたりの量は、断られたときの数字から逆算する（分からなければ日本語の目安の1文字＝1）
+    const perChar = m ? Math.min(1.5, Math.max(0.6, (Number(m[2]) - 4000) / (PHASE_PROMPT.length + user.length))) : 1;
+    const small = compactPhaseLines(arr, Math.floor((limit * 0.85 - 2000) / perChar) - PHASE_PROMPT.length - 250);
+    if (!small) throw e;
+    console.warn(`[段階] Groq の枠に入らないので、${arr.length}発言を${small.rows}行に間引いて頼み直します`);
+    const user2 =
+      `自社の営業担当: ${repName || "（未指定）"}\n全${arr.length}発言（番号は 0〜${arr.length - 1}）。長いので一部の発言だけを抜き出しています（番号は飛びます）。from と to は元の番号で、0 から ${arr.length - 1} まで、すき間なく区切ってください。\n\n` +
+      `"""\n${small.text}\n"""\n\n段階ごとに区切ってJSONで返してください。`;
+    try { text = await callLLM(PHASE_PROMPT, user2, 2000, { provider: "groq" }); }
+    catch (e2) { console.error(`[段階] 間引いても作れませんでした（${e2.message}）`); throw e; }
+  }
   const o = parseJson(text) || {};
   const raw = Array.isArray(o.chapters) ? o.chapters : [];
   // 番号を整えて、範囲外や重なりを直す

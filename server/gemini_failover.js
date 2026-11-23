@@ -333,6 +333,10 @@ async function routed(input, init) {
 // 使う人に見せるエラー文：支払い停止（dunning / billing）のときは、技術的な英文ではなく理由がわかる文にする
 export function geminiErrorText(status, text) {
   const t = String(text || "");
+  // SHOBO 専用キーの未設定（503）・月の上限（429）は、混雑や回数の上限とは別の話。そのままの文で返す
+  //   （2026-11-23：キー未設定の 503 まで「混み合って」と出てしまい、画面からは原因の見分けがつかなかった）
+  const shobo = t.match(/SHOBO[^"\\]*(?:未設定です|止めています)[^"\\]*/);
+  if (shobo) return shobo[0];
   if (status === 503 || /UNAVAILABLE|high demand|overloaded/i.test(t)) return "AI（Gemini）が混み合っていて、いま処理できませんでした（別のモデルでも試しました）。少し時間をおいてもう一度お試しください。自動の見回りでもやり直します。";
   if (status === 403 && /dunning|BILLING|billing/i.test(t)) {
     const b = String(process.env.GEMINI_API_KEY_BACKUP || "").trim();
