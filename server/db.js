@@ -13125,6 +13125,12 @@ export const BALES_STG = {
   nurture: `(${BST} !~ '(アーカイブ|リサイクル)' AND (${BST} ~ 'ジャッジ' OR ${BCR} ~ '(営業フォロー|資料送付)'))`,
   active: `${BST} !~ '(アーカイブ|リサイクル)'`,
 };
+// アポ率（2026-11-23 田中さん「それぞれのリストのアポ率も」）：アポ＝最終架電結果がアポ獲得か、ステージがコンバート（立ち上げ済み）のリード。
+//   分母＝架電したリード（最終架電結果がある、またはコンバート済み）。未架電は入れない
+const BAPO = `(COALESCE(r.data->>'callResult','') ~ 'アポ獲得' OR COALESCE(r.data->>'lastLeadStageName','') ~ 'コンバート')`;
+const BCALLED = `(COALESCE(r.data->>'callResult','') <> '' OR COALESCE(r.data->>'lastLeadStageName','') ~ 'コンバート')`;
+const BAPO_SEL = `count(*) FILTER (WHERE ${BAPO}) AS apo, count(*) FILTER (WHERE ${BCALLED}) AS called`;
+const apoOf = (x) => ({ apo: Number(x.apo || 0), called: Number(x.called || 0) });
 export const BALES_SRC_COLS = [0, 1, 2, 3, 4].map((i) => `data->>'leadSources.${i}.name'`).join(",");
 export function balesCr(v) { const t = String(v || ""); for (const [k, re] of BALES_CR) if (new RegExp(re).test(t)) return k; return "-"; }
 export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100, hot = "", sort = "", cr = "", col2 = "", val2 = "", sf = "", src = "", stg = "" } = {}) {
@@ -13189,28 +13195,29 @@ export async function mcBalesSfValues(listKey) {
 export async function mcBalesSources(listKey) {
   if (!pool) return []; await ensureMcBales();
   const base = `FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1 AND r.dup_of IS NULL`;
-  const named = (await pool.query(`SELECT v, count(*) AS n ${base.replace("WHERE", ", LATERAL (SELECT DISTINCT x AS v FROM unnest(ARRAY[" + BALES_SRC_COLS.replace(/data->>/g, "r.data->>") + "]) x WHERE COALESCE(x,'') <> '') s WHERE")} GROUP BY v ORDER BY 2 DESC LIMIT 200`, [listKey])).rows.map((x) => ({ v: x.v, n: Number(x.n) }));
-  const none = Number((await pool.query(`SELECT count(*) AS n ${base} AND COALESCE(array_to_string(ARRAY[${BALES_SRC_COLS.replace(/data->>/g, "r.data->>")}], ''), '') = ''`, [listKey])).rows[0].n);
-  return none ? [...named, { v: "-", n: none }] : named;
+  const named = (await pool.query(`SELECT v, count(*) AS n, ${BAPO_SEL} ${base.replace("WHERE", ", LATERAL (SELECT DISTINCT x AS v FROM unnest(ARRAY[" + BALES_SRC_COLS.replace(/data->>/g, "r.data->>") + "]) x WHERE COALESCE(x,'') <> '') s WHERE")} GROUP BY v ORDER BY 2 DESC LIMIT 200`, [listKey])).rows.map((x) => ({ v: x.v, n: Number(x.n), ...apoOf(x) }));
+  const nr = (await pool.query(`SELECT count(*) AS n, ${BAPO_SEL} ${base} AND COALESCE(array_to_string(ARRAY[${BALES_SRC_COLS.replace(/data->>/g, "r.data->>")}], ''), '') = ''`, [listKey])).rows[0]; const none = Number(nr.n);
+  return none ? [...named, { v: "-", n: none, ...apoOf(nr) }] : named;
 }
 export async function mcBalesValues(listKey, col, { stg = "", blank = false } = {}) {
   if (!pool) return []; await ensureMcBales();
   // stg（ステージ別）を付けると、その分だけ数える（メンバー別の「残りの架け先」＝active）
   const extra = Object.hasOwn(BALES_STG, stg) ? ` AND ${BALES_STG[stg].replace(/data->>/g, "r.data->>")}` : "";
-  return (await pool.query(`SELECT r.data->>$2 AS v, count(*) AS n FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at
-    WHERE r.list_key=$1 AND r.dup_of IS NULL AND COALESCE(r.data->>$2,'') <> ''${extra} GROUP BY 1 ORDER BY 2 DESC LIMIT 60`, [listKey, String(col).slice(0, 80)])).rows.map((r) => ({ v: r.v, n: Number(r.n) }));
+  return (await pool.query(`SELECT r.data->>$2 AS v, count(*) AS n, ${BAPO_SEL} FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at
+    WHERE r.list_key=$1 AND r.dup_of IS NULL AND COALESCE(r.data->>$2,'') <> ''${extra} GROUP BY 1 ORDER BY 2 DESC LIMIT 60`, [listKey, String(col).slice(0, 80)])).rows.map((r) => ({ v: r.v, n: Number(r.n), ...apoOf(r) }));
 }
 // その項目が空のもの（所有者がいない＝未割り振り）の件数（2026-11-23 田中さん「未割り振りのカードを」）
-export async function mcBalesBlankCount(listKey, col, { stg = "" } = {}) {
+export async function mcBalesBlankCount(listKey, col, { stg = "", full = false } = {}) {
   if (!pool) return 0; await ensureMcBales();
   const extra = Object.hasOwn(BALES_STG, stg) ? ` AND ${BALES_STG[stg].replace(/data->>/g, "r.data->>")}` : "";
-  return Number((await pool.query(`SELECT count(*) AS n FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at
-    WHERE r.list_key=$1 AND r.dup_of IS NULL AND COALESCE(r.data->>$2,'') = ''${extra}`, [listKey, String(col).slice(0, 80)])).rows[0].n);
+  const x = (await pool.query(`SELECT count(*) AS n, ${BAPO_SEL} FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at
+    WHERE r.list_key=$1 AND r.dup_of IS NULL AND COALESCE(r.data->>$2,'') = ''${extra}`, [listKey, String(col).slice(0, 80)])).rows[0];
+  return full ? { n: Number(x.n), ...apoOf(x) } : Number(x.n);
 }
 // ステージ別の件数（ナーチャリング・リサイクル・アーカイブ・残りの架け先）
 export async function mcBalesStages(listKey) {
   if (!pool) return {}; await ensureMcBales();
-  const sel = Object.entries(BALES_STG).map(([k, c]) => `count(*) FILTER (WHERE ${c.replace(/data->>/g, "r.data->>")}) AS ${k}`).join(", ");
+  const sel = Object.entries(BALES_STG).map(([k, c]) => { const cc = c.replace(/data->>/g, "r.data->>"); return `count(*) FILTER (WHERE ${cc}) AS ${k}, count(*) FILTER (WHERE ${cc} AND ${BAPO}) AS ${k}_apo, count(*) FILTER (WHERE ${cc} AND ${BCALLED}) AS ${k}_called`; }).join(", ") + `, count(*) FILTER (WHERE ${BAPO}) AS total_apo, count(*) FILTER (WHERE ${BCALLED}) AS total_called`;
   const r = (await pool.query(`SELECT ${sel}, count(*) AS total FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1 AND r.dup_of IS NULL`, [listKey])).rows[0] || {};
   return Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Number(v)]));
 }
