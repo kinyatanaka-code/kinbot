@@ -41,13 +41,18 @@ export async function findJobMediaLinks(company) {
   const name = String(company || "").trim(); if (!name || !BRAVE_KEY()) return { ok: !!BRAVE_KEY(), items: [] };
   const ck = (v) => String(v || "").normalize("NFKC").replace(/株式会社|有限会社|合同会社|社会福祉法人|医療法人(社団|財団)?|学校法人|一般社団法人|\(株\)|㈱|[\s・.,、。]/g, "").toLowerCase();
   const k = ck(name); if (k.length < 2) return { ok: true, items: [] };
-  const [a, b] = await Promise.all([braveSearch(`${name} 求人`, 10), braveSearch(`${name} 新卒採用`, 10)]);
+  // Brave は1秒に1回までのことがあるので、2回は少し間をあけて順に（同時に投げると片方が断られる）。断られたときは理由を返す
+  let status = 0;
+  const one = async (q) => { try { const r = await withTimeout(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=10&country=jp&search_lang=jp`, { headers: { "Accept": "application/json", "X-Subscription-Token": BRAVE_KEY() } }, 12000);
+    status = status && status !== 200 ? status : r.status; if (!r.ok) return []; const d = await r.json().catch(() => null);
+    return ((d && d.web && d.web.results) || []).map((x) => ({ url: x.url || "", title: x.title || "", desc: x.description || "" })).filter((x) => x.url); } catch { status = status || -1; return []; } };
+  const a = await one(`${name} 求人`); await new Promise((r) => setTimeout(r, 1100)); const b = await one(`${name} 新卒採用`);
   const seen = new Map();
   for (const r of [...a, ...b]) {
     if (!ck(`${r.title} ${r.desc}`).includes(k)) continue;
     for (const [re, label] of JOB_MEDIA_URL) if (re.test(r.url) && !seen.has(label)) seen.set(label, { name: label, url: r.url, title: String(r.title || "").slice(0, 80) });
   }
-  return { ok: true, items: [...seen.values()] };
+  return { ok: true, items: [...seen.values()], raw: a.length + b.length, status };
 }
 
 // 検索結果から「その会社の公式サイトらしいURL」を選ぶ

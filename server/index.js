@@ -34728,6 +34728,8 @@ app.get("/api/prebrief/media", async (req, res) => {
     if (req.query.fresh !== "1") { const c = await prebriefMediaCache(key); if (c) return res.json({ ok: true, items: c.items, at: c.at, cached: true }); }
     const r = await findJobMediaLinks(company);
     if (!r.ok) return res.json({ ok: false, items: [], error: "検索の設定がないため、採用媒体を調べられません" });
+    // 検索そのものが断られた・何も返らなかったときは覚えない（次に開いたときにもう一度探す）
+    if (!r.raw) return res.json({ ok: false, items: [], error: r.status === 429 ? "検索の回数の上限に達したため、少し待ってから開き直してください" : r.status && r.status !== 200 ? `検索ができませんでした（${r.status}）` : "検索結果がありませんでした" });
     await prebriefMediaCache(key, r.items);
     res.json({ ok: true, items: r.items, at: new Date().toISOString() });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -35027,7 +35029,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-24dk 事前情報の採用媒体：検索（Brave）で媒体のページをリンク付きで探す（会社ごとに1週間覚える・AI は使わない）。SF に利用中の ATS があれば先頭に出す。／2026-11-24hq 引き継ぎ：未ログインのインターンにも Bales の所有者のメールで渡す。／2026-11-24dj レコーディングの事前情報の並び：左＝企業情報・IS情報、中央＝SF情報、右＝メモ（縦いっぱい）。／2026-11-24lst MOCHICALL：リードの状況の選択肢を SF の基本の7つ（01：新規・02：担当者未接触・03：コネクト情報獲得・04：ジャッジ・05：コンバート・89：リサイクル・99：アーカイブ）だけに。番号ごとに1つ（「01：」の形を優先）、選んだ段階の意味を下に出す。今の値が古い名前（NEW・LS:89 など）なら「旧」と付けて出す。／2026-11-24hp 引き継ぎの管理者画面 /mchandover.html を足した。Bales の営業フォロー（コネクト情報獲得・ジャッジ）を所有者のまま MOCHICALL の本人の掛け直しへ引き継ぐ（POST /api/mccall/bales-handover、管理者だけ・既定は下見）";
+const BUILD_TAG = "2026-11-24dl 採用媒体の検索：2回を間をあけて順に（同時だと断られる）。何も返らなかったときは覚えず理由を出す。／2026-11-24dk 事前情報の採用媒体：検索（Brave）で媒体のページをリンク付きで探す（会社ごとに1週間覚える・AI は使わない）。SF に利用中の ATS があれば先頭に出す。／2026-11-24hq 引き継ぎ：未ログインのインターンにも Bales の所有者のメールで渡す。／2026-11-24dj レコーディングの事前情報の並び：左＝企業情報・IS情報、中央＝SF情報、右＝メモ（縦いっぱい）。／2026-11-24lst MOCHICALL：リードの状況の選択肢を SF の基本の7つ（01：新規・02：担当者未接触・03：コネクト情報獲得・04：ジャッジ・05：コンバート・89：リサイクル・99：アーカイブ）だけに。番号ごとに1つ（「01：」の形を優先）、選んだ段階の意味を下に出す。今の値が古い名前（NEW・LS:89 など）なら「旧」と付けて出す。／2026-11-24hp 引き継ぎの管理者画面 /mchandover.html を足した。Bales の営業フォロー（コネクト情報獲得・ジャッジ）を所有者のまま MOCHICALL の本人の掛け直しへ引き継ぐ（POST /api/mccall/bales-handover、管理者だけ・既定は下見）";
 const BUILD_FEATURES = [
   "MOCHICALL：Bales で追いかけ中（コネクト情報獲得・ジャッジ×最終架電が営業フォロー）のリードを、Bales の所有者のインターンの掛け直しへ引き継ぐ",
   "リスト管理：BALES標準CSVとSalesforceの未登録リードをリスト追加から取り込める",

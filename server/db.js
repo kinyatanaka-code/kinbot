@@ -12998,7 +12998,7 @@ export async function prebriefMediaCache(key, items) {
   if (!pool || !key) return null;
   if (!_pbMediaInit) { _pbMediaInit = true; await pool.query(`CREATE TABLE IF NOT EXISTS prebrief_media (key TEXT PRIMARY KEY, items JSONB, at TIMESTAMPTZ DEFAULT now())`).catch(() => {}); }
   if (items) { await pool.query(`INSERT INTO prebrief_media (key, items, at) VALUES ($1,$2,now()) ON CONFLICT (key) DO UPDATE SET items=EXCLUDED.items, at=now()`, [key, JSON.stringify(items)]).catch(() => {}); return items; }
-  const r = (await pool.query(`SELECT items, at FROM prebrief_media WHERE key=$1 AND at > now() - interval '7 days'`, [key]).catch(() => ({ rows: [] }))).rows[0];
+  const r = (await pool.query(`SELECT items, at FROM prebrief_media WHERE key=$1 AND at > now() - interval '7 days' AND jsonb_array_length(COALESCE(items,'[]'::jsonb)) > 0`, [key]).catch(() => ({ rows: [] }))).rows[0];
   return r ? { items: r.items || [], at: r.at } : null;
 }
 
