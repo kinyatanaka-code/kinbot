@@ -34,7 +34,8 @@ import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar }
 import { askBot } from "./askbot.js";
 import { registerMcCall } from "./mccall.js";
 import { handleZoomPhoneEvent } from "./mcplay.js";
-import { rosterHit, startsWithSurname } from "./mcname.js";   // 名前の照合（異体字・姓名の順などをそろえる）（2026-11-23）
+import { rosterHit, startsWithSurname } from "./mcname.js";
+import { loadPeople, registeredKeys, MCCALL_ADMIN_SURNAMES } from "./mcpeople.js";   // 名簿の人をメールで結びつける（判定はメールが最優先）（2026-11-23）   // 名前の照合（異体字・姓名の順などをそろえる）（2026-11-23）
 import { registerMcDash, MCDASH_ROSTER } from "./mcdash.js";   // SHOBO のダッシュボード（SF・Zoom Phone・シフト表を毎回読む）（2026-11-17）   // SHOBO の架電（DOC の kincall とは別の表）（2026-11-16）
 import { mcAuditMiddleware, registerMcAudit } from "./mcaudit.js";   // MOCHICA の書き込み操作を「いつ・だれが・何を」DBに残す（2026-11-19 福井さん）
 import { registerTeleapoScience } from "./teleapo_routes.js";   // テレアポ科学モデル v1：文字起こし→問題の場所の診断（2026-11-16）
@@ -884,8 +885,14 @@ async function internAccess(email) {
     const [members, users] = await _internSrc.p;
     const m = (members || []).find((x) => String(x.email || "").toLowerCase() === k);
     const u = (users || []).find((x) => String(x.email || "").toLowerCase() === k);
-    // 名前は異体字（賴/頼・齊/斉/斎）・空白・全半角・かな・姓名の順の違いをそろえて比べる（mcname.js）
-    const inRoster = !!(rosterHit(u && u.name, MCDASH_ROSTER.is) || rosterHit(m && m.name, MCDASH_ROSTER.is));
+    // 名簿にメールが登録されていれば、それを最優先にする（2026-11-23 福井さん決定）。
+    //   メールが未登録の人だけ、名前で補う。そのとき、メール登録済みの名簿の人は外す（同じ名前の別の人が入り込まないように）。
+    //   名前は異体字（賴/頼・齊/斉/斎）・空白・全半角・かな・姓名の順の違いをそろえて比べる（mcname.js）
+    const people = await loadPeople();
+    const rec = people.get(k);
+    const isKeys = registeredKeys(people, "is");
+    const open = MCDASH_ROSTER.is.filter((p) => !isKeys.has(p.sf));
+    const inRoster = rec ? rec.kind === "is" : !!(rosterHit(u && u.name, open) || rosterHit(m && m.name, open));
     const kc = !!(m && Array.isArray(m.roles) && m.roles.includes("kincall"));
     const biz = m && Array.isArray(m.businesses) ? m.businesses : [];
     v = { mc: inRoster || (kc && biz.includes("MOCHICA")), doc: kc && (biz.includes("DOC") || (!biz.length && !inRoster)) };
@@ -895,7 +902,6 @@ async function internAccess(email) {
 }
 // MOCHICA の架電の管理者（リストを作る・リードを取り込む・割り振る）（2026-11-18 福井さん「管理者は正社員の福井・本炭・餌取・齊藤・北川・山田」）
 //   メールが分からないので苗字で照合する。インターン生と DOC だけの人は外す。足りないときは環境変数 MCCALL_ADMIN_EMAILS（カンマ区切り）で足す
-const MCCALL_ADMIN_SURNAMES = ["福井", "本炭", "餌取", "齊藤", "斉藤", "北川", "山田"];
 let _mcAdmins = null;
 async function mcCallAdmins() {
   if (_mcAdmins && Date.now() - _mcAdmins.at < 60 * 1000) return _mcAdmins.v;
@@ -904,11 +910,18 @@ async function mcCallAdmins() {
   try {
     const [members, users] = await Promise.all([listMembers().catch(() => []), listUsers().catch(() => [])]);
     const mByEmail = new Map((members || []).map((m) => [String(m.email || "").toLowerCase(), m]));
+    // 名簿にメールで登録された管理者は、そのまま管理者にする（名前の照合より先）。
+    //   メールが登録された苗字は、名前では補わない（同じ苗字の別の人が管理者にならないように）
+    const people = await loadPeople();
+    const uByEmail = new Map((users || []).map((u) => [String(u.email || "").toLowerCase(), u]));
+    for (const [email, r] of people) if (r.kind === "admin") v.set(email, (uByEmail.get(email) || {}).name || (mByEmail.get(email) || {}).name || email);
+    const adminKeys = registeredKeys(people, "admin");
+    const openSurnames = MCCALL_ADMIN_SURNAMES.filter((s) => !adminKeys.has(s));
     for (const u of users || []) {
-      const email = String(u.email || "").toLowerCase(); if (!email) continue;
+      const email = String(u.email || "").toLowerCase(); if (!email || people.has(email)) continue;
       const m = mByEmail.get(email);
       const name = u.name || (m && m.name);
-      if (!MCCALL_ADMIN_SURNAMES.some((s) => startsWithSurname(name, s))) continue;
+      if (!openSurnames.some((s) => startsWithSurname(name, s))) continue;
       const biz = m && Array.isArray(m.businesses) ? m.businesses : [];
       if (biz.includes("DOC") && !biz.includes("MOCHICA")) continue;   // DOC だけの同じ苗字の人は入れない
       if ((await internAccess(email).catch(() => ({}))).mc) continue;   // インターン生は管理者にしない
@@ -30289,10 +30302,14 @@ app.get("/api/mochica/reps", async (req, res) => {
 let _mcMembers = null;
 async function mcCallMembers() {
   if (_mcMembers && Date.now() - _mcMembers.at < 60 * 1000) return _mcMembers.v;
-  const roster = [...MCDASH_ROSTER.sales, ...MCDASH_ROSTER.is];
+  // メールで名簿に登録された人を先に入れ、メールが未登録の名簿の人だけ名前で補う（2026-11-23）
+  const people = await loadPeople();
+  const isKeys = registeredKeys(people, "is"), salesKeys = registeredKeys(people, "sales");
+  const roster = [...MCDASH_ROSTER.sales.filter((p) => !salesKeys.has(p.key)), ...MCDASH_ROSTER.is.filter((p) => !isKeys.has(p.sf))];
   const v = new Set((await mcCallAdmins().catch(() => new Map())).keys());
+  for (const e of people.keys()) v.add(e);
   const [members, users] = await Promise.all([listMembers().catch(() => []), listUsers().catch(() => [])]);
-  for (const x of [...(users || []), ...(members || [])]) { const e = String(x.email || "").toLowerCase(); if (e && rosterHit(x.name, roster)) v.add(e); }
+  for (const x of [...(users || []), ...(members || [])]) { const e = String(x.email || "").toLowerCase(); if (e && !people.has(e) && rosterHit(x.name, roster)) v.add(e); }
   _mcMembers = { at: Date.now(), v };
   return v;
 }
@@ -30302,7 +30319,7 @@ app.use("/api/mccall", async (req, res, next) => {
   try { req.mcCallAdmin = !!req.user && (await mcCallAdmins()).has(String(req.user).toLowerCase()); } catch { req.mcCallAdmin = false; }
   next();
 });
-registerMcCall(app, { isAdmin: (req) => isAiOwner(req) || !!req.mcCallAdmin, adminNames: async () => [...(await mcCallAdmins()).values()], sfActor, mochicaSet: mcCallMembers, isMcIntern: async (e) => !!(await internAccess(e).catch(() => ({}))).mc });
+registerMcCall(app, { isAdmin: (req) => isAiOwner(req) || !!req.mcCallAdmin, adminNames: async () => [...(await mcCallAdmins()).values()], sfActor, mochicaSet: mcCallMembers, isMcIntern: async (e) => !!(await internAccess(e).catch(() => ({}))).mc , peopleChanged: () => { _internAccess.clear(); _internSrc = null; _mcAdmins = null; _mcMembers = null; } });
 registerMcDash(app, { sfQueryAll, sfOperator, sfActor, sfInfo, readSheet, mochicaSet: mcMochicaSet, isAdmin: isAiOwner });
 registerTeleapoScience(app);
 registerKnowkinFeed(app);

@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { foldPersonName, rosterHit, startsWithSurname } from "../server/mcname.js";
 import { MCDASH_ROSTER } from "../server/mcdash.js";
+import { whoOf } from "../server/mcdashlog.js";
 
 let n = 0; const t = (name, fn) => { fn(); n++; console.log(`ok  ${name}`); };
 const R = MCDASH_ROSTER.is;
@@ -45,5 +46,13 @@ t("営業3名（ダッシュボードの名簿）も key の名前で当たる",
 t("比べる形：髙/高・﨑/崎・邊/辺・澤/沢 をそろえる", () => {
   assert.equal(foldPersonName("髙橋"), foldPersonName("高橋")); assert.equal(foldPersonName("山﨑"), foldPersonName("山崎"));
   assert.equal(foldPersonName("渡邊"), foldPersonName("渡辺")); assert.equal(foldPersonName("大澤"), foldPersonName("大沢"));
+});
+t("ダッシュボードの結びつけ（whoOf）：メール登録が名前より先。登録された名簿の人に、同じ名前の別アカウントは結びつかない", () => {
+  const names = new Map([["a@x", ["Raia Naito"]], ["b@x", ["内藤 頼郁亜"]], ["c@x", ["森 康晴"]]]);
+  const people = new Map([["a@x", { kind: "is", key: "内藤賴郁亜" }]]);
+  assert.equal(whoOf("a@x", R, names, people), "らいあないとう");
+  assert.equal(whoOf("b@x", R, names, people), "");
+  assert.equal(whoOf("c@x", R, names, people), "森康晴");
+  assert.equal(whoOf("b@x", R, names), "らいあないとう");   // 登録が無ければ名前で補う
 });
 console.log(`\nすべて通りました（${n} 件）`);

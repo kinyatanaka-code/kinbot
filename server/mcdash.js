@@ -17,6 +17,7 @@
 import { zoomPhoneConfigured, zoomPhoneUsers, zoomGet } from "./zoomphone.js";
 import { dbPool, listUsers } from "./db.js";
 import { aggregateLogs, whoOf } from "./mcdashlog.js";
+import { loadPeople } from "./mcpeople.js";
 import { paceRows, BREAK_MIN, RE_PRESS_SEC } from "./mcdashpace.js";
 import { loadCallAna } from "./mccallana.js";
 
@@ -254,7 +255,8 @@ async function build(deps) {
     if (empty) sources["架電記録"] = { status: "ng", at: new Date().toISOString(), note: "MOCHICA の架電画面の記録の表がまだありません（1件も記録されていません）" };
     else {
       const names = await emailNames();
-      const tagged = rows.map((r) => ({ day: r.day, caller: (names.get(String(r.caller || "").toLowerCase()) || [])[0] || r.caller, who: whoOf(r.caller, deps.roster.is, names),
+      const people = await loadPeople().catch(() => new Map());   // 名簿にメールで登録された人は、名前を見ずに結びつける（2026-11-23）
+      const tagged = rows.map((r) => ({ day: r.day, caller: (names.get(String(r.caller || "").toLowerCase()) || [])[0] || r.caller, who: whoOf(r.caller, deps.roster.is, names, people),
         leadId: r.lead_id, reach: r.reach, outcome: r.outcome, hearing: r.hearing }));
       log = aggregateLogs(tagged, `${pmStart.slice(0, 7)}〜${asOf.slice(0, 7)}`);
       const isN = deps.roster.is.reduce((a, p) => a + Object.values(log.byOwnerDay[p.zoom] || {}).reduce((s, v) => s + v[0], 0), 0);

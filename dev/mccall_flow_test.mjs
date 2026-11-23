@@ -62,6 +62,8 @@ const INTERNS = [
   ["koga@test.local", "小賀坂和也（インターン）"], ["osawa@test.local", "瑛太 大沢"], ["iwa@test.local", "岩浪 大己"], ["adachi@test.local", "足立瞬弥"],
 ].map(([email, name]) => ({ email, name }));
 const OUTSIDER = { email: "yamamoto@test.local", name: "山本 次郎" };
+// 名前では名簿に当たらない人（ローマ字の表示名）。メールで登録すると判定される
+const ROMAJI = { email: "raia@test.local", name: "Raia Naito" };
 const PASS = "test-pass-1";
 Object.assign(process.env, {
   PORT: String(PORT), DATABASE_URL: `postgres://postgres@127.0.0.1:${PG_PORT}/postgres?sslmode=disable`,
@@ -114,7 +116,7 @@ async function t(name, fn) {
 }
 
 // ---------- 準備：人・リスト ----------
-for (const u of [ADMIN, ...INTERNS, OUTSIDER]) await call(u.email, "POST", "/api/register", { email: u.email, password: PASS, displayName: u.name });
+for (const u of [ADMIN, ...INTERNS, OUTSIDER, ROMAJI]) await call(u.email, "POST", "/api/register", { email: u.email, password: PASS, displayName: u.name });
 const A = ADMIN.email, I1 = INTERNS[0].email, I2 = INTERNS[3].email;
 let L1, TALK;
 
@@ -188,6 +190,48 @@ await t("残りがほかの人の担当だけ：空の理由（others）に件�
   const r = await call(A, "GET", "/api/mccall/readiness");
   const x = r.items.find((y) => y.email === I2); assert.equal(x.level, "stop"); assert.match(x.msg, /ほかの人の担当/);
   await q(`UPDATE mc_call_leads SET assigned_to=NULL WHERE list_id=$1`, [L1]);
+});
+await t("受付で断られた：断り文句を選んで記録 → 記録に残り、レポートで数えられる", async () => {
+  const meta = await call(I1, "GET", "/api/mccall/meta");
+  assert.ok(meta.gateReasons.length >= 5 && meta.gateReasons.length <= 8 && meta.gateReasons.includes("その他"), JSON.stringify(meta.gateReasons));
+  const id = (await call(I1, "GET", "/api/mccall/queue")).items[0].id;
+  await call(I1, "GET", `/api/mccall/leads/${id}?lock=1`);
+  const r = await call(I1, "POST", `/api/mccall/leads/${id}/log`, { reach: "gate", outcome: "blocked", reason: meta.gateReasons[0], memo: "受付の女性。来月なら", talkId: TALK, sfPick: {} });
+  const g = (await q(`SELECT reason, memo FROM mc_call_logs WHERE id=$1`, [r.logId])).rows[0];
+  assert.equal(g.reason, meta.gateReasons[0]); assert.equal(g.memo, "受付の女性。来月なら");
+  const rep = await call(A, "GET", "/api/mccall/report?by=user");
+  assert.deepEqual(rep.gateReasons, [{ k: meta.gateReasons[0], n: 1 }]);
+  const d = await call(I1, "GET", `/api/mccall/leads/${id}`);
+  assert.ok(d.timeline.some((x) => x.title.includes(meta.gateReasons[0]) && x.who), "これまでに断り文句とだれが出る");
+  await call(I1, "POST", `/api/mccall/logs/${r.logId}/undo`); await call(I1, "POST", `/api/mccall/leads/${id}/release`);
+});
+await t("メールで登録：名前で当たらない人（Raia Naito）は、内藤さんの行にメールを登録するとインターンになる", async () => {
+  assert.equal((await call(ROMAJI.email, "GET", "/api/mccall/queue")).why.kind, "notIntern");
+  const ppl = await call(A, "GET", "/api/mccall/people");
+  const naito = ppl.rows.find((r) => r.kind === "is" && r.key === "内藤賴郁亜");
+  assert.ok(naito && !naito.email && naito.guess === I2, "未登録の行に名前で当たった人を候補で出す");
+  assert.ok(ppl.rows.filter((r) => r.kind === "is").length === 8 && ppl.rows.some((r) => r.kind === "admin") && ppl.rows.some((r) => r.kind === "sales"));
+  await call(A, "PUT", "/api/mccall/people", { kind: "is", key: "内藤賴郁亜", email: ROMAJI.email });
+  assert.ok((await call(ROMAJI.email, "GET", "/api/mccall/queue")).items.length > 0, "メールで登録した人の「かける」に会社が出る");
+});
+await t("メールが登録された名簿の人には、同じ名前の別アカウントは名前で入り込めない", async () => {
+  const j = await call(I2, "GET", "/api/mccall/queue");   // 「内藤 頼郁亜」の名前のアカウント
+  assert.equal(j.items.length, 0); assert.equal(j.why.kind, "notIntern");
+});
+await t("readiness：メール登録ずみの人はそのメールで出し、未登録の人には「メール未登録」と出す", async () => {
+  const r = await call(A, "GET", "/api/mccall/readiness");
+  const naito = r.items.find((x) => x.key === "内藤賴郁亜"); assert.equal(naito.email, ROMAJI.email, JSON.stringify(r.items.map((x) => [x.key, x.email, x.noEmail]))); assert.equal(naito.noEmail, false);
+  const mori = r.items.find((x) => x.email === I1); assert.equal(mori.noEmail, true); assert.match(mori.msg, /メール未登録/);
+  assert.ok(!r.items.some((x) => x.email === I2), "名前だけ同じ別アカウントは名簿の人として出ない");
+});
+await t("メールで登録した管理者は、苗字が違っても管理者になる。外すと戻る。存在しないメールは断る", async () => {
+  await assert.rejects(call(OUTSIDER.email, "GET", "/api/mccall/readiness"));
+  await call(A, "PUT", "/api/mccall/people", { kind: "admin", key: "山田", email: OUTSIDER.email });
+  assert.ok((await call(OUTSIDER.email, "GET", "/api/mccall/readiness")).ok);
+  await call(A, "PUT", "/api/mccall/people", { kind: "admin", key: "山田", email: "" });
+  await assert.rejects(call(OUTSIDER.email, "GET", "/api/mccall/readiness"));
+  await assert.rejects(call(A, "PUT", "/api/mccall/people", { kind: "is", key: "森康晴", email: "nobody@test.local" }));
+  await assert.rejects(call(I1, "PUT", "/api/mccall/people", { kind: "is", key: "森康晴", email: I1 }), "インターンは登録できない");
 });
 await t("アプローチ禁止の名簿が読めない：エラーにせず、止めている理由（stop=ban）を返す", async () => {
   await q(`ALTER TABLE approach_bans RENAME TO approach_bans_test_off`);

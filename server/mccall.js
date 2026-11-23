@@ -29,7 +29,8 @@ import { CADENCE, BENCH, WHY_HUMAN, jstDayStart, jstAt, nextMissAt, hourRates, s
 import { FILL_APIS, FILL_SOQL_FIELDS, readMemo, readInputs, planFills, pickedFields, hiresBucket } from "./mcsffill.js";
 import { formRun } from "./mcform.js";   // 問い合わせフォームの自動送信（2026-11-20）
 import { MCDASH_ROSTER } from "./mcdash.js";   // インサイド8名の名簿（「かける」の状態を管理者に見せるため）
-import { rosterHit } from "./mcname.js";   // 名前の照合（異体字・姓名の順などをそろえる）
+import { rosterHit, startsWithSurname } from "./mcname.js";   // 名前の照合（異体字・姓名の順などをそろえる）
+import { loadPeople, emailOf as rosterEmailOf, setPerson, rosterRows, PEOPLE_KINDS } from "./mcpeople.js";   // 名簿の人をメールで結びつける（2026-11-23）
 export { hiresBucket };
 
 const BIZ = "MOCHICA";
@@ -43,6 +44,10 @@ export const REACH = {
 };
 const FORM_ST = { sent: "送信しました", unsure: "送信を押しましたが、届いたか分かりません", failed: "送れませんでした" };
 export const REJECT_REASONS = ["今は必要ない", "他社を使っている", "時期が合わない", "予算が無い", "採用の予定が無い", "その他"];
+// 受付で断られたときの断り文句（2026-11-23 福井さん「受付の断り文句をワンタップで選べるように」）。
+//   候補は担当者の断り理由（上）・SF の「お断り理由」・DOC の kincall の受付NG の言い方から、受付で多いものを多い順に。
+//   選んだ文句は mc_call_logs.reason に残し、レポートで担当者の断り理由と同じように数える。その他はメモに書く
+export const GATE_REASONS = ["営業電話はお断り", "担当者名が分からないとつなげない", "資料をメールで送って", "本社・別部署で採用している", "今は採用していない", "必要ない・間に合っている", "その他"];
 // 自動で掛け直す結果（つながらなかった・担当者がいなかった）。届かなかった回数 miss_streak もこの結果だけを数える
 const AUTO_RETRY = new Set(["no_answer", "busy", "voicemail", "absent"]);
 // これ以上かけない結果
@@ -818,6 +823,8 @@ export function registerMcCall(app, deps) {
     const rows = (await P().query(`SELECT ${key} AS k, ${cols} FROM mc_call_logs g WHERE ${w} GROUP BY 1 ORDER BY 1`, p)).rows;
     const tot = (await P().query(`SELECT ${cols} FROM mc_call_logs g WHERE ${w}`, p)).rows[0];
     const reasons = (await P().query(`SELECT g.reason AS k, count(*) AS n FROM mc_call_logs g WHERE ${w} AND g.outcome='reject' GROUP BY 1 ORDER BY 2 DESC`, p)).rows.map((r) => ({ k: r.k || "（理由なし）", n: +r.n }));
+    // 受付で断られた文句（担当者の断り理由と同じ形で数える）
+    const gateReasons = (await P().query(`SELECT g.reason AS k, count(*) AS n FROM mc_call_logs g WHERE ${w} AND g.outcome='blocked' GROUP BY 1 ORDER BY 2 DESC`, p)).rows.map((r) => ({ k: r.k || "（文句なし）", n: +r.n }));
     // リストへの貢献（2026-11-20 福井さん「アポが取れなくても、ヒアリングでリストを埋めた・鮮度と精度を保った貢献を SF の項目をどれだけ埋めたかで」）
     //   埋めた＝空の項目を埋めた／直した＝古い値を新しくした・長文に足した／会社＝項目を1つでも埋めた会社の数／アポ以外＝アポにならなかった架電で埋めた数／
     //   使えない番号＝「番号が使えない」と記録した数（死んだ番号を見つけるのも精度の貢献）
@@ -833,7 +840,7 @@ export function registerMcCall(app, deps) {
     const names = await nameMap();
     const lists = by === "list" ? new Map((await P().query(`SELECT id::text AS id, name FROM mc_call_lists`)).rows.map((r) => [r.id, r.name])) : null;
     const label = (k) => by === "user" ? names.get(String(k || "").toLowerCase()) || k : by === "list" ? lists.get(k) || `リスト ${k}` : k;
-    res.json({ ok: true, by, from, to, all: isAdmin(req), total: { ...num(tot), ...ftot, invalid: [...inv.values()].reduce((a, b) => a + b, 0) }, reasons, fields,
+    res.json({ ok: true, by, from, to, all: isAdmin(req), total: { ...num(tot), ...ftot, invalid: [...inv.values()].reduce((a, b) => a + b, 0) }, reasons, gateReasons, fields,
       rows: rows.map((r) => ({ key: r.k, label: label(r.k), ...num(r), ...fx(r.k) })).sort((a, b) => by === "day" ? 0 : b.calls - a.calls) });
   }));
 
@@ -1555,12 +1562,17 @@ export function registerMcCall(app, deps) {
   //   朝いちばんに管理者がこれを見れば、8人に1人ずつログインしてもらわなくても詰まりが分かる
   app.get("/api/mccall/readiness", adminOnly(async (req, res) => {
     const users = (await listUsers().catch(() => [])).filter((x) => x && x.email);
+    const uName = new Map(users.map((x) => [String(x.email).toLowerCase(), x.name]));
+    // 名簿の人は、メールで登録されていればその人。未登録なら名前で補う（その場合は「メール未登録」と出す）
+    const reg = await loadPeople(true);
     const people = [];
     const seen = new Set();
     for (const p of MCDASH_ROSTER.is) {
-      const hit = users.filter((x) => rosterHit(x.name, [p]));
-      if (!hit.length) { people.push({ name: p.sf || p.name, email: "", roster: true }); continue; }
-      for (const x of hit) { const e = String(x.email).toLowerCase(); if (!seen.has(e)) { seen.add(e); people.push({ name: x.name || e, email: e, roster: true }); } }
+      const e = rosterEmailOf(reg, "is", p.sf);
+      if (e) { seen.add(e); people.push({ name: uName.get(e) || p.sf, email: e, roster: true, key: p.sf, noEmail: false }); continue; }
+      const hit = users.filter((x) => !reg.has(String(x.email).toLowerCase()) && rosterHit(x.name, [p]));
+      if (!hit.length) { people.push({ name: p.sf || p.name, email: "", roster: true, key: p.sf, noEmail: true }); continue; }
+      for (const x of hit) { const e2 = String(x.email).toLowerCase(); if (!seen.has(e2)) { seen.add(e2); people.push({ name: x.name || e2, email: e2, roster: true, key: p.sf, noEmail: true }); } }
     }
     for (const x of users) {
       const e = String(x.email).toLowerCase(); if (seen.has(e)) continue;
@@ -1570,7 +1582,7 @@ export function registerMcCall(app, deps) {
     const gate = researchGate();
     const items = [];
     for (const p of people) {
-      if (!p.email) { items.push({ ...p, level: "stop", msg: "kinbot のアカウントが見つかりません。名簿の名前（SF の氏名）と同じ名前で kinbot に登録してもらうか、メンバー設定で「kincall だけ」＋事業 MOCHICA にしてください" }); continue; }
+      if (!p.email) { items.push({ ...p, level: "stop", msg: "kinbot のアカウントが見つかりません（メール未登録）。本人に kinbot へログインしてもらい、下の「名簿とメール」でそのメールを登録してください" }); continue; }
       const intern = await isMcIntern(p.email).catch(() => false);
       const ids = await listIdsFor(p.email, {});
       const talk = await listsWithTalk(ids);
@@ -1588,9 +1600,35 @@ export function registerMcCall(app, deps) {
       else if (!banOk) { level = "stop"; msg = "アプローチ禁止の名簿が読めないため、全員の「かける」を止めています。少し待って直らなければ、データベースと SF のつながりを確かめてください"; }
       else if (!n.now) { level = "stop"; msg = n.others ? `今かけられる会社がありません（残り ${n.others}件はほかの人の担当）。担当を付け直すか、リードを足してください` : "今かけられる会社がありません。リードを足してください"; }
       else if (n.now < 20) { level = "warn"; msg += "。今日のうちに無くなりそうです。リードを足してください"; }
+      // 名前で判定している人は「メール未登録」と添える（名前が変わると外れるので、メールで登録してもらう）
+      if (p.noEmail) { msg += "（メール未登録：名前で判定しています。下の「名簿とメール」で登録してください）"; if (level === "ok") level = "warn"; }
       items.push({ ...p, intern, ...n, level, msg });
     }
     res.json({ ok: true, items, banOk, research: researchState() });
+  }));
+
+  // ---- 管理者：名簿とメール（2026-11-23 福井さん決定「本人をメールで登録する」）----
+  //   名簿（インサイド・営業・架電の管理者）の1行ずつに、kinbot のログインのメールを結びつける。
+  //   未登録の行には、名前で当たった人を「候補」として出す（押せば登録できるように）
+  app.get("/api/mccall/people", adminOnly(async (req, res) => {
+    const users = (await listUsers().catch(() => [])).filter((x) => x && x.email).map((x) => ({ email: String(x.email).toLowerCase(), name: String(x.name || x.email) }));
+    const reg = await loadPeople(true);
+    const rows = rosterRows().map((r) => {
+      const email = rosterEmailOf(reg, r.kind, r.key);
+      const guess = email ? "" : (users.find((u) => !reg.has(u.email) && (r.kind === "admin" ? startsWithSurname(u.name, r.key) : rosterHit(u.name, [r.p]))) || {}).email || "";
+      return { kind: r.kind, kindLabel: PEOPLE_KINDS[r.kind], key: r.key, label: r.label, email, guess };
+    });
+    res.json({ ok: true, rows, users: users.sort((a, b) => a.name.localeCompare(b.name, "ja")) });
+  }));
+  app.put("/api/mccall/people", adminOnly(async (req, res) => {
+    const b = req.body || {};
+    const row = rosterRows().find((r) => r.kind === b.kind && r.key === b.key);
+    if (!row) return res.status(400).json({ error: "名簿の人が見つかりません。画面を読み直してください" });
+    const email = String(b.email || "").trim().toLowerCase();
+    if (email && !(await listUsers().catch(() => [])).some((x) => String(x.email || "").toLowerCase() === email)) return res.status(400).json({ error: "そのメールの kinbot のアカウントがありません。先に本人に kinbot へログインしてもらってください" });
+    await setPerson(row.kind, row.key, email, me(req));
+    if (deps.peopleChanged) deps.peopleChanged();   // 判定の覚えを捨てて、すぐ効くようにする
+    res.json({ ok: true });
   }));
 
   // 担当のリストが無い理由（本人の画面に出す）
@@ -1827,7 +1865,8 @@ export function registerMcCall(app, deps) {
     if (ban) return res.status(403).json({ error: `「${lead.company}」はアプローチ禁止のため記録できません（理由：${ban.reason || "アプローチ禁止"}）` });
     const reach = String(b.reach || ""); const outcome = String(b.outcome || "");
     if (!REACH[reach] || !REACH[reach].outcomes[outcome]) return res.status(400).json({ error: "結果を選んでください" });
-    const reason = outcome === "reject" ? clip(b.reason, 60) : "";
+    // 断られた理由（担当者）・断り文句（受付）。受付の文句は前の画面からは来ないので、無くても記録する
+    const reason = outcome === "reject" || outcome === "blocked" ? clip(b.reason, 60) : "";
     if (outcome === "reject" && !reason) return res.status(400).json({ error: "断られた理由を選んでください" });
     const apoAt = b.apoAt ? new Date(b.apoAt) : null;
     if (outcome === "apo" && (!apoAt || isNaN(apoAt) || apoAt.getTime() < Date.now() - 3600e3)) return res.status(400).json({ error: "アポの日時を入れてください（過去の日時は入れられません）" });
@@ -2384,6 +2423,6 @@ export function registerMcCall(app, deps) {
     // 管理者の名前はインターンにも返す（「かける」が止まったときに、だれに知らせればよいかを画面に出すため）
     //   環境変数で足した管理者は名前が分からずメールアドレスのままなので、管理者以外には出さない
     const admins = (deps.adminNames ? await deps.adminNames().catch(() => []) : []).filter((x) => isAdmin(req) || !String(x).includes("@"));
-    res.json({ ok: true, reach: REACH, rejectReasons: REJECT_REASONS, admin: isAdmin(req), admins, me: me(req) });
+    res.json({ ok: true, reach: REACH, rejectReasons: REJECT_REASONS, gateReasons: GATE_REASONS, admin: isAdmin(req), admins, me: me(req) });
   }));
 }

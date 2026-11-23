@@ -62,11 +62,17 @@ export function aggregateLogs(rows, label = "") {
 
 // 呼び出した人（メール）→ 名簿の人のキー。名前の照合は index.js の internAccess と同じ mcname.js でそろえて比べる
 //   roster：MCDASH_ROSTER.is、names：メール→名前（kinbot の利用者・Zoom の利用者の両方を混ぜたもの）
-export function whoOf(email, roster, names) {
-  const list = names.get(String(email || "").toLowerCase()) || [];
+export function whoOf(email, roster, names, people = null) {
+  // 名簿にメールで登録された人は、名前を見ずにその人にする（2026-11-23）。メールが未登録の人だけ名前で補う
+  const e = String(email || "").toLowerCase();
+  const rec = people && people.get(e);
+  if (rec) { const p = rec.kind === "is" ? roster.find((x) => x.sf === rec.key) : null; return p ? p.zoom : ""; }
+  const taken = new Set(people ? [...people.values()].filter((v) => v.kind === "is").map((v) => v.key) : []);
+  const open = roster.filter((x) => !taken.has(x.sf));
+  const list = names.get(e) || [];
   for (const n of list) {
     const t = foldPersonName(n); if (!t) continue;
-    const p = rosterHit(n, roster) || roster.find((x) => foldPersonName(x.name) === t);
+    const p = rosterHit(n, open) || open.find((x) => foldPersonName(x.name) === t);
     if (p) return p.zoom;   // 画面は人を zoom の名前で引く（calls の byOwnerDay と同じキー）
   }
   return "";
