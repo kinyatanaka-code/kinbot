@@ -240,8 +240,7 @@
   .side-item:has(.side-wip){position:relative;} .side-wip{position:absolute;z-index:2;right:6px;top:-5px;font-size:8.5px;line-height:14px;font-weight:800;color:#0B6E78;background:#DDF5F7;border-radius:99px;padding:0 5px;white-space:nowrap;pointer-events:none;}
   .side-item.active .side-wip{background:#fff;}
   @media (max-width:900px){.side-wip{display:none;}}
-  /* 他メンバーとして操作（2026-11-16） */
-  .mc-imp-btn{border:1px dashed rgba(94,234,212,.35);margin-top:4px;} .mc-imp-ico{display:inline-flex;width:20px;justify-content:center;flex:none;color:#5EEAD4;}
+  /* 他メンバーとして操作中の帯（切りかえのボタンは 2026-11-23 に SHOBO から廃止） */
   .imp-banner-icon svg{vertical-align:-3px;}
   @media (max-width:900px){.mt-wrap{grid-template-columns:1fr;height:auto;}.mt-side{max-height:320px;}}
 </style>
@@ -330,6 +329,6 @@
   <!-- kinbot のロボ（左上の顔を押すと相談できる窓）を MOCHICA にも（2026-11-16 田中さん） -->
   <script src="/kbchat.js?v=20261119f" defer></script>
   <script src="/mccall.js?v=20261123hrel"></script>
-  <script src="/mochica.js?v=20261123chmsg"></script>
+  <script src="/mochica.js?v=20261123noimp"></script>
 </body>
 </html>
