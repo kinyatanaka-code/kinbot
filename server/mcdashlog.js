@@ -15,6 +15,7 @@
 //   ホット   … 担当者と話せて、検討時期（月で聞けたもの。「未定」は除く）と採用ニーズの両方を聞けた企業
 //              （mchot.js の「ニーズ・検討時期が聞けたらホット」と同じ考え方）
 //   企業の数 … 同じ人が同じ月に同じリードへ何度かけても1社。月の最初に数えた日に1つ足す
+import { foldPersonName, rosterHit } from "./mcname.js";   // 名前の照合（異体字・姓名の順などをそろえる）
 
 // 列の並び（サーバーと画面で同じ順を使う）
 export const LOG_COLS = ["calls", "reached", "person", "apo", "uniq", "uniqReached", "uniqHot", "gate", "none"];
@@ -59,14 +60,13 @@ export function aggregateLogs(rows, label = "") {
   return { source: "kinbot_mc_call_logs", period: label, cols: LOG_COLS, byOwnerDay: by, unmatched, total };
 }
 
-// 呼び出した人（メール）→ 名簿の人のキー。名前の照合は index.js の internAccess と同じく空白を除いて比べる
+// 呼び出した人（メール）→ 名簿の人のキー。名前の照合は index.js の internAccess と同じ mcname.js でそろえて比べる
 //   roster：MCDASH_ROSTER.is、names：メール→名前（kinbot の利用者・Zoom の利用者の両方を混ぜたもの）
 export function whoOf(email, roster, names) {
-  const nz = (s) => String(s || "").normalize("NFKC").replace(/[\s　]/g, "");
   const list = names.get(String(email || "").toLowerCase()) || [];
   for (const n of list) {
-    const t = nz(n); if (!t) continue;
-    const p = roster.find((x) => [x.sf, x.zoom, x.name].some((v) => nz(v) === t));
+    const t = foldPersonName(n); if (!t) continue;
+    const p = rosterHit(n, roster) || roster.find((x) => foldPersonName(x.name) === t);
     if (p) return p.zoom;   // 画面は人を zoom の名前で引く（calls の byOwnerDay と同じキー）
   }
   return "";

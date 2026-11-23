@@ -97,21 +97,40 @@
   }
   async function loadQueue(openFirst) {
     try {
-      const j = await api(`/api/mccall/queue${S.listId ? `?list=${S.listId}` : ""}`); S.queue = j.items || []; S.later = j.later || 0; S.noTalk = j.noTalk || []; S.researching = j.researching || 0;
+      const j = await api(`/api/mccall/queue${S.listId ? `?list=${S.listId}` : ""}`); S.queue = j.items || []; S.later = j.later || 0; S.noTalk = j.noTalk || []; S.researching = j.researching || 0; S.why = j.why || null; S.stop = j.stop || "";
       if (openFirst || !S.d) { const f = S.queue.find((x) => !S.d || x.id !== S.d.lead.id); if (f) await open(f.id); else empty(); }
     } catch (e) { setNotice([{ kind: "danger", text: `かける順番を読めませんでした：${e.message}` }]); }
   }
+  // 「かける」に会社が出ないときは、なぜか・何をすればよいかを書く（2026-11-23 福井さん「初週を止めずに回す」）。
+  //   インターンが「空っぽ」の画面で止まって待つことが無いよう、だれに何を頼めばよいかまで出す
+  function adminsText() { const a = ((S.meta && S.meta.admins) || []).filter((x) => !String(x).includes("@"));   // メールアドレスはインターンの画面に出さない
+    return a.length ? `管理者（${a.slice(0, 4).join("・")}${a.length > 4 ? " ほか" : ""}）` : "管理者"; }
+  function emptyText() {
+    const W = S.why || {}; const ask = adminsText();
+    if (S.stop === "ban") return { retry: 30000, html: `アプローチ禁止の名簿を読めないため、安全のため「かける」を止めています（禁止の会社にかけてしまわないように）。<br>30秒ごとに自動で読み直します。5分たっても直らないときは、${esc(ask)}に知らせてください。` };
+    if (!S.lists.length) {
+      if (S.admin) return { html: `まだ架電リストがありません。<br><button class="mcc-btn primary" id="mccGoLists" style="margin-top:12px">リストを作る</button>` };
+      if (W.kind === "notIntern") return { html: `あなた（kinbot の名前「${esc(W.name || "")}」）は、まだ MOCHICA の架電メンバーと判定されていません。<br>${esc(ask)}に「kinbot の名前を SF の氏名にそろえる」か「メンバー設定で kincall だけ＋事業 MOCHICA にする」を頼んでください。` };
+      if (W.kind === "notMember") return { html: `MOCHICA の架電リストはありますが、あなたはどのリストのメンバーにも入っていません。<br>${esc(ask)}に、リストのメンバーに入れてもらってください。` };
+      return { html: `まだ担当の架電リストがありません。<br>${esc(ask)}がリストを作ってあなたを入れると、ここに出ます。` };
+    }
+    if (S.noTalk && S.noTalk.length && !S.researching && !S.later) return { html: `トーク（売り方）が決まっていないリストはかけられません：${esc(S.noTalk.join("・"))}<br>${S.admin ? "「リストの管理」の「トーク」で書いてください。" : `${esc(ask)}にトークを書いてもらってください。`}` };
+    if (S.researching) return { retry: 8000, html: `企業調査が終わった会社から順に出ます（いま ${S.researching}件 を調べています）。<br>少しすると自動で次の会社が出ます。` };
+    const more = [
+      W.others ? `残りの <b>${W.others}件</b> はほかの人の担当です。${S.admin ? "「リストの管理」で担当を付け直してください。" : `${esc(ask)}に、担当の付け直しかリードの追加を頼んでください。`}` : "",
+      W.locked ? `<b>${W.locked}件</b> はほかの人が開いています（10分たつと戻ります）。` : "",
+      S.later ? `今日このあと掛け直す企業が <b>${S.later}件</b> あります（時刻が来たら先頭に並びます）。` : "",
+      !W.others && !W.locked && !S.later ? `このリストは、今かけられる会社をかけ終わりました。${S.admin ? "リードを足してください。" : `${esc(ask)}にリードを足してもらってください。`}` : "",
+    ].filter(Boolean);
+    return { retry: W.locked || S.later ? 60000 : 0, html: `今かける企業はありません。<br>${more.join("<br>")}<br><button class="mcc-btn" id="mccReload" style="margin-top:12px">もう一度読む</button>` };
+  }
   function empty() {
     S.d = null; S.f = null;
-    const noList = !S.lists.length;
     $("mccLeft").innerHTML = ""; $("mccRight").innerHTML = "";
-    $("mccCenter").innerHTML = `<div class="mcc-empty">${noList
-      ? (S.admin ? `まだ架電リストがありません。<br><button class="mcc-btn primary" id="mccGoLists" style="margin-top:12px">リストを作る</button>` : "まだ担当の架電リストがありません。<br>管理者がリストを作ってあなたを入れると、ここに出ます。")
-      : S.noTalk && S.noTalk.length && !S.researching && !S.later ? `トーク（売り方）が決まっていないリストはかけられません：${esc(S.noTalk.join("・"))}<br>${S.admin ? "「リストの管理」の「トーク」で書いてください。" : "管理者にトークを書いてもらってください。"}`
-      : S.researching ? `企業調査が終わった会社から順に出ます（いま ${S.researching}件 を調べています）。<br>少しすると自動で次の会社が出ます。`
-      : `今かける企業はありません。${S.later ? `<br>今日このあと掛け直す企業が <b>${S.later}件</b> あります（時刻が来たら先頭に並びます）。` : ""}<br><button class="mcc-btn" id="mccReload" style="margin-top:12px">もう一度読む</button>`}</div>`;
+    const t = emptyText();
+    $("mccCenter").innerHTML = `<div class="mcc-empty">${t.html}</div>`;
     const g = $("mccGoLists"); if (g) g.addEventListener("click", () => setTab("lists"));
-    clearTimeout(S.waitT); if (S.researching) S.waitT = setTimeout(() => { if (!S.d && S.tab === "call") loadQueue(true); }, 8000);
+    clearTimeout(S.waitT); if (t.retry) S.waitT = setTimeout(() => { if (!S.d && S.tab === "call") loadQueue(true); }, t.retry);
     const r = $("mccReload"); if (r) r.addEventListener("click", () => loadQueue(true));
     setNotice([]);
   }
@@ -169,9 +188,19 @@
   }
 
   // 企業調査（2026-11-20 福井さん「調べなくても情報がまとまっている状態をすべてのリードで」）。ASUMO の企業調査と同じ項目
+  // 調査中で開いた会社は、調べ終わるまで10秒ごとに企業調査だけを読み直す（最大2分。別の会社に移ったらやめる）
+  function watchResearch(id) {
+    if (S.rWatch === id) return; S.rWatch = id; let n = 0;
+    const tick = async () => {
+      if (!S.d || S.d.lead.id !== id || S.rWatch !== id || ++n > 12) { if (S.rWatch === id) S.rWatch = null; return; }
+      try { const j = await api(`/api/mccall/leads/${id}/research`); if (j.research && S.d && S.d.lead.id === id) { S.d.lead.research = j.research; S.rWatch = null; drawLeft(); return; } } catch {}
+      setTimeout(tick, 10000);
+    };
+    setTimeout(tick, 10000);
+  }
   function researchHtml(L) {
     const r = L.research;
-    if (!r) return `<div class="mcc-research"><h3>企業調査</h3><p class="mcc-note">調べています…（少しすると出ます）</p></div>`;
+    if (!r) { watchResearch(L.id); return `<div class="mcc-research"><h3>企業調査<span class="mcc-badge" style="margin-left:6px">調査中</span></h3><p class="mcc-note">いま調べています。<b>待たずにかけて大丈夫です</b>（調べ終わると、ここに出ます）。</p></div>`; }
     if (r.status === "error") return `<div class="mcc-research"><h3>企業調査</h3><p class="mcc-note">調べられませんでした（${esc(r.error || "理由不明")}）。下の情報を見てかけてください。</p></div>`;
     const rows = [["事業", r.biz], ["採用の実態", r.hiring], ["募集職種", r.roles], ["採用人数", r.headcount], ["求人媒体", r.media], ["推定採用課題", r.issue], ["従業員", r.employees], ["所在地", r.location], ["設立", r.founded], ["電話で確かめる", r.confirm]].filter(([, v]) => v);
     return `<div class="mcc-research"><h3>企業調査</h3>
@@ -787,13 +816,29 @@
     else if (e.key === "?") { e.preventDefault(); help(); }
   }
 
+  // ---- 管理者：インサイドの「かける」の状態（2026-11-23 福井さん「初週を止めずに回す」）----
+  //   名簿のインサイド8名と MOCHICA のインターンについて、「かける」に会社が出るか・出ないなら何が足りないかを1行ずつ出す。
+  //   止まっている人（赤）・もうすぐ無くなる人（橙）を上に並べ、朝いちばんに見れば詰まりが分かるようにする
+  async function drawReady() {
+    const box = $("mccReady"); if (!box) return;
+    let j; try { j = await api("/api/mccall/readiness"); } catch (e) { box.innerHTML = `<h2>インサイドの「かける」の状態</h2><p class="mcc-note">読めませんでした：${esc(e.message)}</p>`; return; }
+    const rank = { stop: 0, warn: 1, ok: 2 }; const items = (j.items || []).slice().sort((a, b) => rank[a.level] - rank[b.level]);
+    const bad = items.filter((x) => x.level === "stop").length;
+    const R = j.research || {};
+    box.innerHTML = `<h2>インサイドの「かける」の状態${bad ? `<span class="mcc-badge danger" style="margin-left:8px">止まっている人 ${bad}人</span>` : '<span class="mcc-badge" style="margin-left:8px">全員かけられます</span>'}</h2>
+      ${j.banOk ? "" : '<p class="mcc-note" style="color:#B4441F;font-weight:700">アプローチ禁止の名簿が読めないため、全員の「かける」が止まっています。</p>'}
+      <table class="mcc-tbl"><thead><tr><th>名前</th><th class="num">リスト</th><th class="num">今かけられる</th><th>状態</th></tr></thead><tbody>
+      ${items.map((x) => `<tr><td>${esc(x.name)}${x.email ? "" : '<small style="color:var(--c-muted)">（アカウントなし）</small>'}</td><td class="num">${x.email ? `${x.talkLists}/${x.lists}` : "-"}</td><td class="num">${x.email ? x.now : "-"}</td>
+        <td><span class="mcc-badge ${x.level === "stop" ? "danger" : x.level === "warn" ? "warm" : "doc"}">${x.level === "stop" ? "止まっている" : x.level === "warn" ? "もうすぐ無くなる" : "かけられる"}</span> ${esc(x.msg)}</td></tr>`).join("")}</tbody></table>
+      <p class="mcc-note">リスト＝トークのあるリスト／入れるリスト。企業調査：今日 ${R.today || 0}件（上限 ${R.daily || 0}件）${R.gate ? "。調べ終わった会社を先に出し、足りないときは調査中の会社も出します" : "。いまは調べ終わるのを待たずに出しています"}。</p>`;
+  }
   // ---- 管理者：リストの管理 ----
   async function drawLists() {
     const box = $("mccAdmin"); box.innerHTML = `<div class="mcc-card">読み込んでいます…</div>`; S.ldBack = null;
     try {
       await loadLists(); await loadStats();
       const all = S.allStats || [];
-      box.innerHTML = `
+      box.innerHTML = `<div class="mcc-card" id="mccReady"><h2>インサイドの「かける」の状態</h2><p class="mcc-note">読み込んでいます…</p></div>
         <div class="mcc-card"><h2>架電リスト</h2>
           <p class="mcc-note">ここで作ったリストは MOCHICA だけのものです。DOC の kincall のリストとは混ざりません。メンバーを選ばないと、MOCHICA のメンバー全員がかけられます。</p>
           <p class="mcc-note">リストを管理できる人：${esc(((S.meta && S.meta.admins) || []).join("・") || "（田中さん・kinbot の管理者だけ）")}</p>
@@ -805,6 +850,7 @@
         <div class="mcc-card" id="mccStock"></div>
         <div class="mcc-card" id="mccDups" hidden></div>
         <div class="mcc-card"><h2>今日の数字（全員）</h2>${all.length ? `<table class="mcc-tbl"><thead><tr><th>名前</th><th class="num">コール</th><th class="num">担当者と話せた</th><th class="num">アポ</th><th class="num">部署をまたいだ架電</th></tr></thead><tbody>${all.map((r) => `<tr><td>${esc(r.name)}</td><td class="num">${r.calls}</td><td class="num">${r.person}</td><td class="num">${r.apo}</td><td class="num">${r.cross}</td></tr>`).join("")}</tbody></table>` : '<p class="mcc-note">今日はまだ記録がありません。</p>'}</div>`;
+      drawReady();
       $("mccNew").addEventListener("click", () => listDialog());
       drawDups();
       $("mccTpl").addEventListener("click", tplDialog); $("mccFTpl").addEventListener("click", formTplDialog);

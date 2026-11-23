@@ -26,6 +26,8 @@ import { ensurePlay, talkForLead, activeTalks, saveTalks, listsWithTalk, measure
 import { CADENCE, BENCH, WHY_HUMAN, jstDayStart, jstAt, nextMissAt, hourRates, slotNow, rankQueue } from "./mccadence.js";
 import { FILL_APIS, FILL_SOQL_FIELDS, readMemo, readInputs, planFills, pickedFields, hiresBucket } from "./mcsffill.js";
 import { formRun } from "./mcform.js";   // 問い合わせフォームの自動送信（2026-11-20）
+import { MCDASH_ROSTER } from "./mcdash.js";   // インサイド8名の名簿（「かける」の状態を管理者に見せるため）
+import { rosterHit } from "./mcname.js";   // 名前の照合（異体字・姓名の順などをそろえる）
 export { hiresBucket };
 
 const BIZ = "MOCHICA";
@@ -685,9 +687,12 @@ export function registerMcCall(app, deps) {
   // 自分がかけてよいリスト（メンバー指定なし＝MOCHICA のメンバー全員。管理者はすべて見える）
   // withStock：保管のリスト（BALES から移したものなど）も入れる。管理者のリスト管理の画面だけ。かける順番・一覧には出さない
   async function myListIds(req, withStock = false) {
-    const u = me(req);
-    const rows = (await P().query(`SELECT id, members FROM mc_call_lists WHERE biz=$1 AND NOT closed AND (NOT stock OR $2)`, [BIZ, !!(withStock && isAdmin(req))])).rows;
-    if (isAdmin(req)) return rows.map((r) => r.id);
+    return listIdsFor(me(req), { admin: isAdmin(req), withStock: !!(withStock && isAdmin(req)) });
+  }
+  // だれが・どのリストに入れるか（本人の画面と、管理者が見る「インサイドの『かける』の状態」で同じ判定を使う）
+  async function listIdsFor(u, { admin = false, withStock = false } = {}) {
+    const rows = (await P().query(`SELECT id, members FROM mc_call_lists WHERE biz=$1 AND NOT closed AND (NOT stock OR $2)`, [BIZ, !!withStock])).rows;
+    if (admin) return rows.map((r) => r.id);
     // MOCHICA のインターン（インサイド8名など）も「MOCHICA 全員」のリストに入る（2026-11-18）
     const mc = await mochicaSet().catch(() => new Set());
     const all = mc.has(u) || (await isMcIntern(u).catch(() => false));
@@ -1447,37 +1452,124 @@ export function registerMcCall(app, deps) {
   // 掛け直しの時刻が来たもの → まだかけていないホットな順 → 回数の少ない順。ほかの人が開いている（10分以内）ものは飛ばす
   app.get("/api/mccall/queue", guard(async (req, res) => {
     const ids = await myListIds(req); const listId = parseInt(req.query.list, 10);
+    const u = me(req);
+    // 担当のリストが1本も無いときは、なぜかを返す（インターンと判定されていない／リストのメンバーに入っていない／リストが無い）。
+    //   画面に「何をすればよいか」まで出して、本人も管理者も迷わないようにする（2026-11-23 福井さん「初週を止めずに回す」）
+    if (!ids.length) return res.json({ ok: true, items: [], later: 0, noTalk: [], researching: 0, why: await whyNoList(req) });
     const asked = listId ? ids.filter((x) => x === listId) : ids;
     // 売り先（リスト）と売り方（トーク）はセット。トークの無いリストは「かける」に出さない（2026-11-20 福井さん）
     const withTalk = await listsWithTalk(asked);
     const use = asked.filter((x) => withTalk.has(x));
     const noTalk = asked.length > use.length ? (await P().query(`SELECT name FROM mc_call_lists WHERE id = ANY($1) AND NOT closed AND NOT stock`, [asked.filter((x) => !withTalk.has(x))])).rows.map((r) => r.name) : [];
     if (!use.length) return res.json({ ok: true, items: [], later: 0, noTalk, researching: 0 });
-    const u = me(req);
+    // アプローチ禁止の名簿が読めないときは順番を出さない（禁止の会社に架けないための安全側）。
+    //   ただし「エラー」ではなく、なぜ止まっているか・どうすればよいかを画面に出し、画面は少しずつ読み直す
+    try { await banListOrStop(); }
+    catch { return res.json({ ok: true, items: [], later: 0, noTalk, researching: 0, stop: "ban" }); }
     const base = `list_id = ANY($1) AND NOT done AND dup_of IS NULL AND (next_at IS NULL OR next_at <= now())
         AND (assigned_to IS NULL OR assigned_to=$2) AND (locked_by IS NULL OR locked_by=$2 OR locked_at < now() - interval '10 minutes')`;
     const order = `(next_at IS NOT NULL) DESC, next_at, COALESCE(hot,0) DESC, attempts, id`;
     // 順番は mccadence.js の rankQueue で決める（約束の掛け直し → 時刻が来た掛け直し → ホット度・検討時期・在席時間の順）。SQL では候補を多め（300件）に絞るだけ
     const rankOrder = `(next_at IS NOT NULL) DESC, COALESCE(next_why = $3, false) DESC, next_at, COALESCE(hot,0) DESC, attempts, id`;
-    // 企業調査が終わった会社だけを出す（架電者が調べなくてよいように）。まだの会社は先に調べるよう頼んでおく
+    const cols = `id, company, person, hot, attempts, next_at, next_why, last_outcome, cross_from, miss_streak, hearing, gate, phone, info, sf_lead_id, (research_at IS NOT NULL) AS researched`;
+    // 企業調査が終わった会社を先に出す（架電者が調べなくてよいように）。
+    //   調べ終わった会社が足りないときは、まだの会社も後ろに足して出す（「調査中」と出すだけで、かけてよい）。
+    //   以前は調べ終わるまで出さなかったので、8人が同時にかけると調べが追いつかず「かける」が空になって待つことがあった（2026-11-23）
     const gate = researchGate();
-    const cand0 = (await P().query(`SELECT id, company, person, hot, attempts, next_at, next_why, last_outcome, cross_from, miss_streak, hearing, gate, phone, info, sf_lead_id FROM mc_call_leads
+    const cand0 = (await P().query(`SELECT ${cols} FROM mc_call_leads
       WHERE ${base}${gate ? " AND research_at IS NOT NULL" : ""} ORDER BY ${rankOrder} LIMIT 300`, [use, u, WHY_HUMAN])).rows;
-    // アプローチ禁止の会社は順番に出さない（取り込んだあとで禁止になった会社も、ここで毎回はじく。名簿が読めなければ順番ごと出さない）
-    await banListOrStop();
-    const cand = cand0.filter((r) => !approachBanHitLeadSync(r));
-    // 画面に渡すのは必要な項目だけ（受付で聞いた直通などを、順番の一覧に載せない）
-    const items = rankQueue(cand).slice(0, 60).map(({ hearing, gate: _g, phone: _p, info: _i, sf_lead_id: _s, ...x }) => x);
     let researching = 0;
     if (gate) {
-      const wait = (await P().query(`SELECT id FROM mc_call_leads WHERE ${base} AND research_at IS NULL ORDER BY ${order} LIMIT 12`, [use, u])).rows.map((r) => r.id);
-      researchSoon(wait);
-      researching = wait.length ? +(await P().query(`SELECT count(*) FROM mc_call_leads WHERE ${base} AND research_at IS NULL`, [use, u])).rows[0].count : 0;
+      const wait = (await P().query(`SELECT ${cols} FROM mc_call_leads WHERE ${base} AND research_at IS NULL ORDER BY ${rankOrder} LIMIT 60`, [use, u, WHY_HUMAN])).rows;
+      researchSoon(wait.slice(0, 12).map((r) => r.id));
+      if (wait.length) {
+        researching = +(await P().query(`SELECT count(*) FROM mc_call_leads WHERE ${base} AND research_at IS NULL`, [use, u])).rows[0].count;
+        if (cand0.length < 60) cand0.push(...wait);
+      }
     }
+    // アプローチ禁止の会社は順番に出さない（取り込んだあとで禁止になった会社も、ここで毎回はじく）
+    const cand = cand0.filter((r) => !approachBanHitLeadSync(r));
+    // 掛け直しの約束・時刻が来た掛け直し（tier 0・1）と調べ終わった会社を前に、まだ調べていない会社を後ろに
+    const ranked = rankQueue(cand);
+    const front = (r) => r.tier < 2 || r.researched;
+    // 画面に渡すのは必要な項目だけ（受付で聞いた直通などを、順番の一覧に載せない）
+    const items = [...ranked.filter(front), ...ranked.filter((r) => !front(r))].slice(0, 60).map(({ hearing, gate: _g, phone: _p, info: _i, sf_lead_id: _s, ...x }) => x);
     const later = (await P().query(`SELECT count(*) FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL AND next_at > now() AND next_at < $2`, [use, jstAt(new Date(), 23, 59)])).rows[0].count;
-    res.json({ ok: true, items: items.map((x) => ({ ...x, outcome: outcomeLabel(x.last_outcome), streak: x.miss_streak || 0, why: x.reasons })), later: +later, noTalk, researching });
+    // 出せる会社が無いときは、残りがどこにあるか（ほかの人の担当・ほかの人が開いている）を返す
+    let why = null;
+    if (!items.length) {
+      const r = (await P().query(`SELECT count(*) FILTER (WHERE assigned_to IS NOT NULL AND assigned_to <> $2) AS others,
+          count(*) FILTER (WHERE (assigned_to IS NULL OR assigned_to = $2) AND locked_by IS NOT NULL AND locked_by <> $2 AND locked_at >= now() - interval '10 minutes') AS locked,
+          count(*) FILTER (WHERE next_at > now()) AS waiting
+        FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL`, [use, u])).rows[0];
+      why = { others: +r.others, locked: +r.locked, waiting: +r.waiting };
+    }
+    res.json({ ok: true, items: items.map((x) => ({ ...x, outcome: outcomeLabel(x.last_outcome), streak: x.miss_streak || 0, why: x.reasons })), later: +later, noTalk, researching, why });
+  }));
+  // ---- 管理者：インサイドの「かける」の状態（2026-11-23 福井さん「初週を止めずに回す」）----
+  //   ダッシュボードの名簿のインサイド8名と、MOCHICA のインターンと判定された人について、
+  //   「かける」に会社が出るか・出ないなら何が足りないか（アカウント・インターン判定・リスト・トーク・担当・企業調査）を1行ずつ返す。
+  //   朝いちばんに管理者がこれを見れば、8人に1人ずつログインしてもらわなくても詰まりが分かる
+  app.get("/api/mccall/readiness", adminOnly(async (req, res) => {
+    const users = (await listUsers().catch(() => [])).filter((x) => x && x.email);
+    const people = [];
+    const seen = new Set();
+    for (const p of MCDASH_ROSTER.is) {
+      const hit = users.filter((x) => rosterHit(x.name, [p]));
+      if (!hit.length) { people.push({ name: p.sf || p.name, email: "", roster: true }); continue; }
+      for (const x of hit) { const e = String(x.email).toLowerCase(); if (!seen.has(e)) { seen.add(e); people.push({ name: x.name || e, email: e, roster: true }); } }
+    }
+    for (const x of users) {
+      const e = String(x.email).toLowerCase(); if (seen.has(e)) continue;
+      if (await isMcIntern(e).catch(() => false)) { seen.add(e); people.push({ name: x.name || e, email: e, roster: false }); }
+    }
+    let banOk = true; try { await banListOrStop(); } catch { banOk = false; }
+    const gate = researchGate();
+    const items = [];
+    for (const p of people) {
+      if (!p.email) { items.push({ ...p, level: "stop", msg: "kinbot のアカウントが見つかりません。名簿の名前（SF の氏名）と同じ名前で kinbot に登録してもらうか、メンバー設定で「kincall だけ」＋事業 MOCHICA にしてください" }); continue; }
+      const intern = await isMcIntern(p.email).catch(() => false);
+      const ids = await listIdsFor(p.email, {});
+      const talk = await listsWithTalk(ids);
+      const use = ids.filter((x) => talk.has(x));
+      const c = use.length ? (await P().query(`SELECT
+          count(*) FILTER (WHERE (assigned_to IS NULL OR assigned_to=$2) AND (next_at IS NULL OR next_at <= now())) AS now,
+          count(*) FILTER (WHERE (assigned_to IS NULL OR assigned_to=$2) AND (next_at IS NULL OR next_at <= now()) AND research_at IS NULL) AS unresearched,
+          count(*) FILTER (WHERE assigned_to IS NOT NULL AND assigned_to <> $2) AS others
+        FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL`, [use, p.email])).rows[0] : { now: 0, unresearched: 0, others: 0 };
+      const n = { lists: ids.length, talkLists: use.length, now: +c.now, unresearched: +c.unresearched, others: +c.others };
+      let level = "ok", msg = `今かけられる会社 ${n.now}件${n.unresearched && gate ? `（うち企業調査中 ${n.unresearched}件。調査中でもかけられます）` : ""}`;
+      if (!intern && !ids.length) { level = "stop"; msg = `MOCHICA のインターンと判定されていません（kinbot の名前「${p.name}」が名簿と合いません）。kinbot の名前を SF の氏名にそろえるか、メンバー設定で「kincall だけ」＋事業 MOCHICA にしてください`; }
+      else if (!ids.length) { level = "stop"; msg = "入れるリストがありません。リストのメンバーに入れるか、メンバーを空（MOCHICA 全員）にしてください"; }
+      else if (!use.length) { level = "stop"; msg = "入れるリストのどれにもトークがありません。「リストの管理」でトークを書いてください"; }
+      else if (!banOk) { level = "stop"; msg = "アプローチ禁止の名簿が読めないため、全員の「かける」を止めています。少し待って直らなければ、データベースと SF のつながりを確かめてください"; }
+      else if (!n.now) { level = "stop"; msg = n.others ? `今かけられる会社がありません（残り ${n.others}件はほかの人の担当）。担当を付け直すか、リードを足してください` : "今かけられる会社がありません。リードを足してください"; }
+      else if (n.now < 20) { level = "warn"; msg += "。今日のうちに無くなりそうです。リードを足してください"; }
+      items.push({ ...p, intern, ...n, level, msg });
+    }
+    res.json({ ok: true, items, banOk, research: researchState() });
   }));
 
+  // 担当のリストが無い理由（本人の画面に出す）
+  async function whyNoList(req) {
+    const u = me(req);
+    if (isAdmin(req)) return { kind: "noList" };
+    const name = (await nameMap()).get(u) || u;
+    const intern = await isMcIntern(u).catch(() => false);
+    const member = (await mochicaSet().catch(() => new Set())).has(u);
+    const open = +(await P().query(`SELECT count(*) FROM mc_call_lists WHERE biz=$1 AND NOT closed AND NOT stock`, [BIZ])).rows[0].count;
+    // MOCHICA の人と判定されていない（名前が名簿と合わない・メンバー設定が無い）と、「MOCHICA 全員」のリストが見えない
+    if (!intern && !member) return { kind: "notIntern", name, open };
+    return { kind: open ? "notMember" : "noList", name, open };
+  }
+
+  // 企業調査だけを読み直す（調査中で開いた会社に、調べ終わったら画面で出すため。1社の中身を全部読み直すと SF なども読みにいくので分ける）
+  app.get("/api/mccall/leads/:id/research", guard(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const r = (await P().query(`SELECT list_id, research, research_at FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
+    if (!r || !(await myListIds(req)).includes(r.list_id)) return res.status(404).json({ error: "このリードは見つかりません" });
+    res.json({ ok: true, research: r.research_at ? r.research : null });
+  }));
   // ---- 1社の中身（開くとほかの人の順番から外す） ----
   app.get("/api/mccall/leads/:id", guard(async (req, res) => {
     const id = parseInt(req.params.id, 10); const u = me(req);
@@ -1486,6 +1578,8 @@ export function registerMcCall(app, deps) {
     const viaInbound = await inboundAllows(u, id, req.query.inbound).catch(() => false);
     if (!viaInbound && !(await myListIds(req)).includes(lead.list_id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
     if (req.query.lock === "1") await P().query(`UPDATE mc_call_leads SET locked_by=$2, locked_at=now() WHERE id=$1`, [id, u]);
+    // まだ企業調査が済んでいない会社を開いたら、先に調べるよう頼む（画面は「調査中」と出し、かけるのは止めない）
+    if (!lead.research_at) researchSoon([id]);
     const names = await nameMap();
     // 元のデータ（Bales は最新の取り込みを読む。DOC は call_targets を読むだけ）
     let data = {}, sf = null, detail = null;
@@ -2100,7 +2194,8 @@ export function registerMcCall(app, deps) {
   }));
   app.get("/api/mccall/meta", guard(async (req, res) => {
     // 管理者の画面には、いま管理者として扱っている人の名前も返す（苗字で照合しているので、漏れや取り違えを見えるように）
-    const admins = isAdmin(req) && deps.adminNames ? await deps.adminNames().catch(() => []) : [];
+    // 管理者の名前はインターンにも返す（「かける」が止まったときに、だれに知らせればよいかを画面に出すため）
+    const admins = deps.adminNames ? await deps.adminNames().catch(() => []) : [];
     res.json({ ok: true, reach: REACH, rejectReasons: REJECT_REASONS, admin: isAdmin(req), admins, me: me(req) });
   }));
 }

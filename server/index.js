@@ -34,6 +34,7 @@ import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar }
 import { askBot } from "./askbot.js";
 import { registerMcCall } from "./mccall.js";
 import { handleZoomPhoneEvent } from "./mcplay.js";
+import { rosterHit, startsWithSurname } from "./mcname.js";   // 名前の照合（異体字・姓名の順などをそろえる）（2026-11-23）
 import { registerMcDash, MCDASH_ROSTER } from "./mcdash.js";   // SHOBO のダッシュボード（SF・Zoom Phone・シフト表を毎回読む）（2026-11-17）   // SHOBO の架電（DOC の kincall とは別の表）（2026-11-16）
 import { mcAuditMiddleware, registerMcAudit } from "./mcaudit.js";   // MOCHICA の書き込み操作を「いつ・だれが・何を」DBに残す（2026-11-19 福井さん）
 import { registerTeleapoScience } from "./teleapo_routes.js";   // テレアポ科学モデル v1：文字起こし→問題の場所の診断（2026-11-16）
@@ -876,8 +877,6 @@ async function internAccess(email) {
   if (hit && Date.now() - hit.at < 30 * 1000) return hit.v;
   let v = { doc: false, mc: false };
   try {
-    const nz = (s) => String(s || "").normalize("NFKC").replace(/[\s　]/g, "");
-    const roster = new Set(MCDASH_ROSTER.is.flatMap((p) => [nz(p.sf), nz(p.zoom)]).filter(Boolean));
     // 名簿はまとめて1回だけ読む（/api/mochica/reps で全員ぶん判定するため）
     if (!_internSrc || Date.now() - _internSrc.at > 30 * 1000) {
       _internSrc = { at: Date.now(), p: Promise.all([listMembers().catch(() => []), listUsers().catch(() => [])]) };
@@ -885,7 +884,8 @@ async function internAccess(email) {
     const [members, users] = await _internSrc.p;
     const m = (members || []).find((x) => String(x.email || "").toLowerCase() === k);
     const u = (users || []).find((x) => String(x.email || "").toLowerCase() === k);
-    const inRoster = roster.has(nz(u && u.name)) || roster.has(nz(m && m.name));
+    // 名前は異体字（賴/頼・齊/斉/斎）・空白・全半角・かな・姓名の順の違いをそろえて比べる（mcname.js）
+    const inRoster = !!(rosterHit(u && u.name, MCDASH_ROSTER.is) || rosterHit(m && m.name, MCDASH_ROSTER.is));
     const kc = !!(m && Array.isArray(m.roles) && m.roles.includes("kincall"));
     const biz = m && Array.isArray(m.businesses) ? m.businesses : [];
     v = { mc: inRoster || (kc && biz.includes("MOCHICA")), doc: kc && (biz.includes("DOC") || (!biz.length && !inRoster)) };
@@ -899,7 +899,6 @@ const MCCALL_ADMIN_SURNAMES = ["福井", "本炭", "餌取", "齊藤", "斉藤",
 let _mcAdmins = null;
 async function mcCallAdmins() {
   if (_mcAdmins && Date.now() - _mcAdmins.at < 60 * 1000) return _mcAdmins.v;
-  const nz = (s) => String(s || "").normalize("NFKC").replace(/[\s　]/g, "");
   const v = new Map();   // email → 名前
   for (const e of String(process.env.MCCALL_ADMIN_EMAILS || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean)) v.set(e, e);
   try {
@@ -908,8 +907,8 @@ async function mcCallAdmins() {
     for (const u of users || []) {
       const email = String(u.email || "").toLowerCase(); if (!email) continue;
       const m = mByEmail.get(email);
-      const name = nz(u.name || (m && m.name));
-      if (!MCCALL_ADMIN_SURNAMES.some((s) => name.startsWith(nz(s)))) continue;
+      const name = u.name || (m && m.name);
+      if (!MCCALL_ADMIN_SURNAMES.some((s) => startsWithSurname(name, s))) continue;
       const biz = m && Array.isArray(m.businesses) ? m.businesses : [];
       if (biz.includes("DOC") && !biz.includes("MOCHICA")) continue;   // DOC だけの同じ苗字の人は入れない
       if ((await internAccess(email).catch(() => ({}))).mc) continue;   // インターン生は管理者にしない
@@ -30220,11 +30219,10 @@ app.get("/api/mochica/reps", async (req, res) => {
 let _mcMembers = null;
 async function mcCallMembers() {
   if (_mcMembers && Date.now() - _mcMembers.at < 60 * 1000) return _mcMembers.v;
-  const nz = (x) => String(x || "").normalize("NFKC").replace(/[\s　]/g, "");
-  const names = new Set([...MCDASH_ROSTER.sales.map((p) => nz(p.key)), ...MCDASH_ROSTER.is.flatMap((p) => [nz(p.sf), nz(p.zoom)])].filter(Boolean));
+  const roster = [...MCDASH_ROSTER.sales, ...MCDASH_ROSTER.is];
   const v = new Set((await mcCallAdmins().catch(() => new Map())).keys());
   const [members, users] = await Promise.all([listMembers().catch(() => []), listUsers().catch(() => [])]);
-  for (const x of [...(users || []), ...(members || [])]) { const e = String(x.email || "").toLowerCase(); if (e && names.has(nz(x.name))) v.add(e); }
+  for (const x of [...(users || []), ...(members || [])]) { const e = String(x.email || "").toLowerCase(); if (e && rosterHit(x.name, roster)) v.add(e); }
   _mcMembers = { at: Date.now(), v };
   return v;
 }
