@@ -34706,7 +34706,7 @@ app.get("/api/meetings/:id/prebrief", async (req, res) => {
         const f = await prebriefOppFields(owner);
         const core = company.normalize("NFKC").replace(/(株式会社|有限会社|合同会社|㈱|\(株\)|（株）)/g, "").replace(/[\s　'\\%_]/g, "").slice(0, 40);
         if (core.length >= 2) {
-          const cols = [...new Set(["Id", "Name", "StageName", "CloseDate", "CreatedDate", "RecordType.Name", "Account.Name", f.memo, f.hires, f.date, f.lossReason, f.lossDetail].filter(Boolean))];
+          const cols = [...new Set(["Id", "Name", "StageName", "CloseDate", "CreatedDate", "IsClosed", "IsWon", "RecordType.Name", "Account.Name", f.memo, f.hires, f.date, f.lossReason, f.lossDetail].filter(Boolean))];
           const d = await sfQuery(owner, `SELECT ${cols.join(", ")} FROM Opportunity WHERE Account.Name LIKE '%${core}%' ORDER BY CreatedDate DESC LIMIT 40`);
           const key = normCompanyKey(company);
           const recs = (d.records || []).filter((o) => { const kk = normCompanyKey((o.Account && o.Account.Name) || ""); return kk && (kk === key || kk.includes(key) || key.includes(kk)); });
@@ -34715,7 +34715,11 @@ app.get("/api/meetings/:id/prebrief", async (req, res) => {
           const pick = recs.filter((o) => typ(o)).sort((a, b) => dt(b).localeCompare(dt(a)));
           sf.opps = pick.slice(0, 6).map((o) => ({ id: o.Id, type: typ(o), name: o.Name || "", stage: o.StageName || "", date: dt(o) }));
           const lt = pick[0];
-          if (lt) sf.latest = { type: typ(lt), name: lt.Name || "", date: dt(lt), stage: lt.StageName || "", memo: f.memo ? String(lt[f.memo] || "") : "", lossReason: f.lossReason ? String(lt[f.lossReason] || "") : "", lossDetail: f.lossDetail ? String(lt[f.lossDetail] || "") : "", url: `https://neo-media.my.salesforce.com/lightning/r/Opportunity/${lt.Id}/view` };
+          // 失注理由は「失注した商談」の直近から（受注した商談の項目には受注の理由が入っているため）
+          const lo = pick.find((o) => o.IsClosed && !o.IsWon) || recs.find((o) => o.IsClosed && !o.IsWon);
+          if (lt) sf.latest = { type: typ(lt), name: lt.Name || "", date: dt(lt), stage: lt.StageName || "", memo: f.memo ? String(lt[f.memo] || "") : "", url: `https://neo-media.my.salesforce.com/lightning/r/Opportunity/${lt.Id}/view`,
+            lossReason: lo && f.lossReason ? String(lo[f.lossReason] || "") : "", lossDetail: lo && f.lossDetail ? String(lo[f.lossDetail] || "") : "", lossDate: lo ? dt(lo) : "", lossType: lo ? typ(lo) : "" };
+          sf.fields = { date: f.date || "CloseDate", memo: f.memo, hires: f.hires, lossReason: f.lossReason, lossDetail: f.lossDetail };
           sf.hires = (f.hires && (pick.map((o) => o[f.hires]).find((v) => v != null && String(v).trim() !== "") ?? "")) || "";
           sf.ok = true;
           if (!recs.length) sf.note = "SF にこの会社の商談が見つかりませんでした";
@@ -34723,7 +34727,7 @@ app.get("/api/meetings/:id/prebrief", async (req, res) => {
       } else sf.note = "Salesforce につながっていないため、SF の情報は出せません";
     } catch (e) { sf.note = `SF の情報を読めませんでした（${String(e.message || e).slice(0, 80)}）`; }
     if (sf.hires === "" && t.hires != null) { sf.hires = String(t.hires); sf.hiresFrom = "kincall"; }
-    res.json({ ok: true, company, corp, is, sf, found: { kincall: !!L.target, apo: !!L.apo } });
+    res.json({ ok: true, company, corp, is, sf, found: { kincall: !!L.target, apo: !!L.apo }, extraCols: Object.keys(ex).slice(0, 40) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/meetings/:id/recording", async (req, res) => {

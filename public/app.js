@@ -538,7 +538,7 @@ function renderPreBrief(box, d) {
         ${row("直近の商談日", lt ? `${e(lt.type)}　${e(lt.date)}<small class="pre-from">${e(lt.stage)}</small>` : dash)}
         ${row("クロス・MOCHICA", `<span class="pre-chips">${opps}</span>`)}
         ${row("商談メモ", lt && lt.memo ? `<div class="pre-long">${e(lt.memo)}</div>` : dash)}
-        ${row("失注理由", lt && lt.lossReason ? e(lt.lossReason) : dash)}
+        ${row("失注理由", lt && lt.lossReason ? `${e(lt.lossReason)}${lt.lossDate ? `<small class="pre-from">${e(lt.lossType)} ${e(lt.lossDate)} の失注</small>` : ""}` : dash)}
         ${row("失注理由詳細", lt && lt.lossDetail ? `<div class="pre-long">${e(lt.lossDetail)}</div>` : dash)}</section>
     </div>`;
 }
