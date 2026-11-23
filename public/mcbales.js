@@ -14,7 +14,7 @@ const hotLine = (h) => (h ? `<span class="bl-lc-hot mini" title="ホット ${Num
 const HOTS = [["hot", "ホット", "担当者名・ニーズ・検討時期の3つ"], ["warm", "ウォーム", "3つのうち2つ"], ["cold", "コールド", "1つ以下・まだ判定していない"]];
 // stg=mcuser（MOCHICA ユーザー）の表の見出し用。STG の箱には出さない
 const STG_EXTRA = { mcuser: "MOCHICAユーザー", ng: "アプローチ禁止", pastlost: "過去失注リスト", out: "対象外" };
-const STG = [["call", "かけるリスト", "リサイクル・アーカイブ以外（ナーチャリングも含む）"], ["nurture", "ナーチャリング", "ジャッジ・営業フォロー・資料送付"], ["recycle", "リサイクル", "ステージがリサイクル"], ["archive", "アーカイブ", "ステージがアーカイブ"]];
+const STG = [["call", "かけるリスト", "リサイクル・アーカイブ以外"], ["nurture", "ナーチャリング", "ジャッジ・営業フォロー・資料送付"], ["recycle", "リサイクル", "ステージがリサイクル"], ["archive", "アーカイブ", "ステージがアーカイブ"]];
 (function () {
   const $ = (id) => document.getElementById(id);
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
