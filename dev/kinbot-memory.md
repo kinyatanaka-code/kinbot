@@ -2986,3 +2986,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-24 田中さん「利用ATSがある企業は採用媒体に ATS 名」「採用媒体は API でリンク付きで」：findJobMediaLinks（companyenrich.js・Brave 2回・求人サイトの URL かつ題名/説明に会社名）→ GET /api/prebrief/media、prebrief_media に7日キャッシュ。ATS は商談の利用中ATS→リードの ATS__c。
 - 2026-11-24 採用媒体の検索：Brave が 402（契約の枠切れ）で断られていた。Gemini 2.5 の google_search で補う（答えの URL と根拠のリンクから媒体のドメインのものだけ）。Brave の契約は田中さんの判断待ち。
 - 2026-11-24 BUILD_TAG=2026-11-24hr：下見で足立10・趙6・小賀坂5が当たらなかった（Bales の名前が名字だけ）。名簿のインサイドの名字と1人だけ一致すればその人にする（rosterOf）。
+- 2026-11-24 福井さん「表記ゆれも7つの表記に統合・正規化」「架電後に自動でセールスステージも変更」：SF のリードの状況の一括そろえは管理者の画面 /mcstage.html（API /api/mccall/stage-norm、控えは mc_stage_norm・mc_stage_runs で回ごとに元に戻せる。対応表は server/mcstage.js の normCode：潜在顧客→01、Qualified→03、LS:02　アプローチ済→02、決められない値は残す）。MOCHICALL の記録のあと autoStage で進める（進めるだけ・99 不可・コンバート用の値は書かない・取り消しで戻す、結果は mc_call_logs.sf_stage）。kincall の選択肢も pickLeadStages で7つ。stageBucket は「01：新規」も NEW。

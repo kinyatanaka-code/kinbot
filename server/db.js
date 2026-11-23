@@ -5301,14 +5301,15 @@ export async function listContentIds(listIds, { keepNurture = true, keepDone = t
 // ステージの区分（掛け合わせのアポ率用）：NEW／なし／担当者未接触／ジャッジ／リサイクル／その他
 export const STAGE_BUCKET_SQL = (col) => `CASE WHEN ${col} ~ 'ジャッジ|営業フォロー' THEN 'ジャッジ'
   WHEN ${col} ~ 'リサイクル' THEN 'リサイクル' WHEN ${col} ~ '未接触' THEN '担当者未接触'
-  WHEN btrim(COALESCE(${col},'')) = '' THEN 'なし' WHEN ${col} ~* '^\\s*new\\s*$' THEN 'NEW' ELSE 'その他' END`;
+  WHEN btrim(COALESCE(${col},'')) = '' THEN 'なし' WHEN ${col} ~* '^\\s*(new|(LS:)?\\s*01\\s*[：:　 ]?\\s*(新規|new))\\s*$' THEN 'NEW' ELSE 'その他' END`;
+// ↑「01：新規」「LS:01　New」も NEW に数える（2026-11-24 SF のリードの状況を7つの表記にそろえたため）
 export function stageBucket(stage) {
   const st = String(stage || "").trim();
   if (/ジャッジ|営業フォロー/.test(st)) return "ジャッジ";
   if (/リサイクル/.test(st)) return "リサイクル";
   if (/未接触/.test(st)) return "担当者未接触";
   if (!st) return "なし";
-  if (/^new$/i.test(st)) return "NEW";
+  if (/^(new|(LS:)?\s*01\s*[：:　 ]?\s*(新規|new))$/i.test(st)) return "NEW";   // 「01：新規」「LS:01　New」も NEW（2026-11-24）
   return "その他";
 }
 // ソース × かけた時点のステージ ごとの、コール数とアポ数（直近 months か月）。

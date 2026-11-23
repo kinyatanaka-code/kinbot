@@ -19,12 +19,12 @@ import { notifyPerson } from "./chat.js";
 import { teamOf, teamLabel, splitFree, slotScore, pickFs } from "./mcteam.js";   // IS と FS のチーム（2026-11-23）
 import { fixMojibake } from "./docs.js";
 import { pastApproach, balesItems, dedupeTimeline, startZoomSync, spokenText, spokenData } from "./mchist.js";   // リードの過去アプローチを BALES・SF・Zoom Phone・DOC から集める（2026-11-20）
-import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord, connectionInfo as sfConnInfo, describeObject } from "./salesforce.js";
+import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord, sfUpdateMany, connectionInfo as sfConnInfo, describeObject } from "./salesforce.js";
 import { judgeHot } from "./mchot.js";
 import { lookupMynaviFree } from "./mcresearch.js";   // マイナビの調べも AI・有料の検索を使わない（2026-11-20 福井さん）
 import { showableResearch, CHECK_V, STALE_DAYS } from "./mcfresh.js";   // 企業調査は今の募集と確かめた採用情報だけを画面に出す（2026-11-23）   // マイナビの調べも AI・有料の検索を使わない（2026-11-20 福井さん）
 import { fetchPageText } from "./companyenrich.js";
-import { pickLeadStages, stageOf } from "./mcstage.js";   // リードの状況は基本の7つだけ出す（2026-11-24）
+import { pickLeadStages, stageOf, stageCode, normCode, autoStage, LEAD_STAGES } from "./mcstage.js";   // リードの状況は基本の7つだけ出す（2026-11-24）
 import { segOf, SEG_V, SF_LEAD_FIELDS, sfLeadRow, balesCarry, sfLeadWhere } from "./mcseg.js";
 import { ensurePlay, talkForLead, activeTalks, saveTalks, listsWithTalk, measures, researchGate, researchSoon, researchState, inboundFor, inboundAllows, startPlayPumps, TALK_LABELS } from "./mcplay.js";
 import { CADENCE, BENCH, WHY_HUMAN, jstDayStart, jstAt, nextMissAt, hourRates, slotNow, rankQueue } from "./mccadence.js";
@@ -128,6 +128,13 @@ async function ensure() {
     await q(`CREATE INDEX IF NOT EXISTS ix_mc_sf_fills_day ON mc_sf_fills(created_at)`);
     await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS sf_pick JSONB`);
     await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS sf_fill_done BOOLEAN NOT NULL DEFAULT false`);
+    // 架電のあとにリードの状況を自動で進めた結果 { old, new } か { err }（2026-11-24）。取り消したときに戻すのに使う
+    await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS sf_stage JSONB`);
+    // リードの状況の表記をそろえた控え（2026-11-24）。1件ずつ前の値を残し、まとめて元に戻せるようにする
+    await q(`CREATE TABLE IF NOT EXISTS mc_stage_runs (id SERIAL PRIMARY KEY, by_user TEXT, scope TEXT, total INT DEFAULT 0, done INT DEFAULT 0, ok INT DEFAULT 0, ng INT DEFAULT 0,
+      state TEXT DEFAULT 'running', note TEXT, started_at TIMESTAMPTZ DEFAULT now(), ended_at TIMESTAMPTZ)`);
+    await q(`CREATE TABLE IF NOT EXISTS mc_stage_norm (id SERIAL PRIMARY KEY, run_id INT, sf_lead_id TEXT, old_val TEXT, new_val TEXT, ok BOOLEAN, err TEXT, reverted BOOLEAN NOT NULL DEFAULT false, at TIMESTAMPTZ DEFAULT now())`);
+    await q(`CREATE INDEX IF NOT EXISTS ix_mc_stage_norm_run ON mc_stage_norm(run_id)`);
     // アポのあとの流れ（担当 FS・カレンダーの予定・FS への知らせ）の結果（2026-11-23）。取り消したときに予定を消すのにも使う
     await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS apo_flow JSONB`);
     // マイナビ（新卒）の掲載の有無と中身。会社ごとに1回だけ調べて持っておく（同じ会社を何度も検索しないため）
@@ -661,6 +668,7 @@ export function registerMcCall(app, deps) {
     try {
       const cur = await sfCurrent(owner, g.sf_lead_id, true);
       if (cur.IsConverted) return done(null);   // コンバート済みのリードは SF が書き換えを断る。活動だけ残す
+      await stageAfterCall(owner, g, cur);
       const plan = planFills(fillCands({ hearing: g.hearing, gate: g.gate, reason: g.reason, outcome: g.outcome, memo: g.memo }), cur, { day });
       const { fields, used } = pickedFields(plan, g.sf_pick || {});
       if (!used.length) return done(null);
@@ -680,6 +688,36 @@ export function registerMcCall(app, deps) {
       console.error("[mccall] SF のリードの項目を書けませんでした", g.id, e.message);
       return done(e.message);
     }
+  }
+  // 架電の結果からリードの状況を自動で進める（2026-11-24 福井さん「架電後に自動でセールスステージも変更」）。
+  //   どこまで進めるかは mcstage.js の autoStage（進めるだけで戻さない・99 は触らない）。
+  //   コンバートでしか付けられない値（SF の LeadStatus で IsConverted）は書かない。失敗しても架電の記録と項目の書き込みは続ける
+  async function stageAfterCall(owner, g, cur) {
+    if (g.sf_stage) return;
+    const to = autoStage({ reach: g.reach, outcome: g.outcome }, cur.Status);
+    if (!to) return;
+    try {
+      const sv = await stageValues(owner); const val = sv.byCode.get(to);
+      if (!val || sv.conv.has(val)) return;
+      await sfUpdateRecord(owner, "Lead", g.sf_lead_id, { Status: val });
+      await P().query(`UPDATE mc_call_logs SET sf_stage=$2 WHERE id=$1`, [g.id, { old: cur.Status || "", new: val }]);
+      console.log(`[mccall] 架電のあとリードの状況を進めた log=${g.id} ${cur.Status || "（空）"}→${val}`);
+      cur.Status = val; _sfCur.delete(g.sf_lead_id);
+    } catch (e) {
+      console.error("[mccall] リードの状況を進められませんでした", g.id, e.message);
+      await P().query(`UPDATE mc_call_logs SET sf_stage=$2 WHERE id=$1`, [g.id, { err: String(e.message).slice(0, 200), want: to }]).catch(() => {});
+    }
+  }
+  // 7つの番号 → SF に書く値。あわせて、コンバートでしか付けられない値（直接は書けない）を覚える。30分だけ覚える
+  let _stVals = null;
+  async function stageValues(owner) {
+    if (_stVals && Date.now() - _stVals.at < 30 * 60e3) return _stVals.v;
+    const opts = await statusPicklist(owner);
+    const byCode = new Map(); for (const o of opts) { const c = stageCode(o.value); if (c && !byCode.has(c)) byCode.set(c, o.value); }
+    const conv = new Set();
+    try { for (const r of (await sfQuery(owner, `SELECT ApiName, MasterLabel FROM LeadStatus WHERE IsConverted = true`)).records || []) { if (r.ApiName) conv.add(r.ApiName); if (r.MasterLabel) conv.add(r.MasterLabel); } }
+    catch (e) { throw new Error(`コンバート用のリードの状況を SF から読めませんでした（${String(e.message).slice(0, 80)}）`); }   // 読めないまま書くと、コンバートでしか付けられない値を書きに行くので止める（覚えもしない）
+    _stVals = { at: Date.now(), v: { byCode, conv } }; return _stVals.v;
   }
   // SF に書けていない記録（書いている途中で止まった＝2分たっても結果が無いものも含む）。nolead は別に数える
   const SF_FAIL = `NOT g.undone AND g.sf_task_id IS NULL AND COALESCE(g.sf_err,'') <> 'nolead' AND (g.sf_err IS NOT NULL OR g.created_at < now() - interval '2 minutes')`;
@@ -2033,6 +2071,107 @@ export function registerMcCall(app, deps) {
     console.log(`[mccall] リードの状況を変えた lead=${parseInt(req.params.id, 10)} ${cur.Status || "（空）"}→${st} by ${me(req)}`);
     res.json({ ok: true, current: st, prev: cur.Status || "" });
   }));
+  // ---- リードの状況の表記をそろえる（2026-11-24 福井さん「全て表記ゆれも7つの表記に統合および正規化」） ----
+  //   SF の未コンバートのリードで、7つの表記（statusPicklist で選んだ値）になっていないものを、番号の値へまとめて書き換える。
+  //   管理者だけ。開くと下見（値ごとの件数と行き先）だけを返し、「そろえる」で動かす。1件ずつ前の値を mc_stage_norm に残し、元に戻せる。
+  //   範囲は MOCHICA のリード（レコードタイプに Mochica を含む）か、すべてのリード
+  const soqlStr = (v) => String(v ?? "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const rtWhere = (scope) => scope === "all" ? "" : ` AND RecordType.Name LIKE '%Mochica%'`;
+  async function normPlan(owner, scope) {
+    const sv = await stageValues(owner); const keep = new Set(sv.byCode.values());
+    const rows = (await sfQuery(owner, `SELECT Status, RecordType.Name rt, COUNT(Id) n FROM Lead WHERE IsConverted = false${rtWhere(scope)} GROUP BY Status, RecordType.Name`)).records || [];
+    const m = new Map();
+    for (const r of rows) {
+      const st = r.Status || ""; if (keep.has(st)) continue;
+      const code = st ? normCode(st) : null; const to = code ? sv.byCode.get(code) || null : null;
+      const x = m.get(st) || { from: st, to: to && !sv.conv.has(to) ? to : null, why: !st ? "空の値" : !code ? "7つのどれにあたるか決められない" : !to ? "SF に行き先の値が無い" : sv.conv.has(to) ? "コンバートでしか付けられない値" : "", n: 0, rts: {} };
+      x.n += r.n; x.rts[r.rt || "（なし）"] = (x.rts[r.rt || "（なし）"] || 0) + r.n; m.set(st, x);
+    }
+    const items = [...m.values()].sort((a, b) => b.n - a.n);
+    return { stages: LEAD_STAGES.map((s) => ({ ...s, value: sv.byCode.get(s.code) || null })), items, move: items.filter((x) => x.to).reduce((a, x) => a + x.n, 0), stay: items.filter((x) => !x.to).reduce((a, x) => a + x.n, 0) };
+  }
+  const _normJob = { id: null };
+  async function normRun(owner, runId, plan, scope) {
+    let done = 0, ok = 0, ng = 0;
+    const tick = () => P().query(`UPDATE mc_stage_runs SET done=$2, ok=$3, ng=$4 WHERE id=$1`, [runId, done, ok, ng]).catch(() => {});
+    try {
+      for (const it of plan.items.filter((x) => x.to)) {
+        // Status も読む：SOQL の = は大文字小文字を区別しないので、控えには SF の実際の値を残す
+        const recs = await sfQueryAll(owner, `SELECT Id, Status FROM Lead WHERE IsConverted = false AND Status = '${soqlStr(it.from)}'${rtWhere(scope)}`, 400000);
+        for (let i = 0; i < recs.length; i += 200) {
+          const part = recs.slice(i, i + 200);
+          // 控えを SF を書き換える前に残す（書き換えたのに前の値が分からない、をなくすため）。結果はあとで書き足す
+          const ids = (await P().query(`INSERT INTO mc_stage_norm (run_id, sf_lead_id, old_val, new_val, ok, err) SELECT $1, a, b, $2, false, 'これから' FROM unnest($3::text[], $4::text[]) AS t(a,b) RETURNING id, sf_lead_id`,
+            [runId, it.to, part.map((r) => r.Id), part.map((r) => r.Status || it.from)])).rows;
+          const byId = new Map(ids.map((r) => [r.sf_lead_id, r.id]));
+          const res = await sfUpdateMany(owner, "Lead", part.map((r) => ({ Id: r.Id, Status: it.to })));
+          await P().query(`UPDATE mc_stage_norm m SET ok=t.b, err=NULLIF(t.c,'') FROM unnest($1::int[], $2::bool[], $3::text[]) AS t(a,b,c) WHERE m.id=t.a`,
+            [part.map((r) => byId.get(r.Id)), res.map((r) => r.ok), res.map((r) => r.error)]);
+          done += res.length; ok += res.filter((r) => r.ok).length; ng += res.filter((r) => !r.ok).length; await tick();
+        }
+      }
+      await P().query(`UPDATE mc_stage_runs SET state='done', done=$2, ok=$3, ng=$4, ended_at=now() WHERE id=$1`, [runId, done, ok, ng]);
+    } catch (e) {
+      console.error("[mccall] リードの状況をそろえる途中で止まりました", runId, e.message);
+      await P().query(`UPDATE mc_stage_runs SET state='error', note=$2, done=$3, ok=$4, ng=$5, ended_at=now() WHERE id=$1`, [runId, String(e.message).slice(0, 300), done, ok, ng]).catch(() => {});
+    } finally { _normJob.id = null; _stVals = null; _sfCur.clear(); }
+  }
+  // 元に戻す：その回で書き換えたリードのうち、SF の値がこちらの書いたままのものだけ前の値へ（ほかの人が変えたものは触らない）
+  async function normRevert(owner, runId, revId) {
+    let done = 0, ok = 0, ng = 0;
+    try {
+      const rows = (await P().query(`SELECT id, sf_lead_id, old_val, new_val FROM mc_stage_norm WHERE run_id=$1 AND ok AND NOT reverted ORDER BY id`, [runId])).rows;
+      for (let i = 0; i < rows.length; i += 200) {
+        const part = rows.slice(i, i + 200);
+        const now = new Map(((await sfQuery(owner, `SELECT Id, Status FROM Lead WHERE Id IN (${part.map((r) => `'${soqlStr(r.sf_lead_id)}'`).join(",")})`)).records || []).map((r) => [r.Id, r.Status]));
+        const back = part.filter((r) => now.get(String(r.sf_lead_id)) === r.new_val);   // 控えの ID は SF から読んだ18桁のままなので、そのまま比べる
+        const res = back.length ? await sfUpdateMany(owner, "Lead", back.map((r) => ({ Id: r.sf_lead_id, Status: r.old_val }))) : [];
+        const okIds = back.filter((r, j) => res[j] && res[j].ok).map((r) => r.id);
+        if (okIds.length) await P().query(`UPDATE mc_stage_norm SET reverted=true WHERE id = ANY($1::int[])`, [okIds]);
+        done += part.length; ok += okIds.length; ng += back.length - okIds.length;
+        await P().query(`UPDATE mc_stage_runs SET done=$2, ok=$3, ng=$4 WHERE id=$1`, [revId, done, ok, ng]).catch(() => {});
+      }
+      await P().query(`UPDATE mc_stage_runs SET state='done', done=$2, ok=$3, ng=$4, ended_at=now() WHERE id=$1`, [revId, done, ok, ng]);
+    } catch (e) {
+      await P().query(`UPDATE mc_stage_runs SET state='error', note=$2, ended_at=now() WHERE id=$1`, [revId, String(e.message).slice(0, 300)]).catch(() => {});
+    } finally { _normJob.id = null; _stVals = null; _sfCur.clear(); }
+  }
+  const runsNow = async () => (await P().query(`SELECT id, by_user, scope, total, done, ok, ng, state, note, started_at, ended_at FROM mc_stage_runs ORDER BY id DESC LIMIT 10`)).rows
+    .map((r) => ({ ...r, state: r.state === "running" && _normJob.id !== r.id ? "stopped" : r.state }));   // サーバーが入れ替わって止まった回は「止まった」と出す（もう一度押せば残りを続ける）
+  app.get("/api/mccall/stage-norm", adminOnly(async (req, res) => {
+    const scope = req.query.scope === "all" ? "all" : "mochica";
+    res.json({ ok: true, scope, ...(await normPlan(await sfActor(req), scope)), running: _normJob.id, runs: await runsNow() });
+  }));
+  app.post("/api/mccall/stage-norm/run", adminOnly(async (req, res) => {
+    // 確かめたらすぐ（await の前に）札を取る。二度押しや2人の同時操作で2つ走ると、2回目の控えに1回目の値が入って戻せなくなるため
+    if (_normJob.id) return res.status(409).json({ error: "いま、そろえている途中です。終わってからもう一度押してください" });
+    _normJob.id = "準備中";
+    let id;
+    try {
+      const scope0 = (req.body || {}).scope === "all" ? "all" : "mochica"; const owner0 = await sfActor(req);
+      const plan0 = await normPlan(owner0, scope0);
+      if (!plan0.move) { _normJob.id = null; return res.json({ ok: true, nothing: true, runs: await runsNow() }); }
+      id = (await P().query(`INSERT INTO mc_stage_runs (by_user, scope, total) VALUES ($1,$2,$3) RETURNING id`, [me(req), scope0, plan0.move])).rows[0].id;
+      req._norm = { owner: owner0, plan: plan0, scope: scope0 };
+    } catch (e) { _normJob.id = null; throw e; }
+    const { owner, plan, scope } = req._norm;
+    _normJob.id = id; console.log(`[mccall] リードの状況をそろえ始めた run=${id} scope=${scope} ${plan.move}件 by ${me(req)}`);
+    normRun(owner, id, plan, scope);
+    res.json({ ok: true, run: id, total: plan.move });
+  }));
+  app.post("/api/mccall/stage-norm/revert/:id", adminOnly(async (req, res) => {
+    if (_normJob.id) return res.status(409).json({ error: "いま、ほかの処理の途中です。終わってからもう一度押してください" });
+    _normJob.id = "準備中";   // 実行と同じく、確かめたらすぐ札を取る
+    const runId = parseInt(req.params.id, 10); let owner, id, n;
+    try {
+      n = +(await P().query(`SELECT count(*) n FROM mc_stage_norm WHERE run_id=$1 AND ok AND NOT reverted`, [runId])).rows[0].n;
+      if (!n) { _normJob.id = null; return res.status(400).json({ error: "この回で戻せるリードはありません" }); }
+      owner = await sfActor(req);
+      id = (await P().query(`INSERT INTO mc_stage_runs (by_user, scope, total, note) VALUES ($1,'revert',$2,$3) RETURNING id`, [me(req), n, `${runId} 回目を元に戻す`])).rows[0].id;
+    } catch (e) { _normJob.id = null; throw e; }
+    _normJob.id = id; normRevert(owner, runId, id);
+    res.json({ ok: true, run: id, total: n });
+  }));
   // 自動の掛け直しを解除する
   app.post("/api/mccall/leads/:id/clear-next", guard(async (req, res) => {
     await P().query(`UPDATE mc_call_leads SET next_at=NULL, next_why=NULL WHERE id=$1`, [parseInt(req.params.id, 10)]); res.json({ ok: true });
@@ -2193,6 +2332,15 @@ export function registerMcCall(app, deps) {
         if (Object.keys(back).length) { await sfUpdateRecord(owner, "Lead", fills[0].sf_lead_id, back); _sfCur.delete(fills[0].sf_lead_id); }
         sf += `${sf ? "。" : ""}SF のリードの項目 ${Object.keys(back).length} 件を前の値に戻しました`;
       } catch (e) { sf += `${sf ? "。" : ""}SF のリードの項目は戻せませんでした（${String(e.message).slice(0, 80)}）`; }
+    }
+    // この記録で自動で進めたリードの状況：SF の値が進めたままなら前の値へ戻す（ほかの人が変えたあとなら触らない）
+    if (g.sf_stage && g.sf_stage.new && !g.sf_stage.old) sf += `${sf ? "。" : ""}リードの状況は前が空だったので戻していません（いまは「${g.sf_stage.new}」。必要なら選び直してください）`;
+    if (g.sf_stage && g.sf_stage.new && g.sf_stage.old) {
+      try {
+        const sid = ((await P().query(`SELECT sf_lead_id FROM mc_call_leads WHERE id=$1`, [g.lead_id])).rows[0] || {}).sf_lead_id;
+        const owner = await sfActor(req); const cur = sid ? await sfCurrent(owner, sid, true) : null;
+        if (cur && !cur.IsConverted && cur.Status === g.sf_stage.new) { await sfUpdateRecord(owner, "Lead", sid, { Status: g.sf_stage.old }); _sfCur.delete(sid); sf += `${sf ? "。" : ""}リードの状況を「${g.sf_stage.old}」に戻しました`; }
+      } catch (e) { sf += `${sf ? "。" : ""}リードの状況は戻せませんでした（${String(e.message).slice(0, 80)}）`; }
     }
     // アポの取り消し：ここで作った予定を消し、FS に知らせる
     if (g.outcome === "apo" && g.apo_flow) { const u2 = await undoApo(g).catch((e) => `予定の片付けが途中で止まりました（${String(e.message).slice(0, 80)}）`); if (u2) sf += `${sf ? "。" : ""}${u2}`; }

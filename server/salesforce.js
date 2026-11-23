@@ -332,6 +332,23 @@ export async function sfUpdateRecord(owner, sobject, id, fields) {
   if (!res.ok) throw new Error(`SF update ${res.status}: ${(await res.text()).slice(0, 300)}`);
   return { ok: true, id: rid };
 }
+// まとめて更新する（1回に200件まで。2026-11-24 リードの状況の表記をそろえるため）。
+//   allOrNone=false なので、入力規則などで断られた行があっても残りは書ける。行ごとの成否を返す
+export async function sfUpdateMany(owner, sobject, records) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const so = String(sobject || "").replace(/[^A-Za-z0-9_]/g, "");
+  const rows = (records || []).slice(0, 200).map((r) => ({ ...r, Id: String(r.Id || "").replace(/[^A-Za-z0-9]/g, ""), attributes: { type: so } }));
+  if (!so || !rows.length) return [];
+  const res = await fetch(`${acc.instanceUrl}/services/data/${API_VERSION}/composite/sobjects`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ allOrNone: false, records: rows }),
+  });
+  if (!res.ok) throw new Error(`SF update ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const out = await res.json();
+  return rows.map((r, i) => ({ id: r.Id, ok: !!(out[i] && out[i].success), error: out[i] && !out[i].success ? (out[i].errors || []).map((e) => `${e.statusCode}: ${e.message}`).join(" / ").slice(0, 200) : "" }));
+}
 // 任意オブジェクトのレコードを新規作成する（POST）。
 export async function sfCreateRecord(owner, sobject, fields) {
   const acc = await getAccess(owner);

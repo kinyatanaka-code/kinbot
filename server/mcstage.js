@@ -41,3 +41,42 @@ export function stageOf(v) {
   if (/^(new|新規)$/.test(t)) return LEAD_STAGES[0];
   return LEAD_STAGES.find((s) => t === s.name.toLowerCase()) || null;
 }
+
+// 表記ゆれを7つのどれにそろえるか（2026-11-24 福井さん「表記ゆれも7つの表記に統合および正規化」）。
+//   番号・名前で決まるもの（stageOf）に加えて、SF の最初からある値と旧い運用の名前もここで決める。
+//   どれにも当たらない値は null（そろえずに残し、画面に「対応なし」と出して人が決める）
+const ALIAS = new Map([
+  ["潜在顧客", "01"], ["open", "01"], ["未対応", "01"],
+  ["アプローチ済", "02"], ["アプローチ中", "02"], ["接触", "02"],
+  ["担当者接触", "03"], ["qualified", "03"],
+  ["ナーチャリング", "04"],
+  ["アポ獲得", "05"], ["converted", "05"],
+]);
+export function normCode(v) {
+  const s = stageOf(v); if (s) return s.code;
+  const t = String(v || "").normalize("NFKC").replace(/^\s*LS\s*:\s*\d{2}/i, "").replace(/^\s*\d{2}\s*[:：]?/, "").trim().toLowerCase();
+  if (!t) return null;
+  const byName = LEAD_STAGES.find((x) => x.name.toLowerCase() === t); if (byName) return byName.code;
+  return ALIAS.get(t) || null;
+}
+
+// 架電のあと、結果からリードの状況を自動で進める（2026-11-24 福井さん「架電後に自動でセールスステージも変更」）。
+//   ・進めるだけで戻さない（04 ジャッジのリードに不在が付いても 02 に戻さない）。05 コンバートは自動では触らない上限
+//   ・99 アーカイブは触らない（かけないと決めたものを、架電の結果で勝手に戻さない）
+//   ・89 リサイクルはまたかけ始めたものなので、最初（01 と同じ）から数える
+//   ・番号不備（現在使われておりません）でも 99 にはしない（会社が無いとは限らないため。02 まで）
+//   ・7つのどれにあたるか決められない値（独自の値）は触らない。空は 01 と同じに扱う
+//   返すのは変える先の番号。変えないときは null
+const RANK = { "01": 1, "02": 2, "03": 3, "04": 4, "05": 5, "89": 0 };
+export function targetCode({ reach, outcome } = {}) {
+  if (reach === "person") return outcome === "apo" ? "05" : outcome === "reject" ? "04" : ["follow", "doc_send", "inquiry"].includes(outcome) ? "03" : null;
+  if (reach === "gate" || reach === "none") return "02";
+  return null;
+}
+export function autoStage(call, current) {
+  const to = targetCode(call); if (!to) return null;
+  const now = String(current || "").trim() ? normCode(current) : "01";
+  if (now == null || now === "99") return null;   // 7つのどれか決められない値は、人が付けた意味が分からないので触らない
+  const r = RANK[now] ?? 0;
+  return RANK[to] > r ? to : null;
+}

@@ -35,6 +35,7 @@ import { zoomPresence, zoomPhoneConfigured, zoomPhonePing, zoomPhoneUsers, zoomP
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
 import { askBot } from "./askbot.js";
 import { registerMcCall } from "./mccall.js";
+import { pickLeadStages } from "./mcstage.js";   // リードの状況は基本の7つ（kincall も MOCHICALL とそろえる：2026-11-24）
 import { handleZoomPhoneEvent } from "./mcplay.js";
 import { rosterHit, startsWithSurname } from "./mcname.js";   // 名前の照合（異体字・姓名の順などをそろえる）（2026-11-23）
 import { loadPeople, registeredKeys, MCCALL_ADMIN_SURNAMES } from "./mcpeople.js";   // 名簿の人をメールで結びつける（判定はメールが最優先）（2026-11-23）
@@ -10127,7 +10128,10 @@ async function callPicklists(owner) {
       return m ? Number(m[1]) : 9999;
     };
     const 番号付き = all.filter((v) => 番号(v) !== 9999).sort((a, b) => 番号(a) - 番号(b));
-    out.リードの状態 = 番号付き.length ? 番号付き : all;
+    // 番号付きの中にも「04ジャッジ」と「04：ジャッジ」のような表記ゆれが並ぶので、MOCHICALL と同じ基本の7つに1つずつ絞る（2026-11-24 福井さん）。
+    //   値と名前は SF の値のまま（ステージ列やほかの集計と食い違わないように）
+    const 七つ = pickLeadStages(all).map((v) => ({ value: v.value, label: v.value }));
+    out.リードの状態 = 七つ.length ? 七つ : 番号付き.length ? 番号付き : all;
   } catch (e) { console.warn("[kincall] リードの状態を取れません:", e.message); }
 
   // 実際に使う結果だけに絞る。
@@ -35029,7 +35033,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-24dn 採用媒体：Gemini の答えの文の URL は使わず、検索で実際に見つかった根拠のリンクだけ出す（文の URL は作り物があった）。／2026-11-24hr 引き継ぎ：Bales の名前が名字だけの所有者（足立・趙・小賀坂）も名簿の名字1人一致で渡す。／2026-11-24dm 採用媒体の検索：Brave が使えない（402）ときは Gemini の Google 検索で媒体のページを探す。／2026-11-24dl 採用媒体の検索：2回を間をあけて順に（同時だと断られる）。何も返らなかったときは覚えず理由を出す。／2026-11-24dk 事前情報の採用媒体：検索（Brave）で媒体のページをリンク付きで探す（会社ごとに1週間覚える・AI は使わない）。SF に利用中の ATS があれば先頭に出す。／2026-11-24hq 引き継ぎ：未ログインのインターンにも Bales の所有者のメールで渡す。／2026-11-24dj レコーディングの事前情報の並び：左＝企業情報・IS情報、中央＝SF情報、右＝メモ（縦いっぱい）。／2026-11-24lst MOCHICALL：リードの状況の選択肢を SF の基本の7つ（01：新規・02：担当者未接触・03：コネクト情報獲得・04：ジャッジ・05：コンバート・89：リサイクル・99：アーカイブ）だけに。番号ごとに1つ（「01：」の形を優先）、選んだ段階の意味を下に出す。今の値が古い名前（NEW・LS:89 など）なら「旧」と付けて出す。／2026-11-24hp 引き継ぎの管理者画面 /mchandover.html を足した。Bales の営業フォロー（コネクト情報獲得・ジャッジ）を所有者のまま MOCHICALL の本人の掛け直しへ引き継ぐ（POST /api/mccall/bales-handover、管理者だけ・既定は下見）";
+const BUILD_TAG = "2026-11-24stg リードの状況（SF）：①表記ゆれをそろえる管理者の画面 /mcstage.html（NEW・LS:89　リサイクル・04ジャッジ・Qualified などを基本の7つの表記へまとめて書き換える。開くと下見、「そろえる」で実行、前の値を1件ずつ残し回ごとに元に戻せる。範囲は MOCHICA かすべて）。②MOCHICALL で記録すると、結果からリードの状況を自動で進める（つながらない・受付→02、担当者と話せた・資料送付・営業フォロー→03、お断り→04、アポ→05。進めるだけで戻さない・99 は触らない・コンバート用の値は書かない。記録を取り消すと戻す）。③kincall のリードの状況の選択肢も同じ7つに。④掛け合わせのアポ率の区分で「01：新規」も NEW に数える。／2026-11-24dn 採用媒体：Gemini の答えの文の URL は使わず、検索で実際に見つかった根拠のリンクだけ出す（文の URL は作り物があった）。／2026-11-24hr 引き継ぎ：Bales の名前が名字だけの所有者（足立・趙・小賀坂）も名簿の名字1人一致で渡す。／2026-11-24dm 採用媒体の検索：Brave が使えない（402）ときは Gemini の Google 検索で媒体のページを探す。／2026-11-24dl 採用媒体の検索：2回を間をあけて順に（同時だと断られる）。何も返らなかったときは覚えず理由を出す。／2026-11-24dk 事前情報の採用媒体：検索（Brave）で媒体のページをリンク付きで探す（会社ごとに1週間覚える・AI は使わない）。SF に利用中の ATS があれば先頭に出す。／2026-11-24hq 引き継ぎ：未ログインのインターンにも Bales の所有者のメールで渡す。／2026-11-24dj レコーディングの事前情報の並び：左＝企業情報・IS情報、中央＝SF情報、右＝メモ（縦いっぱい）。／2026-11-24lst MOCHICALL：リードの状況の選択肢を SF の基本の7つ（01：新規・02：担当者未接触・03：コネクト情報獲得・04：ジャッジ・05：コンバート・89：リサイクル・99：アーカイブ）だけに。番号ごとに1つ（「01：」の形を優先）、選んだ段階の意味を下に出す。今の値が古い名前（NEW・LS:89 など）なら「旧」と付けて出す。／2026-11-24hp 引き継ぎの管理者画面 /mchandover.html を足した。Bales の営業フォロー（コネクト情報獲得・ジャッジ）を所有者のまま MOCHICALL の本人の掛け直しへ引き継ぐ（POST /api/mccall/bales-handover、管理者だけ・既定は下見）";
 const BUILD_FEATURES = [
   "MOCHICALL：Bales で追いかけ中（コネクト情報獲得・ジャッジ×最終架電が営業フォロー）のリードを、Bales の所有者のインターンの掛け直しへ引き継ぐ",
   "リスト管理：BALES標準CSVとSalesforceの未登録リードをリスト追加から取り込める",
