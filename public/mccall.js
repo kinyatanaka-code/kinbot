@@ -519,7 +519,17 @@
     if (!g.name && !g.hours && !g.direct) return;
     try { const j = await post(`/api/mccall/leads/${L.id}/gate`, g); L.gate = j.gate; drawLeft(); } catch (e) { setNotice([{ kind: "danger", text: `受付で聞けたことを保存できませんでした：${e.message}` }]); }
   }
-  function growMemo(el) { el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight + 2, Math.round(window.innerHeight * 0.45))}px`; }
+  function growMemo(el) {
+    const col = el.closest(".mcc-col"); const st = col ? col.scrollTop : 0;
+    el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight + 2, Math.round(window.innerHeight * 0.45))}px`;
+    if (col) col.scrollTop = st;   // 高さを測り直す間に画面が跳ねないように
+    // 書いている行が、下に張り付いた「記録して次へ」の帯に隠れないよう、欄の下の端まで見せる（デモで最後の行が隠れていた）
+    const foot = col && col.querySelector(".mcc-foot");
+    if (foot && document.activeElement === el && getComputedStyle(foot).position === "sticky") {
+      const over = el.getBoundingClientRect().bottom - foot.getBoundingClientRect().top + 8;
+      if (over > 0) col.scrollTop += over;
+    }
+  }
   function choose(k, label) {
     const f = S.f;
     if (f.step === "reach") {
