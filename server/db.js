@@ -13134,9 +13134,9 @@ const BAPO = `(COALESCE(r.data->>'callResult','') ~ 'アポ獲得')`;
 const BCALLED = `(COALESCE(r.data->>'callResult','') <> '')`;
 const BAPO_SEL = `count(*) FILTER (WHERE ${BAPO}) AS apo, count(*) FILTER (WHERE ${BCALLED}) AS called`;
 const apoOf = (x) => ({ apo: Number(x.apo || 0), called: Number(x.called || 0) });
-// MOCHICA ユーザーは省く（2026-11-23 田中さん「MOCHICAユーザーを省きたい」）：SF と結びついた取引先に、レコードタイプ「新規」で
-//   フェーズが「08：受注処理完了」の商談があるリード。表・件数・絞り込みの数から外す（データは消さない）
-export const BALES_MCU = `EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(sf->'opps') = 'array' THEN sf->'opps' ELSE '[]'::jsonb END) mo WHERE mo->>'type' = '新規' AND mo->>'stage' LIKE '%受注処理完了%')`;
+// MOCHICA ユーザーは省く（2026-11-23 田中さん「MOCHICAユーザーを省きたい」）：SF と結びついた取引先に、商談名に「新規」が付いていて
+//   フェーズが「08：受注処理完了」の商談があるリード（レコードタイプではなく商談名で見る：2026-11-23 田中さん）。表・件数・絞り込みの数から外す（データは消さない）
+export const BALES_MCU = `EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(sf->'opps') = 'array' THEN sf->'opps' ELSE '[]'::jsonb END) mo WHERE mo->>'name' LIKE '%新規%' AND mo->>'stage' LIKE '%受注処理完了%')`;
 export const BALES_SRC_COLS = [0, 1, 2, 3, 4].map((i) => `data->>'leadSources.${i}.name'`).join(",");
 export function balesCr(v) { const t = String(v || ""); for (const [k, re] of BALES_CR) if (new RegExp(re).test(t)) return k; return "-"; }
 export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100, hot = "", sort = "", cr = "", col2 = "", val2 = "", sf = "", src = "", stg = "" } = {}) {
