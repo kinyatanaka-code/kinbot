@@ -13109,8 +13109,9 @@ export const BALES_CR = [
   ["コールのみ", "^\\s*コールのみ\\s*$"],
   ["問い合わせ", "^\\s*問い合わせ\\s*$"],
 ];
+export const BALES_SRC_COLS = [0, 1, 2, 3, 4].map((i) => `data->>'leadSources.${i}.name'`).join(",");
 export function balesCr(v) { const t = String(v || ""); for (const [k, re] of BALES_CR) if (new RegExp(re).test(t)) return k; return "-"; }
-export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100, hot = "", sort = "", cr = "", col2 = "", val2 = "", sf = "" } = {}) {
+export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100, hot = "", sort = "", cr = "", col2 = "", val2 = "", sf = "", src = "" } = {}) {
   if (!pool) return { total: 0, rows: [] }; await ensureMcBales();
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return { total: 0, rows: [] };
   const w = [`list_key=$1`, `run_at=$2`]; const p = [listKey, l.run_at];
@@ -13131,6 +13132,11 @@ export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset 
     return "";
   };
   const sfW = many(sf).map(sfCond).filter(Boolean); if (sfW.length) w.push(`(${sfW.join(" OR ")})`);
+  //   リードの出どころ（Bales の leadSources。1件に複数あり、平らにして leadSources.0.name〜4.name に入っている）（2026-11-23 田中さん「リードのでどころでリスト作って」）
+  const srcs = many(src); if (srcs.length) { const sw = []; const names = srcs.filter((x) => x !== "-");
+    if (names.length) { p.push(names); sw.push(`ARRAY[${BALES_SRC_COLS}] && $${p.length}::text[]`); }
+    if (srcs.includes("-")) sw.push(`COALESCE(array_to_string(ARRAY[${BALES_SRC_COLS}], ''), '') = ''`);
+    w.push(`(${sw.join(" OR ")})`); }
   // ホット度で絞る：hot（3つそろい）／warm（2つ）／cold（1つ以下）／warm+（2つ以上）
   const HW = { hot: "hot >= 3", warm: "hot = 2", cold: "COALESCE(hot,0) <= 1", "warm+": "hot >= 2" }; if (HW[hot]) w.push(HW[hot]);
   // 架電結果（kincall の6つ）で絞る。前の結果に当たるものは外す（上から順に当てはめるのと同じにする）。「未架電」は結果が空のもの
@@ -13161,6 +13167,14 @@ export async function mcBalesSfValues(listKey) {
       count(*) FILTER (WHERE ${sn} = 0 AND COALESCE(sf->'sum'->>'status','') = '') AS none
     FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2`, [listKey, l.run_at])).rows[0] || {};
   return { leads, won: Number(c.won || 0), lost: Number(c.lost || 0), open: Number(c.open || 0), none: Number(c.none || 0) };
+}
+// リードの出どころごとの件数（リスト管理の「出どころ」のカード）。出どころの無いリードは「-」
+export async function mcBalesSources(listKey) {
+  if (!pool) return []; await ensureMcBales();
+  const base = `FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1`;
+  const named = (await pool.query(`SELECT v, count(*) AS n ${base.replace("WHERE", ", LATERAL (SELECT DISTINCT x AS v FROM unnest(ARRAY[" + BALES_SRC_COLS.replace(/data->>/g, "r.data->>") + "]) x WHERE COALESCE(x,'') <> '') s WHERE")} GROUP BY v ORDER BY 2 DESC LIMIT 200`, [listKey])).rows.map((x) => ({ v: x.v, n: Number(x.n) }));
+  const none = Number((await pool.query(`SELECT count(*) AS n ${base} AND COALESCE(array_to_string(ARRAY[${BALES_SRC_COLS.replace(/data->>/g, "r.data->>")}], ''), '') = ''`, [listKey])).rows[0].n);
+  return none ? [...named, { v: "-", n: none }] : named;
 }
 export async function mcBalesValues(listKey, col) {
   if (!pool) return []; await ensureMcBales();

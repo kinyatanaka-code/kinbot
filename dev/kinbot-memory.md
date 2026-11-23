@@ -2883,3 +2883,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-23 田中さん：kinXs のコネクタに list_voices（要望・問い合わせ）を足した。候補者の質問は前から list_ai_questions・ai_question_summary で読める。
 - 2026-11-23 田中さん：SHOWIN（mochica）の左メニューを 商談 → MOCHICALL → リスト管理 → アポイント → ダッシュボード の順に。「商談（MiiTel）」は「商談」に。
 - 2026-11-23 田中さん：SHOWIN のリスト管理の「見張り（架電の記録）」は一旦非表示（mcbales.js の SHOW_FEEDS=false。取り込みは止めていない）。
+- 2026-11-23 田中さん：SHOWIN のリスト管理で「すべてのリード」の隣に、リードの出どころ（leadSources.0〜4.name）ごとのリストのカードを並べる（/sources で件数、rows の src で絞る。出どころ無しは「-」）。
