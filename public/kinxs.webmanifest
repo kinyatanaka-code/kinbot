@@ -1,0 +1,15 @@
+{
+  "name": "kinXs",
+  "short_name": "kinXs",
+  "description": "DOC を使っている会社の状況・納品・更新・フォローをまとめて見る",
+  "start_url": "/kinxs?p=home",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f2f5f4",
+  "theme_color": "#0B3B2E",
+  "icons": [
+    { "src": "/kinxs-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/kinxs-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/kinxs-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
