@@ -11,7 +11,7 @@
     <link rel="manifest" href="/kinxs.webmanifest" />
     <meta name="theme-color" content="#0B3B2E" />
     <meta name="apple-mobile-web-app-title" content="kinXs" />
-    <link rel="stylesheet" href="style.css?v=20261124v" />
+    <link rel="stylesheet" href="style.css?v=20261124w" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1291,9 +1291,9 @@
   .mi-co{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #e1ebe6;border-radius:12px;padding:9px 12px;cursor:pointer;min-width:0}
   .mi-co:hover{border-color:#5DCAA5}
   .mi-co .t{min-width:0;flex:1}
-  .mi-co b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mi-co b{display:block;font-size:13px;white-space:normal;overflow-wrap:anywhere;line-height:1.35}   /* 会社名は折り返して全部見せる（2026-11-24 田中さん「会社名はぜんぶ見えてほしい」） */
   .mi-co small{display:block;font-size:11.5px;color:#5b6b66;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .mi-co .lb{font-size:10.5px;font-weight:700;color:#0F6E56;background:#e1f5ee;border-radius:99px;padding:2px 8px;white-space:nowrap}
+  .mi-co .lb{font-size:10.5px;font-weight:700;color:#0F6E56;background:#e1f5ee;border-radius:99px;padding:2px 8px;white-space:nowrap;flex:none}
   .mi-h{display:flex;align-items:center;gap:8px;margin:4px 0 8px;font-size:14px;font-weight:800;color:#0d5b47}
   .mi-tk{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #e1ebe6;border-radius:12px;padding:8px 12px;cursor:pointer;margin-bottom:6px}
   .mi-tk .d{font-size:11.5px;font-weight:800;min-width:54px;color:#4F6158}
@@ -1570,8 +1570,8 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261124v" defer></script>
-    <script src="kinxs.js?v=20261124v"></script>
+    <script src="kbchat.js?v=20261124w" defer></script>
+    <script src="kinxs.js?v=20261124w"></script>
   <script>
   // スマホのメニューの開け閉め。項目を押したら閉じる（2026-11-24）
   (function () {
