@@ -97,6 +97,7 @@ async function _exchangeCode(code, redirectUri, owner, codeVerifier) {
     instanceUrl: data.instance_url || null,
     sfUser: data.id || null,
   });
+  _sfDead.delete(owner); _sfTokenCache.delete(owner);   // 連携し直したら、切れていた印をすぐ消す
   return data;
 }
 
@@ -110,7 +111,16 @@ export function tokenOrgMismatch(row) {
   return tokenIsSandbox !== IS_SANDBOX_LOGIN;
 }
 
+// 連携が切れている人（SF がリフレッシュトークンを受け付けない＝invalid_grant）を覚えておく（2026-11-24）。
+//   前は「トークンが保存されているか」だけで「連携あり」としていたため、代わりの人（sfProxyUser）の連携が SF 側で切れても
+//   みんながその人に頼り続け、kincall の履歴が「なし」・Salesforce に接続できていない、が一斉に出た。
+//   切れたと分かった人は30分のあいだ「連携なし」と扱い、次に連携している人（運用者など）へ回す。連携し直したら、すぐ消す
+const _sfDead = new Map(); // owner -> 切れていると分かった時刻
+const SF_DEAD_MS = 30 * 60000;
+export function sfDeadOwners() { return [..._sfDead.entries()].map(([o, t]) => ({ owner: o, at: new Date(t).toISOString() })); }
 export async function isConnected(owner) {
+  const t = _sfDead.get(owner);
+  if (t && Date.now() - t < SF_DEAD_MS) return false;
   const row = await getSalesforceToken(owner);
   if (row && tokenOrgMismatch(row)) return false;
   return !!(row && row.refresh_token);
@@ -184,6 +194,7 @@ async function refreshAccess(owner) {
   if (!r.ok) {
     _sfTokenCache.delete(owner);
     await logSfDiag("refresh(トークン更新)", r.body || "");
+    if (/invalid_grant/i.test(String(r.body || ""))) { if (!_sfDead.has(owner)) console.warn(`[salesforce] ${owner} の連携が SF 側で切れています（再連携が必要）。しばらくほかの人の連携で代わりに動かします`); _sfDead.set(owner, Date.now()); }
     const err = new Error(`SF refresh ${r.status}: ${r.body}`);
     err.sfReauth = true; // フロントで再認証UIを出すためのフラグ
     throw err;
@@ -200,6 +211,7 @@ async function refreshAccess(owner) {
   const ttlSec = Number(data.expires_in) > 0 ? Number(data.expires_in) : 7200;
   const exp = Date.now() + Math.min(ttlSec, 7200) * 1000 - 5 * 60 * 1000;
   _sfTokenCache.set(owner, { token: data.access_token, instanceUrl, exp });
+  _sfDead.delete(owner);
   return { token: data.access_token, instanceUrl };
 }
 
