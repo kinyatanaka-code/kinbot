@@ -11,7 +11,7 @@
     <link rel="manifest" href="/kinxs.webmanifest" />
     <meta name="theme-color" content="#0B3B2E" />
     <meta name="apple-mobile-web-app-title" content="kinXs" />
-    <link rel="stylesheet" href="style.css?v=20261124w" />
+    <link rel="stylesheet" href="style.css?v=20261124x" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1277,11 +1277,18 @@
   .mi-kpi:hover{border-color:#5DCAA5}
 /* 下の段：キックオフから掲載中までを、進む順に矢印でつなぐ（2026-11-24 田中さん） */
 .mi-flow{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);gap:6px;align-items:stretch;margin:-4px 0 14px;}
-.mi-arr{display:flex;align-items:center;justify-content:center;color:#5DCAA5;}
+/* 矢印（2026-11-24 田中さん「もっとかっこよく」）：カードのあいだを細い緑の線でつなぎ、真ん中に丸い緑のボタン形の矢印。流れの向きに光がゆっくり走る */
+.mi-flow{gap:0;}
+.mi-arr{position:relative;width:34px;display:flex;align-items:center;justify-content:center;}
+.mi-arr::before{content:"";position:absolute;left:-2px;right:-2px;top:50%;height:2px;transform:translateY(-50%);border-radius:2px;background:linear-gradient(90deg,#BFE6D6,#5DCAA5,#BFE6D6);background-size:200% 100%;animation:miFlow 2.4s linear infinite;}
+.mi-arr i{position:relative;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;background:radial-gradient(120% 120% at 30% 20%,#5DCAA5 0%,#1d9e75 45%,#0d5b47 100%);box-shadow:0 4px 10px -3px rgba(13,91,71,.55),0 0 0 3px #fff;}
+.mi-arr i svg{margin-left:1px;}
+@keyframes miFlow{from{background-position:200% 0}to{background-position:0 0}}
+@media (prefers-reduced-motion:reduce){.mi-arr::before{animation:none;}}
 .mi-sub{display:flex;flex-wrap:wrap;gap:2px 8px;font-size:11px;font-weight:700;color:#5b6b66;}
 .mi-sub b{color:var(--c,#0d5b47);}
 #kh2 .h2-mine .mi-sub{display:none;}
-@media (max-width:760px){ .mi-flow{grid-template-columns:1fr;} .mi-arr{transform:rotate(90deg);height:16px;} }
+@media (max-width:760px){ .mi-flow{grid-template-columns:1fr;} .mi-arr{transform:rotate(90deg);height:30px;width:auto;} }
   .mi-kpi.on{border-color:var(--c,#1d9e75);box-shadow:0 0 0 3px color-mix(in srgb,var(--c,#1d9e75) 18%,transparent)}
   .mi-kpi .l{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#4F6158}
   .mi-kpi .l i{width:9px;height:9px;border-radius:50%;background:var(--c,#1d9e75);flex:none}
@@ -1570,8 +1577,8 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261124w" defer></script>
-    <script src="kinxs.js?v=20261124w"></script>
+    <script src="kbchat.js?v=20261124x" defer></script>
+    <script src="kinxs.js?v=20261124x"></script>
   <script>
   // スマホのメニューの開け閉め。項目を押したら閉じる（2026-11-24）
   (function () {
