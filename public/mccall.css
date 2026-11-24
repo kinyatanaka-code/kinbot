@@ -574,3 +574,11 @@
 @media (max-width:1200px), (max-height:649px){
   .mcc-script-text{flex:none;height:14em;}
 }
+/* 会社を探してかける（2026-11-24）。候補はバーの下に重ねて出す */
+.mcc-find{position:relative;flex:1 1 240px;max-width:360px;}
+.mcc-find input{width:100%;max-width:none;}
+.mcc-find-list{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:40;background:#fff;border:1px solid var(--c-line);border-radius:10px;box-shadow:0 6px 20px rgba(11,110,120,.14);max-height:360px;overflow:auto;}
+.mcc-find-row{display:flex;flex-direction:column;gap:2px;width:100%;text-align:left;border:0;border-bottom:1px solid var(--c-line);background:transparent;padding:8px 10px;cursor:pointer;font:inherit;}
+.mcc-find-row:hover,.mcc-find-row:focus{background:var(--c-soft);outline:0;}
+.mcc-find-row b{font-size:13px;color:var(--c-deep);}
+.mcc-find-row small{font-size:11px;color:var(--c-muted);}
