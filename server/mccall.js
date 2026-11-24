@@ -19,7 +19,7 @@ import { notifyPerson } from "./chat.js";
 import { teamOf, teamLabel, splitFree, slotScore, pickFs } from "./mcteam.js";   // IS と FS のチーム（2026-11-23）
 import { fixMojibake } from "./docs.js";
 import { pastApproach, balesItems, dedupeTimeline, startZoomSync, spokenText, spokenData } from "./mchist.js";   // リードの過去アプローチを BALES・SF・Zoom Phone・DOC から集める（2026-11-20）
-import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord, sfUpdateMany, connectionInfo as sfConnInfo, describeObject } from "./salesforce.js";
+import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord, sfUpdateMany, connectionInfo as sfConnInfo, describeObject, sfCreateRecord, sfUserIdByEmail } from "./salesforce.js";
 import { judgeHot } from "./mchot.js";
 import { lookupMynaviFree } from "./mcresearch.js";   // マイナビの調べも AI・有料の検索を使わない（2026-11-20 福井さん）
 import { showableResearch, CHECK_V, STALE_DAYS } from "./mcfresh.js";   // 企業調査は今の募集と確かめた採用情報だけを画面に出す（2026-11-23）   // マイナビの調べも AI・有料の検索を使わない（2026-11-20 福井さん）
@@ -2066,7 +2066,7 @@ export function registerMcCall(app, deps) {
   }
   app.get("/api/mccall/leads/:id/sf-status", guard(async (req, res) => {
     const r = await statusLead(req, parseInt(req.params.id, 10));
-    if (r.error) return res.status(r.code).json({ error: r.error }); if (r.none) return res.json({ ok: true, options: [], note: r.none });
+    if (r.error) return res.status(r.code).json({ error: r.error }); if (r.none) return res.json({ ok: true, options: [], note: r.none, unlinked: true });
     const owner = await sfActor(req);
     const [options, cur] = await Promise.all([statusPicklist(owner), sfCurrent(owner, r.lead.sf_lead_id)]);
     // 今の値が7つ以外の古い名前（「NEW」「LS:89　リサイクル」など）なら、どの段階にあたるかも返す（画面で「旧の値」と分かるように）
@@ -2086,6 +2086,85 @@ export function registerMcCall(app, deps) {
     _sfCur.delete(r.lead.sf_lead_id);
     console.log(`[mccall] リードの状況を変えた lead=${parseInt(req.params.id, 10)} ${cur.Status || "（空）"}→${st} by ${me(req)}`);
     res.json({ ok: true, current: st, prev: cur.Status || "" });
+  }));
+  // ---- SF のリードと結びついていない会社を、架電画面から SF につなぐ（2026-11-24 福井さん「架電画面から SF リード新規作成」） ----
+  //   リードの状況を変えられない・活動が SF に残らない、をその場でなくすため。
+  //   重複リードを作らないよう、先に SF の MOCHICA のリードを会社名・電話で探し、あれば「結びつける」を勧める。
+  //   新しく作るときのレコードタイプは必ず「Mochica（リード）」（DOC のリードと混ざらないように）。業種は人が SF の選択肢から選ぶ（AI は使わない）
+  const MC_RT = "Mochica（リード）";
+  async function mochicaRtId(owner) {
+    const d = await sfQuery(owner, `SELECT Id, Name FROM RecordType WHERE SobjectType = 'Lead' AND IsActive = true AND Name LIKE '%Mochica%'`);
+    const rs = d.records || []; const r = rs.find((x) => x.Name === MC_RT) || rs[0];
+    return r ? r.Id : "";
+  }
+  const phDigits = (p) => String(p || "").replace(/[^0-9]/g, "");
+  // 会社名のゆれ（株式会社の前後・かっこ書き）を落とした芯の部分。SOQL の LIKE で探すのに使う
+  const coCore = (c) => String(c || "").replace(/[（(][^）)]*[）)]/g, "").replace(/株式会社|有限会社|合同会社|一般社団法人|一般財団法人|医療法人|社会福祉法人|学校法人|\s/g, "").trim();
+  async function linkLead(req, id) {
+    const lead = (await P().query(`SELECT list_id, company, person, phone, info, sf_lead_id FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
+    if (!lead) return { code: 404, error: "このリードは見つかりません" };
+    if (!(await inboundAllows(me(req), id, (req.body || {}).inbound || req.query.inbound).catch(() => false)) && !(await myListIds(req)).includes(lead.list_id)) return { code: 403, error: "このリストはあなたの担当ではありません" };
+    if (lead.sf_lead_id && /^00Q[0-9A-Za-z]{12,15}$/.test(lead.sf_lead_id)) return { code: 400, error: "この会社はもう SF のリードと結びついています。画面を読み直してください" };
+    return { lead };
+  }
+  app.get("/api/mccall/leads/:id/sf-create", guard(async (req, res) => {
+    const r = await linkLead(req, parseInt(req.params.id, 10)); if (r.error) return res.status(r.code).json({ error: r.error });
+    const L = r.lead; const I = L.info || {}; const owner = await sfActor(req);
+    const core = coCore(L.company); const dg = phDigits(L.phone);
+    const ors = [];
+    if (core.length >= 2) ors.push(`Company LIKE '%${soqlStr(core).replace(/[%_]/g, "")}%'`);
+    if (L.phone) for (const p of new Set([String(L.phone).trim(), dg].filter((x) => x.length >= 8))) ors.push(`Phone = '${soqlStr(p)}'`, `MobilePhone = '${soqlStr(p)}'`);
+    let cands = [], candErr = "";
+    if (ors.length) {
+      try {
+        const recs = (await sfQuery(owner, `SELECT Id, Company, LastName, FirstName, Phone, MobilePhone, Status, IsConverted, Ban_Type__c, Owner.Name, LastActivityDate FROM Lead WHERE RecordType.Name LIKE '%Mochica%' AND (${ors.join(" OR ")}) ORDER BY IsConverted ASC, LastActivityDate DESC NULLS LAST LIMIT 10`)).records || [];
+        cands = recs.map((x) => ({ id: x.Id, company: x.Company || "", person: [x.LastName, x.FirstName].filter(Boolean).join(" "), phone: x.Phone || x.MobilePhone || "", status: x.Status || "",
+          converted: !!x.IsConverted, ban: x.Ban_Type__c || "", owner: (x.Owner && x.Owner.Name) || "", last: x.LastActivityDate || "",
+          samePhone: !!dg && [x.Phone, x.MobilePhone].some((p) => phDigits(p) === dg) }));
+      } catch (e) { candErr = `SF の同じ会社を探せませんでした（${String(e.message).slice(0, 80)}）`; }
+    }
+    const industries = globalThis.kbIndustry ? await globalThis.kbIndustry.options(owner).catch(() => []) : [];
+    res.json({ ok: true, cands, candErr, industries,
+      fields: { company: L.company || "", person: L.person || "", phone: L.phone || "", email: I.email || "", web: I.web || "" } });
+  }));
+  app.post("/api/mccall/leads/:id/sf-create", guard(async (req, res) => {
+    const id = parseInt(req.params.id, 10); const b = req.body || {};
+    const r = await linkLead(req, id); if (r.error) return res.status(r.code).json({ error: r.error });
+    const owner = await sfActor(req); let sfId = "", made = false;
+    if (b.link) {
+      // 既にある SF のリードに結びつける。コンバート済み・アプローチ禁止のものは結びつけない（あとで書けない・かけてはいけないため）
+      sfId = String(b.link).replace(/[^0-9A-Za-z]/g, "");
+      if (!/^00Q[0-9A-Za-z]{12,15}$/.test(sfId)) return res.status(400).json({ error: "SF のリードの ID ではありません" });
+      const x = ((await sfQuery(owner, `SELECT Id, IsConverted, Ban_Type__c, RecordType.Name FROM Lead WHERE Id = '${sfId}'`)).records || [])[0];
+      if (!x) return res.status(400).json({ error: "SF にそのリードが見つかりませんでした" });
+      if (x.IsConverted) return res.status(400).json({ error: "そのリードは SF でコンバート済みなので結びつけられません" });
+      if (x.Ban_Type__c) return res.status(400).json({ error: `そのリードはアプローチ禁止（${x.Ban_Type__c}）になっています。かける前に確かめてください` });
+      sfId = x.Id;
+    } else {
+      const f = b.fields || {}; const s = (v, n) => clip(String(v || "").trim(), n);
+      const company = s(f.company, 255); if (!company) return res.status(400).json({ error: "会社名を入れてください" });
+      const industry = s(f.industry, 80); if (!industry) return res.status(400).json({ error: "業種を選んでください（SF で必須です）" });
+      const opts = globalThis.kbIndustry ? (await globalThis.kbIndustry.options(owner).catch(() => [])).map((o) => o.value) : [];
+      if (opts.length && !opts.includes(industry)) return res.status(400).json({ error: "業種は SF の選択肢から選んでください" });
+      const rt = await mochicaRtId(owner);
+      if (!rt) return res.status(400).json({ error: `SF に「${MC_RT}」のレコードタイプが見つからないので作れません。管理者に確かめてください` });
+      const email = s(f.email, 80);
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: "メールアドレスの形が正しくありません" });
+      const fields = { RecordTypeId: rt, Company: company, LastName: s(f.person, 80) || "ご担当者", Industry: industry };
+      if (s(f.phone, 40)) fields.Phone = s(f.phone, 40);
+      if (email) fields.Email = email;
+      if (s(f.web, 255)) fields.Website = s(f.web, 255);
+      // 持ち主はかけた本人にする（代理アカウントのままだと、だれのリードか分からなくなるため）。見つからなければ SF の決まりに任せる
+      const uid = await sfUserIdByEmail(owner, me(req)).catch(() => ""); if (uid) fields.OwnerId = uid;
+      try { sfId = (await sfCreateRecord(owner, "Lead", fields)).id; }
+      catch (e) { return res.status(400).json({ error: `SF にリードを作れませんでした：${String(e.message).slice(0, 200)}` }); }
+      made = true;
+    }
+    // 作ったのに結びつけ損ねる、をなくすため、条件付きで書く（同時に別の人がつないでいたら上書きしない）
+    const u = await P().query(`UPDATE mc_call_leads SET sf_lead_id=$2 WHERE id=$1 AND (sf_lead_id IS NULL OR sf_lead_id !~ '^00Q') RETURNING id`, [id, sfId.slice(0, 18)]);
+    if (!u.rowCount) return res.status(409).json({ error: `ほかの人が先に SF のリードと結びつけていました${made ? `（いま作ったリード ${sfId} は SF に残っています。重複なら SF で消してください）` : ""}` });
+    console.log(`[mccall] SF のリードと結びつけた lead=${id} sf=${sfId} ${made ? "新しく作った" : "既存"} by ${me(req)}`);
+    res.json({ ok: true, sfId, made });
   }));
   // ---- リードの状況の表記をそろえる（2026-11-24 福井さん「全て表記ゆれも7つの表記に統合および正規化」） ----
   //   SF の未コンバートのリードで、7つの表記（statusPicklist で選んだ値）になっていないものを、番号の値へまとめて書き換える。
@@ -2450,6 +2529,21 @@ export function registerMcCall(app, deps) {
     const st = await getSettings().catch(() => ({}));
     return { subject: st.mcDocSendSubject || MC_DOC_SUBJECT, body: st.mcDocSendBody || MC_DOC_BODY, defaultDocId: st.mcDocDefaultId || "", cc: st.mcDocSendCc || "" };
   }
+  // メールの署名（2026-11-24 福井さん「署名と企業名とメールアドレスが自動で埋まるように」）
+  //   会社名・部署・電話は問い合わせフォームのひな形（MOCHICA 共通・管理者が入れる）、名前とメールは送る本人のもの。
+  //   毎回手で書くと抜けや書き間違いが出るので、資料送付・ヒアリングのメールの両方で同じ署名を使う
+  async function mailSig(req) {
+    const c = await formSettings().catch(() => ({})); const u = me(req);
+    const name = (await nameMap()).get(u) || "";
+    const line = "――――――――――――――――――";
+    return [line, c.company || "株式会社ネオキャリア", c.dept || "MOCHICA", name, c.tel ? `TEL：${c.tel}` : "", `Mail：${u}`, line].filter(Boolean).join("\n");
+  }
+  // 本文に {署名} があればそこへ、なければ最後に付ける。宛先の会社名が本文の頭に無ければ、宛名の上に足す
+  function withSig(body, { company, sig }) {
+    let t = String(body || "");
+    if (company && !t.slice(0, 200).includes(company)) t = `${company}\n${t}`;
+    return /\{署名\}/.test(t) ? t.replace(/\{署名\}/g, sig) : `${t.replace(/\s+$/, "")}\n\n${sig}`;
+  }
   // ---- doc-room（2026-11-17 福井さん）：MOCHICA の資料は doc-room の「会社ごとのルーム」で送る ----
   //   kinbot の資料トラッキングではなく doc-room（https://doc-room.vercel.app/console/）にそろえる。
   //   閲覧の通知・分析も doc-room 側で見る。管理キーは Railway の環境変数 DOC_ROOM_KEY（コードに書かない）。
@@ -2500,7 +2594,7 @@ export function registerMcCall(app, deps) {
       const to = (lead.hearing && lead.hearing.mail) || inf.email || ((inf.contacts || []).find((c) => c.email) || {}).email || emailOf(data, sf);
       const sender = (await nameMap()).get(me(req)) || "";
       const fill = (t) => String(t || "").replace(/\{担当者\}/g, person || "ご担当者").replace(/\{会社名\}/g, company).replace(/\{差出人\}/g, sender).replace(/\{資料名\}/g, doc.name || "ご案内資料");
-      res.json({ ok: true, to, cc: conf.cc, company, person, subject: fill(conf.subject), body: fill(conf.body), docId: doc.id, docName: doc.name,
+      res.json({ ok: true, to, cc: conf.cc, company, person, subject: fill(conf.subject), body: withSig(fill(conf.body), { company, sig: await mailSig(req) }), docId: doc.id, docName: doc.name,
         docs: docs.map((d) => ({ id: d.id, name: d.name })), google: await googleConnected(me(req)).catch(() => false),
         warn: to ? "" : "この会社のメールアドレスが見つかりませんでした。宛先を入れてください" });
     } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
@@ -2572,7 +2666,7 @@ export function registerMcCall(app, deps) {
       const last = (await P().query(`SELECT created_at FROM mc_hear_mails WHERE lead_id=$1 ORDER BY created_at DESC LIMIT 1`, [id])).rows[0] || null;
       res.json({ ok: true, to, company, person, keys,
         items: MAIL_ITEMS.map((it) => ({ k: it.k, no: it.no || "", label: it.label, group: it.group, heard: !!valueText(it, h, NEED_CHOICES) })),
-        subject: HEAR_MAIL_SUBJECT.replace(/\{会社名\}/g, company), body: hearMailBody({ company, person, sender, keys }),
+        subject: HEAR_MAIL_SUBJECT.replace(/\{会社名\}/g, company), body: withSig(hearMailBody({ company, person, sender, keys }), { company, sig: await mailSig(req) }),
         google: await googleConnected(me(req)).catch(() => false), last: last ? last.created_at : null,
         warn: to ? "" : "担当者のメールアドレスが見つかりませんでした。宛先を入れてください" });
     } catch (e) { res.status(e.status || 500).json({ error: e.message }); }

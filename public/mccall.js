@@ -330,6 +330,7 @@
     $("mccLeft").querySelectorAll("[data-ph]").forEach((a) => a.addEventListener("click", () => { S.f.phone = a.dataset.ph; S.f.dialed = true; loadSlots(); setTimeout(() => { drawLeft(); drawCenter(); drawTalk(); drawWork(); }, 0); }));
     $("mccEdit").addEventListener("click", editDialog);
     const st = $("mccLst"); if (st) st.addEventListener("change", () => changeStatus(st.value));
+    const sn = $("mccSfNew"); if (sn) sn.addEventListener("click", sfNewDialog);
   }
   // リードの状況（SF の Lead.Status）を架電中に変える（2026-11-23 福井さん「リードのリードステージを変更できるように」）。
   //   選択肢は SF の選択リストをそのまま出す。開いた会社ごとに1回だけ読み、選んだらすぐ SF に書く（記録ボタンとは別）
@@ -337,7 +338,8 @@
     const d = S.d; const T = S.lst && S.lst.leadId === d.lead.id ? S.lst : null;
     if (!T) return `<div class="mcc-lst"><span>リードの状況</span><small>読み込んでいます…</small></div>`;
     if (T.err) return `<div class="mcc-lst"><span>リードの状況</span><small class="err">SF から読めませんでした（${esc(T.err)}）</small></div>`;
-    if (!T.options.length) return T.note ? `<div class="mcc-lst"><span>リードの状況</span><small>${esc(T.note)}</small></div>` : "";
+    // SF のリードと結びついていない会社は、その場で SF のリードを作れる（2026-11-24 福井さん）
+    if (!T.options.length) return T.note ? `<div class="mcc-lst"><span>リードの状況</span><small>${esc(T.note)}</small>${T.unlinked ? '<button class="mcc-btn primary" id="mccSfNew" title="SF に MOCHICA のリードを作るか、もうあるリードと結びつけます">SF リードを作る</button>' : ""}</div>` : "";
     // 選べるのは基本の7つ（01〜05・89・99）だけ。今の値が古い名前（「NEW」など）なら「旧」と付けて先頭に出し、どの段階にあたるかを添える（2026-11-24 福井さん）
     const cur = T.options.find((o) => o.value === T.current);
     const opts = cur || !T.current ? T.options : [{ value: T.current, label: `旧：${T.current}` }, ...T.options];
@@ -347,7 +349,7 @@
       ${T.current ? "" : '<option value="" selected>（空）</option>'}${opts.map((o) => `<option value="${esc(o.value)}" ${o.value === T.current ? "selected" : ""}>${esc(o.label)}</option>`).join("")}</select>${note ? `<small class="mcc-lst-d">${esc(note)}</small>` : ""}</label>`;
   }
   async function loadStatus(id) {
-    try { const j = await api(`/api/mccall/leads/${id}/sf-status${isInbound(id) ? `?inbound=${S.inbound.id}` : ""}`); S.lst = { leadId: id, options: j.options || [], current: j.current || "", note: j.note || "", converted: !!j.converted, legacy: j.legacy || null }; }
+    try { const j = await api(`/api/mccall/leads/${id}/sf-status${isInbound(id) ? `?inbound=${S.inbound.id}` : ""}`); S.lst = { leadId: id, options: j.options || [], current: j.current || "", note: j.note || "", converted: !!j.converted, legacy: j.legacy || null, unlinked: !!j.unlinked }; }
     catch (e) { S.lst = { leadId: id, options: [], err: String(e.message).slice(0, 60) }; }
     if (S.d && S.d.lead.id === id) drawLeft();
   }
@@ -357,6 +359,35 @@
     try { const j = await post(`/api/mccall/leads/${id}/sf-status`, { status: v, inbound: isInbound(id) ? S.inbound.id : null }); T.current = j.current; toast(`SF のリードの状況を「${j.current}」にしました${j.prev ? `（前は「${j.prev}」）` : ""}`); }
     catch (e) { toast(`リードの状況を変えられませんでした：${e.message}`); }
     T.busy = false; if (S.d && S.d.lead.id === id) drawLeft();
+  }
+  // SF のリードを作る・結びつける（2026-11-24 福井さん）。重複を作らないよう、SF に同じ会社の MOCHICA のリードがあれば先に見せる
+  async function sfNewDialog() {
+    if (!S.d) return; const L = S.d.lead; const id = L.id; const ib = isInbound(id) ? S.inbound.id : null;
+    let j; try { j = await api(`/api/mccall/leads/${id}/sf-create${ib ? `?inbound=${ib}` : ""}`); } catch (e) { toast(`SF を確かめられませんでした：${e.message}`); return; }
+    const F = j.fields || {}; const cs = j.cands || [];
+    const done = async (r) => {
+      S.cache.delete(id); S.lst = null;
+      const d = await api(`/api/mccall/leads/${id}`); if (S.d && S.d.lead.id === id) { S.d = d; drawLeft(); drawNotices(); }
+      loadStatus(id); toast(r.made ? "SF に MOCHICA のリードを作って結びつけました" : "SF のリードと結びつけました");
+    };
+    const candHtml = cs.length ? `<div class="mcc-note" style="margin-top:10px"><b>SF に似た MOCHICA のリードがあります。同じ会社なら「結びつける」を押してください（重複を作らないため）</b></div>
+      <div style="display:grid;gap:6px;margin-top:6px">${cs.map((c) => `<div class="mcc-erow" style="align-items:center"><div style="flex:1;min-width:0"><b>${esc(c.company)}</b>${c.samePhone ? ' <small style="color:#0d5b47">電話が同じ</small>' : ""}<br><small>${esc([c.person, c.phone, c.status, c.owner ? `持ち主 ${c.owner}` : "", c.last ? `最後の活動 ${c.last}` : ""].filter(Boolean).join("・"))}${c.converted ? "・コンバート済み" : ""}${c.ban ? `・アプローチ禁止（${esc(c.ban)}）` : ""}</small></div>${c.converted || c.ban ? "<small>結びつけられません</small>" : `<button class="mcc-btn" data-link="${esc(c.id)}">結びつける</button>`}</div>`).join("")}</div>` : "";
+    const w = dialog(`SF リードを作る：${L.company || ""}`, "SF に MOCHICA のリード（レコードタイプ「Mochica（リード）」）を作り、この会社と結びつけます。結びつけると、リードの状況を変えられ、記録が SF の活動にも残ります。", "SF に作る", async (w) => {
+      const v = (s) => w.querySelector(s).value.trim();
+      const r = await post(`/api/mccall/leads/${id}/sf-create`, { inbound: ib, fields: { company: v("#mccNCo"), person: v("#mccNPe"), phone: v("#mccNPh"), email: v("#mccNMa"), web: v("#mccNWeb"), industry: v("#mccNInd") } });
+      await done(r);
+    }, `${j.candErr ? `<p class="mcc-note" style="color:#B4441F">${esc(j.candErr)}</p>` : ""}${candHtml}<div style="display:grid;gap:8px;margin-top:12px">
+      <label class="mcc-field">会社名<input id="mccNCo" value="${esc(F.company)}" /></label>
+      <label class="mcc-field">担当者名（空なら「ご担当者」で作ります）<input id="mccNPe" value="${esc(F.person)}" /></label>
+      <label class="mcc-field">電話<input id="mccNPh" inputmode="tel" value="${esc(F.phone)}" /></label>
+      <label class="mcc-field">メール<input id="mccNMa" type="email" value="${esc(F.email)}" /></label>
+      <label class="mcc-field">Web ページ<input id="mccNWeb" type="url" value="${esc(F.web)}" /></label>
+      <label class="mcc-field">業種（SF で必須）<select id="mccNInd" class="mcc-sel"><option value="">選んでください</option>${(j.industries || []).map((o) => `<option value="${esc(o.value)}">${esc(o.label || o.value)}</option>`).join("")}</select></label></div>`);
+    w.querySelectorAll("[data-link]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true;
+      try { const r = await post(`/api/mccall/leads/${id}/sf-create`, { inbound: ib, link: b.dataset.link }); w.remove(); S.dlg = null; await done(r); }
+      catch (e) { b.disabled = false; toast(`結びつけられませんでした：${e.message}`); }
+    }));
   }
   // MOCHICALL で足した担当者とメール（2026-11-18 福井さん「会社・担当者情報の編集と複数番号」）
   function contactsHtml(info) {
@@ -1583,7 +1614,7 @@
   // 資料送付のひな形（MOCHICA 専用。DOC の資料送付の設定とは別）（2026-11-17）
   async function tplDialog() {
     let c; try { c = await api("/api/mccall/doc-settings"); } catch (e) { toast(e.message); return; }
-    dialog("資料送付のひな形（MOCHICA）", "差し込み：{担当者} {会社名} {差出人} {資料名} {URL}。DOC の資料送付の設定は変わりません。", "保存する", async (w) => {
+    dialog("資料送付のひな形（MOCHICA）", "差し込み：{担当者} {会社名} {差出人} {資料名} {URL} {署名}。{署名} を書かなければ最後に自動で付きます（会社名・部署・電話は問い合わせフォームのひな形から）。DOC の資料送付の設定は変わりません。", "保存する", async (w) => {
       const v = (id) => w.querySelector(id).value;
       await api("/api/mccall/doc-settings", { method: "PUT", body: JSON.stringify({ subject: v("#mccTSub"), body: v("#mccTBody"), defaultDocId: v("#mccTDoc"), cc: v("#mccTCc") }) });
       toast("資料送付のひな形を保存しました");
