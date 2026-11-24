@@ -11,7 +11,7 @@
     <link rel="manifest" href="/kinxs.webmanifest" />
     <meta name="theme-color" content="#0B3B2E" />
     <meta name="apple-mobile-web-app-title" content="kinXs" />
-    <link rel="stylesheet" href="style.css?v=20261124u" />
+    <link rel="stylesheet" href="style.css?v=20261124v" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1278,6 +1278,9 @@
 /* 下の段：キックオフから掲載中までを、進む順に矢印でつなぐ（2026-11-24 田中さん） */
 .mi-flow{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);gap:6px;align-items:stretch;margin:-4px 0 14px;}
 .mi-arr{display:flex;align-items:center;justify-content:center;color:#5DCAA5;}
+.mi-sub{display:flex;flex-wrap:wrap;gap:2px 8px;font-size:11px;font-weight:700;color:#5b6b66;}
+.mi-sub b{color:var(--c,#0d5b47);}
+#kh2 .h2-mine .mi-sub{display:none;}
 @media (max-width:760px){ .mi-flow{grid-template-columns:1fr;} .mi-arr{transform:rotate(90deg);height:16px;} }
   .mi-kpi.on{border-color:var(--c,#1d9e75);box-shadow:0 0 0 3px color-mix(in srgb,var(--c,#1d9e75) 18%,transparent)}
   .mi-kpi .l{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#4F6158}
@@ -1567,8 +1570,8 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261124u" defer></script>
-    <script src="kinxs.js?v=20261124u"></script>
+    <script src="kbchat.js?v=20261124v" defer></script>
+    <script src="kinxs.js?v=20261124v"></script>
   <script>
   // スマホのメニューの開け閉め。項目を押したら閉じる（2026-11-24）
   (function () {

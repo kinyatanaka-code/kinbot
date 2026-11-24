@@ -2999,3 +2999,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-24dx 田中さん（iPhone の「ホーム画面に追加」で kinbot のアイコンが出たスクショ）「アイコンkinXsにして」：kinxs.html の apple-touch-icon が SVG（iPhone は使えない）で manifest も site.webmanifest（kinbot）だった。public/apple-touch-icon-kinxs.png（180・角は iPhone が丸める）・kinxs-192/512.png（kinxs.svg から Playwright で）と kinxs.webmanifest（name kinXs・start_url /kinxs?p=home）を足し、apple-mobile-web-app-title を kinXs に。4つのファイルはログインなしで読めるリストに。
 - 2026-11-24 田中さん「braveはチャージしたよ」：Brave 検索の枠切れ（402）が解けた。本番の /api/prebrief/media?fresh=1（岸本建設）で Brave の結果（doda・マイナビ転職・Indeed・キャリタス・リクナビ、求人ページの題名つき）が返るのを確認。コードはそのまま（Brave が使えるときは Brave、だめなときだけ Gemini の Google 検索）。
 - 2026-11-24 田中さん「今月・来月納品は上、キックオフから納品済み・掲載中までを下にずらして矢印を」：担当企業の数字を .mi-kpis（上）と .mi-flow（下・矢印 .mi-arr）に分けた。ホームの担当企業は2列で矢印なし。
+- 2026-11-24 田中さん「キックオフ未実施に、未設定と設定済みだけど未実施の数を」：キックオフ未実施のタイルに .mi-sub（ko=未設定 と それ以外＝予定あり・予定日過ぎ）。ホームでは出さない。
