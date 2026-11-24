@@ -2550,7 +2550,10 @@ async function renderMine(boxArg, opts = {}) {
     ["all", "担当ユーザー数", "#0d5b47", () => true, (x) => x.label],
     ["dw", "今月納品待ち", "#1d9e75", (x) => waitIng(x) && dlvYm(x) <= thisYm, dlvNote, (a, b) => dlvYm(a).localeCompare(dlvYm(b)) || String(a.name).localeCompare(String(b.name), "ja")],
     ["dn", "来月納品待ち", "#5DCAA5", (x) => waitIng(x) && dlvYm(x) === nextYm, dlvNote, (a, b) => String(a.name).localeCompare(String(b.name), "ja")],
-    ["ko", "キックオフ未実施", "#E0A100", (x) => (x.actions || []).some((a) => a.kind === "キックオフ未実施"), (x) => ((x.actions || []).find((a) => a.kind === "キックオフ未実施") || {}).detail || ""],
+    // キックオフ未実施＝CS の確認MTG（フォローMTG）がまだの会社（2026-11-24 田中さん）。キックオフ（FS）の予定が無い・済んでいない会社に加えて、
+    //   「フォローMTG設定済」（予定は入ったが、まだ実施していない）も入れる
+    ["ko", "キックオフ未実施", "#E0A100", (x) => (x.actions || []).some((a) => a.kind === "キックオフ未実施") || x.label === "フォローMTG設定済",
+      (x) => ((x.actions || []).find((a) => a.kind === "キックオフ未実施") || {}).detail || (x.label === "フォローMTG設定済" ? "フォローMTG設定済（確認MTGはまだ実施していません）" : "")],
     ["ks", "検収書の回収が必要", "#C43D3D", (x) => !x.delivered && !(String(x.kenshuSt || "").startsWith("回収済み") || x.kenshuSt === "対象外"), (x) => `検収書：${x.kenshuSt || "未回収"}${x.ksMonth ? `・回収予定 ${Number(x.ksMonth.slice(5))}月` : ""}`],
     ["ml", "納品メールの対応が必要", "#3F72C9", (x) => !String(x.mail || "").startsWith("送付済み") && (!x.delivered || !!x.ksMonth), (x) => `納品メール：${x.mail || "未送付"}`],
     ["np", "納品済み・未掲載", "#8A4B00", (x) => x.delivered && !pubd(x), (x) => `納品 ${x.deliveredOn || "—"}${x.noPlace ? "・未掲載と決めた会社" : ""}`],
@@ -2579,7 +2582,7 @@ async function renderMine(boxArg, opts = {}) {
       <div class="mi-flow">${["ko", "ks", "ml", "np", "pb"].map((k) => KS.find((x) => x[0] === k)).filter(Boolean).map(([k, l, c, f]) => {
         // キックオフ未実施は、「未設定（予定がまだ無い）」と「設定済み・未実施（予定はあるがまだやっていない）」に分けて出す（2026-11-24 田中さん）
         let sub = "";
-        if (k === "ko") { const ks0 = mine.filter(f).map((x) => (x.actions || []).find((a0) => a0.kind === "キックオフ未実施") || {}); const un = ks0.filter((a0) => a0.ko === "未設定").length;
+        if (k === "ko") { const ks0 = mine.filter(f).map((x) => (x.actions || []).find((a0) => a0.kind === "キックオフ未実施") || { ko: "設定済み" }); const un = ks0.filter((a0) => a0.ko === "未設定").length;
           sub = `<span class="mi-sub"><span>未設定 <b>${un}</b></span><span>設定済み・未実施 <b>${ks0.length - un}</b></span></span>`; }
         return `<button type="button" class="mi-kpi ${st.k === k ? "on" : ""}" style="--c:${c}" data-mk="${k}"><span class="l"><i></i>${esc(l)}</span><span class="v">${mine.filter(f).length}<small>社</small></span>${sub}</button>`; }).join('<span class="mi-arr" aria-hidden="true"><i><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5.5l6.5 6.5L9 18.5"/></svg></i></span>')}</div>
       ${st.k === "tk" ? `<div class="mi-h">タスク（ホームと同じもの・期日の近い順）</div><div data-mtk><div class="kx-note">読み込み中…</div></div>`
