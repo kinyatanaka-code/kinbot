@@ -2562,8 +2562,15 @@ async function renderMine(boxArg, opts = {}) {
     const list = cur ? mine.filter(cur[3]).sort(cur[5] || ((a, b) => String(b.booked || "").localeCompare(String(a.booked || "")))) : [];
     const whoSel = `<label class="kx-note" style="display:flex;align-items:center;gap:6px">CS 担当<select class="kx-in" data-mwho style="width:auto"><option value="">全員</option>${names.map((n) => `<option ${n === st.who ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label>`;
     box.innerHTML = `${home ? `<div class="h2-h"><h2>担当企業</h2><span class="h2-big">${mine.length}<small>社</small></span><a class="h2-link" href="/kinxs?p=mine" style="margin-left:auto">担当企業へ ›</a></div>` : `<div class="mi-tools">${whoSel}</div>`}
-      <div class="mi-kpis">${KS.map(([k, l, c, f]) => `<button type="button" class="mi-kpi ${st.k === k ? "on" : ""}" style="--c:${c}" data-mk="${k}"><span class="l"><i></i>${esc(l)}</span><span class="v">${mine.filter(f).length}<small>社</small></span></button>`).join("")}
+      ${(() => {
+        // 並び（2026-11-24 田中さん）：上の段＝担当ユーザー数・今月納品待ち・来月納品待ち（・タスク）、
+        //   下の段＝キックオフ未実施 → 検収書 → 納品メール → 納品済み・未掲載 → 納品済み・掲載中（進む順なので矢印でつなぐ）
+        const tl = ([k, l, c, f]) => `<button type="button" class="mi-kpi ${st.k === k ? "on" : ""}" style="--c:${c}" data-mk="${k}"><span class="l"><i></i>${esc(l)}</span><span class="v">${mine.filter(f).length}<small>社</small></span></button>`;
+        const TOP = ["all", "dw", "dn"];
+        return `<div class="mi-kpis">${KS.filter((x) => TOP.includes(x[0])).map(tl).join("")}`;
+      })()}
         ${home ? "" : `<button type="button" class="mi-kpi ${st.k === "tk" ? "on" : ""}" style="--c:#6B4FB8" data-mk="tk"><span class="l"><i></i>タスク</span><span class="v" data-mtk-n>…<small>件</small></span></button>`}</div>
+      <div class="mi-flow">${["ko", "ks", "ml", "np", "pb"].map((k) => KS.find((x) => x[0] === k)).filter(Boolean).map(([k, l, c, f]) => `<button type="button" class="mi-kpi ${st.k === k ? "on" : ""}" style="--c:${c}" data-mk="${k}"><span class="l"><i></i>${esc(l)}</span><span class="v">${mine.filter(f).length}<small>社</small></span></button>`).join('<span class="mi-arr" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13"/><path d="M13 6l6 6-6 6"/></svg></span>')}</div>
       ${st.k === "tk" ? `<div class="mi-h">タスク（ホームと同じもの・期日の近い順）</div><div data-mtk><div class="kx-note">読み込み中…</div></div>`
         : `<div class="mi-h">${esc(cur ? cur[1] : "")}<span class="kx-note">${list.length}社</span></div><div class="mi-list">${list.length ? list.map((x) => `<div class="mi-co" role="button" tabindex="0" data-mopen="${esc(x.id)}">${kxLogoMini(x)}<span class="t"><b>${esc(x.name)}</b><small>${esc(cur[4](x) || "")}</small></span><span class="lb">${esc(x.label)}</span></div>`).join("") : '<div class="kx-empty" style="grid-column:1/-1">ありません</div>'}</div>`}`;
     const wsel = box.querySelector("[data-mwho]"); if (wsel) wsel.addEventListener("change", (e) => { st.who = e.target.value; draw(); });

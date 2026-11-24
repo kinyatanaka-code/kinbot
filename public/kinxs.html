@@ -11,7 +11,7 @@
     <link rel="manifest" href="/kinxs.webmanifest" />
     <meta name="theme-color" content="#0B3B2E" />
     <meta name="apple-mobile-web-app-title" content="kinXs" />
-    <link rel="stylesheet" href="style.css?v=20261124t" />
+    <link rel="stylesheet" href="style.css?v=20261124u" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1275,6 +1275,10 @@
   .mi-kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px}
   .mi-kpi{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;background:#fff;border:1.5px solid #dcebe4;border-radius:14px;padding:12px 14px;cursor:pointer;font:inherit;color:#173a30;transition:border-color .15s,box-shadow .15s}
   .mi-kpi:hover{border-color:#5DCAA5}
+/* 下の段：キックオフから掲載中までを、進む順に矢印でつなぐ（2026-11-24 田中さん） */
+.mi-flow{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);gap:6px;align-items:stretch;margin:-4px 0 14px;}
+.mi-arr{display:flex;align-items:center;justify-content:center;color:#5DCAA5;}
+@media (max-width:760px){ .mi-flow{grid-template-columns:1fr;} .mi-arr{transform:rotate(90deg);height:16px;} }
   .mi-kpi.on{border-color:var(--c,#1d9e75);box-shadow:0 0 0 3px color-mix(in srgb,var(--c,#1d9e75) 18%,transparent)}
   .mi-kpi .l{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#4F6158}
   .mi-kpi .l i{width:9px;height:9px;border-radius:50%;background:var(--c,#1d9e75);flex:none}
@@ -1333,6 +1337,10 @@
   @media (max-width:1100px){ #kh2 .h2-row{grid-template-columns:1fr;grid-template-rows:none;grid-template-areas:"act" "mine" "ren" "miss";} }
   /* 右に置いた担当企業は幅が狭いので、7つの数字は「名前 … 数」の横長の行を2列に（縦長のタイルだと名前が折れて潰れた） */
   #kh2 .h2-mine .mi-kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;}
+  /* ホームの担当企業は幅が狭いので、下の段も2列（矢印は出さない） */
+  #kh2 .h2-mine .mi-flow{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:0 0 10px;}
+  #kh2 .h2-mine .mi-arr{display:none;}
+  #kh2 .h2-mine .mi-kpis{margin-bottom:6px;}
   #kh2 .h2-mine .mi-kpi{flex-direction:row;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;}
   #kh2 .h2-mine .mi-kpi .l{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;align-items:center;font-size:12px;}
   #kh2 .h2-mine .mi-kpi .l i{margin-top:0;}
@@ -1559,8 +1567,8 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261124t" defer></script>
-    <script src="kinxs.js?v=20261124t"></script>
+    <script src="kbchat.js?v=20261124u" defer></script>
+    <script src="kinxs.js?v=20261124u"></script>
   <script>
   // スマホのメニューの開け閉め。項目を押したら閉じる（2026-11-24）
   (function () {
