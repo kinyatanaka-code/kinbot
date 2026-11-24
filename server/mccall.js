@@ -713,7 +713,7 @@ export function registerMcCall(app, deps) {
   async function stageValues(owner) {
     if (_stVals && Date.now() - _stVals.at < 30 * 60e3) return _stVals.v;
     const opts = await statusPicklist(owner);
-    const byCode = new Map(); for (const o of opts) { const c = stageCode(o.value); if (c && !byCode.has(c)) byCode.set(c, o.value); }
+    const byCode = new Map(); for (const o of opts) { const c = stageCode(o.value) || stageCode(o.label); if (c && !byCode.has(c)) byCode.set(c, o.value); }
     const conv = new Set();
     try { for (const r of (await sfQuery(owner, `SELECT ApiName, MasterLabel FROM LeadStatus WHERE IsConverted = true`)).records || []) { if (r.ApiName) conv.add(r.ApiName); if (r.MasterLabel) conv.add(r.MasterLabel); } }
     catch (e) { throw new Error(`コンバート用のリードの状況を SF から読めませんでした（${String(e.message).slice(0, 80)}）`); }   // 読めないまま書くと、コンバートでしか付けられない値を書きに行くので止める（覚えもしない）

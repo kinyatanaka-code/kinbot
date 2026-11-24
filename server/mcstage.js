@@ -22,11 +22,15 @@ export function stageCode(v) {
 export function pickLeadStages(all = []) {
   const out = [];
   for (const s of LEAD_STAGES) {
-    const cands = all.filter((x) => stageCode(x.value) === s.code);
+    // SF の今の基本の値は、値が名前だけ（「ジャッジ」）で、番号は表示名のほう（「04：ジャッジ」）に付いている。
+    //   値だけで番号を見ると 03・04・05 などが見つからず、選べるステージが古い LS: の値だけになっていた（2026-11-24 田中さん「kincall でステージ選択ができない」）。
+    //   なので値と表示名の両方で番号を見て、表示名が「04：ジャッジ」の形のものをいちばんに選ぶ
+    const codeOf = (x) => stageCode(x.value) || stageCode(x.label);
+    const cands = all.filter((x) => codeOf(x) === s.code);
     if (!cands.length) continue;
     const want = `${s.code}：${s.name}`;
     const norm = (v) => String(v || "").normalize("NFKC").replace(/[\s:：　]/g, "");
-    const rank = (x) => (x.value === want ? 0 : norm(x.value) === norm(want) ? 1 : /^\s*\d{2}：/.test(x.value) ? 2 : /^\s*LS/i.test(x.value) ? 4 : 3);
+    const rank = (x) => (x.value === want || x.label === want ? 0 : norm(x.value) === norm(want) || norm(x.label) === norm(want) ? 1 : /^\s*\d{2}：/.test(x.value) || /^\s*\d{2}：/.test(x.label) ? 2 : /^\s*LS/i.test(x.value) ? 4 : 3);
     const best = [...cands].sort((a, b) => rank(a) - rank(b))[0];
     out.push({ value: best.value, label: `${s.code}：${s.name}`, desc: s.desc });
   }
