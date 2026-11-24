@@ -120,17 +120,25 @@
   }
   async function loadLists() {
     const j = await api("/api/mccall/lists"); S.lists = j.items || [];
-    if (S.listId && !S.lists.some((l) => l.id === S.listId)) S.listId = 0;
+    if (S.listId > 0 && !S.lists.some((l) => l.id === S.listId)) S.listId = 0;
+    if (S.listId === -1 && !S.lists.some(isCm)) S.listId = 0;
     drawListSel();
   }
   // 今日かけるリストの人は、リストを選ばずリスト管理の今日かけるリストからかける（2026-11-23 福井さん）。そのときは選ぶ欄に今日の分の残りを出すだけ
+  // 商材ごとに分けて出す（2026-11-24 福井さん「架け先のリストでキャリアミキサー（キャリミキ）も選べるように」）。
+  //   「担当のリストすべて」は MOCHICA だけ。キャリミキは「キャリミキのリストすべて」（値 -1）か1本ずつ選ぶ
   function drawListSel() {
     const sel = $("mccList"), t = S.today;
-    if (t) { sel.innerHTML = `<option>今日かけるリスト 残り ${Number(t.left ?? t.ready ?? 0)}件／${Number(t.n || 0)}件（見込みアポ率 ${(Number(t.exp || 0) * 100).toFixed(1)}%）</option>`; sel.disabled = true;
+    const opt = (l) => `<option value="${l.id}" ${l.id === S.listId ? "selected" : ""}>${esc(l.name)}（今かける ${l.now}）</option>`;
+    const cm = S.lists.filter(isCm), mc = S.lists.filter((l) => !isCm(l));
+    const cmGroup = cm.length ? `<optgroup label="キャリアミキサー（キャリミキ）"><option value="-1" ${S.listId === -1 ? "selected" : ""}>キャリミキのリストすべて（今かける ${cm.reduce((a, l) => a + l.now, 0)}）</option>${cm.map(opt).join("")}</optgroup>` : "";
+    // 今日かけるリストの人は MOCHICA のリストを選ばない（今日の分からかける）。キャリミキのリストだけは選べる
+    if (t) { sel.innerHTML = `<optgroup label="MOCHICA"><option value="0" selected>今日かけるリスト 残り ${Number(t.left ?? t.ready ?? 0)}件／${Number(t.n || 0)}件（見込みアポ率 ${(Number(t.exp || 0) * 100).toFixed(1)}%）</option></optgroup>${cmGroup}`; sel.disabled = !cm.length;
       sel.title = `リスト管理の今日かけるリスト（所有者：${t.owner || ""}）。予定のナーチャリング ${Number(t.due_nurture || 0)}・予定のそのほか ${Number(t.due_other || 0)}・過去失注 ${Number(t.pastlost || 0)}・新規 ${Number(t.newlist || 0)}。時刻が来た掛け直しも先に出ます`; return; }
     sel.disabled = false; sel.title = "";
-    sel.innerHTML = `<option value="0">担当のリストすべて</option>` + S.lists.map((l) => `<option value="${l.id}" ${l.id === S.listId ? "selected" : ""}>${esc(l.name)}（今かける ${l.now}）</option>`).join("");
+    sel.innerHTML = (cm.length ? `<optgroup label="MOCHICA">` : "") + `<option value="0" ${S.listId === 0 ? "selected" : ""}>担当のリストすべて${cm.length ? "（MOCHICA）" : ""}</option>` + mc.map(opt).join("") + (cm.length ? `</optgroup>${cmGroup}` : "");
   }
+  function isCm(l) { return l && l.product === "careermixer"; }
   async function loadStats() {
     try { const j = await api("/api/mccall/stats"); const m = j.me;
       // 今日の数字は3つだけ（項目が多くて「コ/ール」と縦に崩れていた。SF 項目はレポート、時間帯は数字タブで見る。2026-11-23 福井さん）
@@ -1547,7 +1555,7 @@
           <p class="mcc-note">リストを管理できる人：${esc(((S.meta && S.meta.admins) || []).join("・") || "（田中さん・kinbot の管理者だけ）")}</p>
           <div style="margin:12px 0"><button class="mcc-btn primary" id="mccNew">新しいリストを作る</button> <button class="mcc-btn" id="mccTpl">資料送付のひな形</button> <button class="mcc-btn" id="mccFTpl">問い合わせフォームのひな形</button></div>
           ${S.lists.length ? `<table class="mcc-tbl"><thead><tr><th>リスト</th><th>メンバー</th><th class="num">残り</th><th class="num">今かける</th><th class="num">DOC から</th><th></th></tr></thead><tbody>
-            ${S.lists.map((l) => `<tr><td><b>${esc(l.name)}</b></td><td>${l.members && l.members.length ? `${l.members.length}人` : "MOCHICA 全員"}</td><td class="num">${l.open} / ${l.total}</td><td class="num">${l.now}</td><td class="num">${l.cross || ""}</td>
+            ${S.lists.map((l) => `<tr><td><b>${esc(l.name)}</b><br><button class="mcc-btn" data-prod="${l.id}" title="押すと商材を切り替えます">商材：${isCm(l) ? "キャリミキ" : "MOCHICA"}</button></td><td>${l.members && l.members.length ? `${l.members.length}人` : "MOCHICA 全員"}</td><td class="num">${l.open} / ${l.total}</td><td class="num">${l.now}</td><td class="num">${l.cross || ""}</td>
               <td style="white-space:nowrap"><button class="mcc-btn primary" data-add="${l.id}">リードを足す</button> <button class="mcc-btn" data-mem="${l.id}">メンバー</button> <button class="mcc-btn ${l.talks ? "" : "danger"}" data-scr="${l.id}" title="${l.talks ? `トーク ${l.talks}本` : "トークが無いのでかけられません"}">${l.talks ? `トーク（${l.talks}本）` : "トークを書く"}</button> <button class="mcc-btn primary" data-leads="${l.id}">割り振る・移す</button> <button class="mcc-btn danger" data-close="${l.id}">閉じる</button></td></tr>`).join("")}</tbody></table>` : '<p class="mcc-note">まだリストがありません。</p>'}
         </div>
         <div class="mcc-card" id="mccStock"></div>
@@ -1558,6 +1566,11 @@
       drawDups();
       $("mccTpl").addEventListener("click", tplDialog); $("mccFTpl").addEventListener("click", formTplDialog);
       box.querySelectorAll("[data-scr]").forEach((b) => b.addEventListener("click", () => talkDialog(S.lists.find((l) => l.id === +b.dataset.scr))));
+      box.querySelectorAll("[data-prod]").forEach((b) => b.addEventListener("click", async () => {
+        const l = S.lists.find((x) => x.id === +b.dataset.prod); if (!l) return;
+        try { await api(`/api/mccall/lists/${l.id}`, { method: "PATCH", body: JSON.stringify({ product: isCm(l) ? "mochica" : "careermixer" }) }); drawLists(); }
+        catch (e) { toast(`商材を切り替えられませんでした：${e.message}`); }
+      }));
       box.querySelectorAll("[data-mem]").forEach((b) => b.addEventListener("click", () => listDialog(S.lists.find((l) => l.id === +b.dataset.mem))));
       box.querySelectorAll("[data-add]").forEach((b) => b.addEventListener("click", () => addDialog(+b.dataset.add)));
       drawStock();
@@ -1756,9 +1769,10 @@
       const name = w.querySelector("#mccLName") ? w.querySelector("#mccLName").value.trim() : l.name;
       const members = [...w.querySelectorAll("[data-m][aria-pressed=true]")].map((b) => b.dataset.m);
       if (!name) throw new Error("リストの名前を入れてください");
-      if (l) await api(`/api/mccall/lists/${l.id}`, { method: "PATCH", body: JSON.stringify({ members }) }); else await post("/api/mccall/lists", { name, members });
+      if (l) await api(`/api/mccall/lists/${l.id}`, { method: "PATCH", body: JSON.stringify({ members }) }); else await post("/api/mccall/lists", { name, members, product: w.querySelector("#mccLProd").value });
       drawLists();
-    }, `${l ? "" : `<label class="mcc-field" style="margin-top:12px">リストの名前<input id="mccLName" autocomplete="off" /></label>`}
+    }, `${l ? "" : `<label class="mcc-field" style="margin-top:12px">リストの名前<input id="mccLName" autocomplete="off" /></label>
+      <label class="mcc-field" style="margin-top:8px">商材<select class="mcc-sel" id="mccLProd" style="max-width:none"><option value="mochica">MOCHICA</option><option value="careermixer">キャリアミキサー（キャリミキ）</option></select></label>`}
       <div class="mcc-field" style="margin-top:12px">メンバー（MOCHICA の人が先に並びます）<div class="mcc-members">${reps.map((r) => `<button class="mcc-chip" data-m="${esc(r.email)}" aria-pressed="${sel.has(r.email)}">${esc(r.name)}${r.intern ? "（インターン）" : r.mochica ? "" : "（MOCHICA 以外）"}</button>`).join("")}</div></div>`);
     w.querySelectorAll("[data-m]").forEach((b) => b.addEventListener("click", () => b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") === "true" ? "false" : "true")));
   }

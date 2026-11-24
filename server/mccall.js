@@ -37,6 +37,9 @@ import { HEAR_ITEMS, cleanHearing, mergeHearing, hearingLines as hearLines, apoC
 export { hiresBucket };
 
 const BIZ = "MOCHICA";
+// 商材。いまは MOCHICA とキャリアミキサー（キャリミキ）の2つ。知らない値は MOCHICA にする
+const PRODUCTS = ["mochica", "careermixer"];
+const productOf = (v) => (PRODUCTS.includes(String(v || "")) ? String(v) : "mochica");
 
 // 到達の段階と、その中身。key は画面とサーバーで同じものを使う
 export const REACH = {
@@ -170,6 +173,10 @@ async function ensure() {
     //   ここから条件で今のリストへ持ってくる（SHOBO から足す）か、「かける対象にする」で出す。bales_key は移した元の BALES のリスト
     await q(`ALTER TABLE mc_call_lists ADD COLUMN IF NOT EXISTS stock BOOLEAN NOT NULL DEFAULT false`);
     await q(`ALTER TABLE mc_call_lists ADD COLUMN IF NOT EXISTS bales_key TEXT`);
+    // 商材（2026-11-24 福井さん「架け先のリストでキャリアミキサー（キャリミキ）も選べるように」）。
+    //   いまあるリストはすべて MOCHICA のまま。記録にも、かけたときの商材を残す（あとで商材ごとに数えられるように）
+    await q(`ALTER TABLE mc_call_lists ADD COLUMN IF NOT EXISTS product TEXT NOT NULL DEFAULT 'mochica'`);
+    await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS product TEXT`);
     // リスト管理の「今日かけるリスト」から「かける」を出す（2026-11-23 福井さん）。today_src＝その入れ先のリスト（1本だけ。閉じると今までの出し方に戻る）、
     //   today_day＝そのリードがだれかの今日かけるリストに入った日（日本時間の YYYY-MM-DD）
     await q(`ALTER TABLE mc_call_lists ADD COLUMN IF NOT EXISTS today_src BOOLEAN NOT NULL DEFAULT false`);
@@ -757,7 +764,7 @@ export function registerMcCall(app, deps) {
   // ---- リスト ----
   app.get("/api/mccall/lists", guard(async (req, res) => {
     const ids = await myListIds(req, req.query.stock === "1");
-    const rows = ids.length ? (await P().query(`SELECT l.id, l.name, l.note, l.members, l.created_at, l.stock, l.bales_key,
+    const rows = ids.length ? (await P().query(`SELECT l.id, l.name, l.note, l.members, l.created_at, l.stock, l.bales_key, l.product,
         count(c.id) AS total, count(c.id) FILTER (WHERE NOT c.done) AS open,
         count(c.id) FILTER (WHERE NOT c.done AND (c.next_at IS NULL OR c.next_at <= now())) AS now,
         count(c.id) FILTER (WHERE c.cross_from IS NOT NULL) AS cross,
@@ -768,7 +775,7 @@ export function registerMcCall(app, deps) {
   app.post("/api/mccall/lists", adminOnly(async (req, res) => {
     const name = clip(req.body && req.body.name, 80); if (!name) return res.status(400).json({ error: "リストの名前を入れてください" });
     const members = Array.isArray(req.body.members) ? req.body.members.map((x) => String(x).toLowerCase()).slice(0, 200) : [];
-    const r = (await P().query(`INSERT INTO mc_call_lists (name, note, members, created_by) VALUES ($1,$2,$3,$4) RETURNING id`, [name, clip(req.body.note, 400), members, me(req)])).rows[0];
+    const r = (await P().query(`INSERT INTO mc_call_lists (name, note, members, created_by, product) VALUES ($1,$2,$3,$4,$5) RETURNING id`, [name, clip(req.body.note, 400), members, me(req), productOf(req.body.product)])).rows[0];
     res.json({ ok: true, id: r.id });
   }));
   app.patch("/api/mccall/lists/:id", adminOnly(async (req, res) => {
@@ -777,6 +784,7 @@ export function registerMcCall(app, deps) {
     if (Array.isArray(b.members)) await P().query(`UPDATE mc_call_lists SET members=$2 WHERE id=$1`, [id, b.members.map((x) => String(x).toLowerCase()).slice(0, 200)]);
     if (b.closed != null) await P().query(`UPDATE mc_call_lists SET closed=$2 WHERE id=$1`, [id, !!b.closed]);
     if (b.stock != null) await P().query(`UPDATE mc_call_lists SET stock=$2 WHERE id=$1`, [id, !!b.stock]);
+    if (b.product != null) await P().query(`UPDATE mc_call_lists SET product=$2 WHERE id=$1`, [id, productOf(b.product)]);
     if (b.script != null) await P().query(`UPDATE mc_call_lists SET script=$2 WHERE id=$1`, [id, String(b.script).slice(0, 20000) || null]);
     res.json({ ok: true });
   }));
@@ -1728,17 +1736,24 @@ export function registerMcCall(app, deps) {
   }));
 
   app.get("/api/mccall/queue", guard(async (req, res) => {
-    const ids = await myListIds(req); const listId = parseInt(req.query.list, 10);
+    let ids = await myListIds(req); const listId = parseInt(req.query.list, 10);
     const u = me(req);
-    // 今日かけるリストの人は、入れ先のリスト（と本人の掛け直しのあるリスト）だけ。画面のリストの選び方は使わない（2026-11-23 福井さん）
+    // 商材で分ける（2026-11-24 福井さん）。list=-1 は「キャリミキのリストすべて」。
+    //   「担当のリストすべて」（list なし）は MOCHICA のリストだけにする（キャリミキの会社が MOCHICA のトークの流れに混ざらないように）
+    const prod = ids.length ? new Map((await P().query(`SELECT id, product FROM mc_call_lists WHERE id = ANY($1)`, [ids])).rows.map((r) => [r.id, r.product || "mochica"])) : new Map();
+    const cmPick = listId === -1 || (listId > 0 && prod.get(listId) === "careermixer");
+    if (listId === -1) ids = ids.filter((x) => prod.get(x) === "careermixer");
+    else if (!(listId > 0)) ids = ids.filter((x) => prod.get(x) !== "careermixer");
+    // 今日かけるリストの人は、入れ先のリスト（と本人の掛け直しのあるリスト）だけ。画面のリストの選び方は使わない（2026-11-23 福井さん）。
+    //   ただしキャリミキを選んだときは、今日かけるリスト（MOCHICA）ではなく選んだキャリミキのリストからかける
     let tm = null;
-    try { tm = await todayModeFor(u); }
+    try { if (!cmPick) tm = await todayModeFor(u); }
     catch (e) { if (/禁止/.test(String(e && e.message))) return res.json({ ok: true, items: [], later: 0, noTalk: [], researching: 0, stop: "ban" }); console.error("[mccall] 今日かけるリストを読めませんでした（今までの出し方で出します）", e.message); }
     if (tm && !ids.includes(tm.tid)) ids.push(tm.tid);
     // 担当のリストが1本も無いときは、なぜかを返す（インターンと判定されていない／リストのメンバーに入っていない／リストが無い）。
     //   画面に「何をすればよいか」まで出して、本人も管理者も迷わないようにする（2026-11-23 福井さん「初週を止めずに回す」）
     if (!ids.length) return res.json({ ok: true, items: [], later: 0, noTalk: [], researching: 0, why: await whyNoList(req) });
-    const asked = tm ? ids : listId ? ids.filter((x) => x === listId) : ids;
+    const asked = tm ? ids : listId > 0 ? ids.filter((x) => x === listId) : ids;
     // 売り先（リスト）と売り方（トーク）はセット。トークの無いリストは「かける」に出さない（2026-11-20 福井さん）
     const withTalk = await listsWithTalk(asked);
     const use = asked.filter((x) => withTalk.has(x));
@@ -2290,8 +2305,8 @@ export function registerMcCall(app, deps) {
       const ck = apoCheck(hearing || lead.hearing, apoContact(lead, gate, b.phone), NEED_CHOICES);
       if (ck.block.length) return res.status(400).json({ error: `アポにするには、ヒアリングの必須項目を埋めてください：${ck.block.join("、")}`, missing: ck.block });
     }
-    const log = (await P().query(`INSERT INTO mc_call_logs (lead_id, list_id, caller, phone, reach, outcome, reason, gate, memo, next_at, apo_at, cross_from, prev)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id, created_at`,
+    const log = (await P().query(`INSERT INTO mc_call_logs (lead_id, list_id, caller, phone, reach, outcome, reason, gate, memo, next_at, apo_at, cross_from, prev, product)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,(SELECT COALESCE(product,'mochica') FROM mc_call_lists WHERE id=$2)) RETURNING id, created_at`,
       [id, lead.list_id, u, clip(b.phone || lead.phone, 40), reach, outcome, reason || null, gate, clip(b.memo, 2000) || null, nextAt, apoAt, lead.cross_from, prev])).rows[0];
     if (outcome === "apo" && b.apoWho) await P().query(`UPDATE mc_call_logs SET apo_who=$2 WHERE id=$1`, [log.id, clip(b.apoWho, 80)]);
     if (hearing) await P().query(`UPDATE mc_call_logs SET hearing=$2 WHERE id=$1`, [log.id, hearing]);
