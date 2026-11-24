@@ -2585,7 +2585,8 @@ async function renderMine(boxArg, opts = {}) {
       <div class="mi-flow">${["ko", "ks", "ml", "np", "pb"].map((k) => KS.find((x) => x[0] === k)).filter(Boolean).map(([k, l, c, f]) => {
         // キックオフ未実施は、「未設定（予定がまだ無い）」と「設定済み・未実施（予定はあるがまだやっていない）」に分けて出す（2026-11-24 田中さん）
         let sub = "";
-        if (k === "ko") { const ks0 = mine.filter(f).map((x) => (x.actions || []).find((a0) => a0.kind === "キックオフ未実施") || { ko: x.kickoffClear ? "設定済み" : "未設定" });   // 設定済みは、カレンダーのキックオフの予定か CS 連携があるときだけ（2026-11-24 久野さん） const un = ks0.filter((a0) => a0.ko === "未設定").length;
+        if (k === "ko") { const ks0 = mine.filter(f).map((x) => (x.actions || []).find((a0) => a0.kind === "キックオフ未実施") || { ko: x.kickoffClear ? "設定済み" : "未設定" });   // 設定済みは、カレンダーのキックオフの予定か CS 連携があるときだけ（2026-11-24 久野さん）
+          const un = ks0.filter((a0) => a0.ko === "未設定").length;
           sub = `<span class="mi-sub"><span>未設定 <b>${un}</b></span><span>設定済み・未実施 <b>${ks0.length - un}</b></span></span>`; }
         return `<button type="button" class="mi-kpi ${st.k === k ? "on" : ""}" style="--c:${c}" data-mk="${k}"><span class="l"><i></i>${esc(l)}</span><span class="v">${mine.filter(f).length}<small>社</small></span>${sub}</button>`; }).join('<span class="mi-arr" aria-hidden="true"><i><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5.5l6.5 6.5L9 18.5"/></svg></i></span>')}</div>
       ${st.k === "tk" ? `<div class="mi-h">タスク（ホームと同じもの・期日の近い順）</div><div data-mtk><div class="kx-note">読み込み中…</div></div>`
