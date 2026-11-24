@@ -33,6 +33,7 @@ import { formRun } from "./mcform.js";   // 問い合わせフォームの自動
 import { MCDASH_ROSTER } from "./mcdash.js";   // インサイド8名の名簿（「かける」の状態を管理者に見せるため）
 import { rosterHit, startsWithSurname, rosterForms, foldPersonName } from "./mcname.js";   // 名前の照合（異体字・姓名の順などをそろえる）
 import { loadPeople, emailOf as rosterEmailOf, setPerson, rosterRows, PEOPLE_KINDS } from "./mcpeople.js";   // 名簿の人をメールで結びつける（2026-11-23）
+import { leadMails, sfLeadIdOf } from "./mcmail.js";   // 1社のメールを1か所で集める（SF・BALES・DOC のメールが画面に出なかったため。2026-11-24）
 import { HEAR_ITEMS, cleanHearing, mergeHearing, hearingLines as hearLines, apoCheck, valueText, mailDefaults, MAIL_ITEMS, HEAR_MAIL_SUBJECT, hearMailBody, realName } from "./mchearing.js";   // アポの必須ヒアリングとヒアリングのメール（2026-11-23）   // 問い合わせフォームの自動送信（2026-11-20）
 export { hiresBucket };
 
@@ -663,6 +664,16 @@ export function registerMcCall(app, deps) {
     if (!cur) throw new Error("SF にこのリードが見つかりません（消されたか、統合された可能性があります）");
     _sfCur.set(leadId, { at: Date.now(), cur }); if (_sfCur.size > 500) _sfCur.delete(_sfCur.keys().next().value);
     return cur;
+  }
+  // SF のリードの今の Email（2026-11-24 浦田空調工業：SF にメールがあるのに画面に出なかった）。
+  //   sfCurrent は2分覚えるので、開いたあとに読む「リードの状況」の欄と合わせても SF を読むのは1回。
+  //   読めなかったときは理由を返して画面に出す（空のまま黙らない＝ルール5）
+  async function sfMailOf(req, lead, sf) {
+    const sfId = sfLeadIdOf(lead, sf); if (!sfId) return { email: "", err: "" };
+    try {
+      const cur = await Promise.race([sfCurrent(await sfActor(req), sfId), new Promise((_, ng) => setTimeout(() => ng(new Error("SF の返事が遅い")), 5000))]);
+      return { email: String(cur.Email || "").trim(), err: "" };
+    } catch (e) { return { email: "", err: `SF のリードのメールを読めませんでした（${String(e.message).slice(0, 60)}）` }; }
   }
   // 架電の内容（ヒアリング・受付で聞けたこと・断り理由・メモ）から埋める項目の候補。下書き（preview）と記録の両方で同じものを使う
   const fillCands = ({ hearing, gate, reason, outcome, memo }) => [...readInputs({ hearing, gate, reason, outcome }), ...readMemo(memo, { outcome })];
@@ -1932,6 +1943,7 @@ export function registerMcCall(app, deps) {
       // SF から足したリードは、足したときの SF の中身を data に持っている（_ で始まる中の項目は画面に出さない）
       data = Object.fromEntries(Object.entries(lead.data || {}).filter(([k]) => !k.startsWith("_")));
     }
+    const sfMailP = sfMailOf(req, lead, sf);   // ほかを読むあいだに SF のメールを読んでおく
     const ban = await approachBanHitLead(lead).catch(() => ({ reason: "アプローチ禁止の名簿を確認できなかったため、念のため止めています" }));
     const logs = (await P().query(`SELECT * FROM mc_call_logs WHERE lead_id=$1 AND NOT undone ORDER BY created_at DESC LIMIT 50`, [id])).rows;
     // 番号ごとの「つながった実績」（MOCHICA の記録すべてから。リードが変わっても番号で数える）
@@ -2004,7 +2016,10 @@ export function registerMcCall(app, deps) {
     // 掛け直しの型：何回続けて届かなかったか／次に不在だった場合にいつ掛け直しになるか（記録の前に画面で見せる）
     const streak = lead.miss_streak || 0;
     const cadence = { streak, max: CADENCE.maxMiss, parked: !!lead.parked_at, next: nextMissAt({ streak: streak + 1, gateHours: (lead.gate || {}).hours, rates: await ratesNow() }) };
+    // メールは左の欄・ヒアリング欄・資料送付で同じものを使う（mcmail.js）
+    const sm = await sfMailP;
     res.json({ ok: true, lead: { ...lead, research: showableResearch(lead.research), data }, script, talk, ban, phones, docAlso, glance, mynavi, cadence, timeline: tl.slice(0, 120), hist: past.status, summary: oneLine(logs[0], lead.gate, names),
+      mails: leadMails({ lead, data, sf, sfEmail: sm.email }), mailErr: sm.err,
       sf: sf && sf.lead ? { lead: sf.lead, sum: sf.sum || null } : null, cross: lead.cross_id ? (await P().query(`SELECT from_name, reason, at FROM mc_cross_moves WHERE id=$1`, [lead.cross_id])).rows[0] || null : null });
   }));
   // 開いたまま次へ行かなかったときに順番へ戻す
@@ -2502,15 +2517,8 @@ export function registerMcCall(app, deps) {
   const MC_DOC_SUBJECT = "資料のご送付（{資料名}）";
   const MC_DOC_BODY = "{担当者}様\n\nお世話になっております。MOCHICA の{差出人}です。\n先ほどお電話にてご案内した資料をお送りいたします。\n下記の URL よりご確認ください。\n\n{URL}\n\nご不明な点がございましたら、お気軽にご連絡ください。\n何卒よろしくお願いいたします。";
   const isMail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim());
-  // リードのメールアドレス：mail の付く項目 → 値の形 → SF のリードの項目、の順に探す
-  function emailOf(data = {}, sf = null) {
-    const vals = Object.entries(data || {}).filter(([, v]) => typeof v === "string");
-    const byKey = vals.find(([k, v]) => /mail/i.test(k) && isMail(v)); if (byKey) return byKey[1].trim();
-    const any = vals.find(([, v]) => isMail(v)); if (any) return any[1].trim();
-    if (sf && sf.lead) { const e = Object.values(sf.lead).find((v) => isMail(v)); if (e) return String(e).trim(); }
-    return "";
-  }
-  async function leadFor(req, id) {
+  // 宛先は画面と同じ探し方（mcmail.js の leadMails）の先頭。前はここだけ別の探し方で、SF のリードの今の Email を見ていなかった
+  async function leadFor(req, id, { withMails = false } = {}) {
     const lead = (await P().query(`SELECT * FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
     if (!lead) { const e = new Error("このリードは見つかりません"); e.status = 404; throw e; }
     if (!(await myListIds(req)).includes(lead.list_id)) { const e = new Error("このリストはあなたの担当ではありません"); e.status = 403; throw e; }
@@ -2523,7 +2531,10 @@ export function registerMcCall(app, deps) {
       const t = (await P().query(`SELECT email FROM call_targets WHERE id=$1`, [parseInt(lead.src_key, 10)]).catch(() => ({ rows: [] }))).rows[0];
       if (t) data = t;
     } else if (lead.src === "sf") data = lead.data || {};
-    return { lead, data, sf };
+    if (!withMails) return { lead, data, sf };
+    // CSV の中身は data に入れない（重複の鍵の作り直しなど、ほかの使い道の動きを変えないため）。メールを探すときだけ見る
+    const sm = await sfMailOf(req, lead, sf);
+    return { lead, data, sf, mails: leadMails({ lead, data: lead.src === "csv" ? lead.data || {} : data, sf, sfEmail: sm.email }), mailErr: sm.err };
   }
   async function docSettings() {
     const st = await getSettings().catch(() => ({}));
@@ -2580,7 +2591,7 @@ export function registerMcCall(app, deps) {
   // 送る前の中身（宛先・件名・本文）。本文の {URL} は残しておき、「送る」で doc-room のルームを作ってから差し替える
   app.post("/api/mccall/leads/:id/doc/preview", guard(async (req, res) => {
     try {
-      const { lead, data, sf } = await leadFor(req, parseInt(req.params.id, 10));
+      const { lead, mails, mailErr } = await leadFor(req, parseInt(req.params.id, 10), { withMails: true });
       const ban = await approachBanHitLead(lead).catch(() => ({ reason: "アプローチ禁止の名簿を確認できなかったため、念のため止めています" }));
       if (ban) return res.status(403).json({ error: `「${lead.company}」はアプローチ禁止のため、資料は送れません` });
       const docs = await roomDocs();
@@ -2589,14 +2600,13 @@ export function registerMcCall(app, deps) {
       const want = String((req.body && req.body.docId) || conf.defaultDocId || "");
       const doc = docs.find((d) => d.id === want) || docs[0];
       const company = String(lead.company || "").trim(); const person = String((lead.gate && lead.gate.name) || lead.person || "").trim();
-      // MOCHICALL で直したメール（いちばん新しく、人が確かめた値）を先に使う
-      const inf = lead.info || {};
-      const to = (lead.hearing && lead.hearing.mail) || inf.email || ((inf.contacts || []).find((c) => c.email) || {}).email || emailOf(data, sf);
+      // ヒアリングで聞いたメール → MOCHICALL で直したメール → SF → 元のデータ、の順（mcmail.js）
+      const to = mails.length ? mails[0].addr : "";
       const sender = (await nameMap()).get(me(req)) || "";
       const fill = (t) => String(t || "").replace(/\{担当者\}/g, person || "ご担当者").replace(/\{会社名\}/g, company).replace(/\{差出人\}/g, sender).replace(/\{資料名\}/g, doc.name || "ご案内資料");
       res.json({ ok: true, to, cc: conf.cc, company, person, subject: fill(conf.subject), body: withSig(fill(conf.body), { company, sig: await mailSig(req) }), docId: doc.id, docName: doc.name,
         docs: docs.map((d) => ({ id: d.id, name: d.name })), google: await googleConnected(me(req)).catch(() => false),
-        warn: to ? "" : "この会社のメールアドレスが見つかりませんでした。宛先を入れてください" });
+        warn: to ? "" : `この会社のメールアドレスが見つかりませんでした。宛先を入れてください${mailErr ? `（${mailErr}）` : ""}` });
     } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
   }));
   app.post("/api/mccall/leads/:id/doc/send", guard(async (req, res) => {
@@ -2647,28 +2657,28 @@ export function registerMcCall(app, deps) {
   //   電話で聞ききれなかった項目を、担当者にメールで聞く。送るのは本人の Gmail から（資料送付と同じ）。
   //   聞く項目は画面で選ぶ（最初は、必須でまだ聞けていない項目にチェック）。返ってきた答えは、架電者がヒアリング欄に入れる
   async function hearMailBase(req, id, keys0) {
-    const { lead, data, sf } = await leadFor(req, id);
+    const { lead, mails, mailErr } = await leadFor(req, id, { withMails: true });
     const ban = await approachBanHitLead(lead).catch(() => ({ reason: "アプローチ禁止の名簿を確認できなかったため、念のため止めています" }));
     if (ban) { const e = new Error(`「${lead.company}」はアプローチ禁止のため、メールは送れません`); e.status = 403; throw e; }
-    const h = lead.hearing || {}; const inf = lead.info || {};
+    const h = lead.hearing || {};
     const okKeys = new Set(MAIL_ITEMS.map((x) => x.k));
     const keys = Array.isArray(keys0) ? keys0.map(String).filter((k) => okKeys.has(k)) : mailDefaults(h, NEED_CHOICES);
     const company = String(lead.company || "").trim();
     const person = realName(h.name) || realName(lead.gate && lead.gate.name) || realName(lead.person);
-    const to = h.mail || inf.email || ((inf.contacts || []).find((c) => c.email) || {}).email || emailOf(data, sf);
-    return { lead, h, keys, company, person, to };
+    const to = mails.length ? mails[0].addr : "";   // 資料送付と同じ順（mcmail.js）
+    return { lead, h, keys, company, person, to, mailErr };
   }
   app.post("/api/mccall/leads/:id/hear-mail/preview", guard(async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10); const b = req.body || {};
-      const { h, keys, company, person, to } = await hearMailBase(req, id, b.keys);
+      const { h, keys, company, person, to, mailErr } = await hearMailBase(req, id, b.keys);
       const sender = (await nameMap()).get(me(req)) || "";
       const last = (await P().query(`SELECT created_at FROM mc_hear_mails WHERE lead_id=$1 ORDER BY created_at DESC LIMIT 1`, [id])).rows[0] || null;
       res.json({ ok: true, to, company, person, keys,
         items: MAIL_ITEMS.map((it) => ({ k: it.k, no: it.no || "", label: it.label, group: it.group, heard: !!valueText(it, h, NEED_CHOICES) })),
         subject: HEAR_MAIL_SUBJECT.replace(/\{会社名\}/g, company), body: withSig(hearMailBody({ company, person, sender, keys }), { company, sig: await mailSig(req) }),
         google: await googleConnected(me(req)).catch(() => false), last: last ? last.created_at : null,
-        warn: to ? "" : "担当者のメールアドレスが見つかりませんでした。宛先を入れてください" });
+        warn: to ? "" : `担当者のメールアドレスが見つかりませんでした。宛先を入れてください${mailErr ? `（${mailErr}）` : ""}` });
     } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
   }));
   app.post("/api/mccall/leads/:id/hear-mail/send", guard(async (req, res) => {

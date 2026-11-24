@@ -360,7 +360,7 @@
       <div class="mcc-badges">${hotBadge(L.hot)}${L.cross_from ? `<span class="mcc-badge doc">${esc(L.cross_from)} から（部署をまたぐ）</span>` : ""}${d.ban ? '<span class="mcc-badge danger">アプローチ禁止</span>' : ""}${sum && sum.n ? `<span class="mcc-badge sf">SF の商談 ${sum.n}件${sum.won ? "・受注あり" : sum.lost ? "・失注あり" : ""}</span>` : ""}</div>
       ${statusHtml()}
       ${researchHtml(L)}
-      ${contactsHtml(L.info)}
+      ${contactsHtml(L.info, d)}
       ${glanceHtml(d)}
       ${d.phones.length > 1 || (d.phones[0] && d.phones[0].invalid) ? `<h3>電話番号（押すと発信）</h3>
       ${d.phones.map((p, i) => `<a class="mcc-phone ${p.invalid ? "bad" : ""} ${digits(p.number) === digits(S.f && S.f.phone) ? "cur" : ""}" href="${callHref(p.number)}" data-ph="${esc(p.number)}">
@@ -421,7 +421,7 @@
       <label class="mcc-field">会社名<input id="mccNCo" value="${esc(F.company)}" /></label>
       <label class="mcc-field">担当者名（空なら「ご担当者」で作ります）<input id="mccNPe" value="${esc(F.person)}" /></label>
       <label class="mcc-field">電話<input id="mccNPh" inputmode="tel" value="${esc(F.phone)}" /></label>
-      <label class="mcc-field">メール<input id="mccNMa" type="email" value="${esc(F.email)}" /></label>
+      <label class="mcc-field">メール<input id="mccNMa" type="email" value="${esc(F.email || ((S.d.mails || [])[0] || {}).addr || "")}" /></label>
       <label class="mcc-field">Web ページ<input id="mccNWeb" type="url" value="${esc(F.web)}" /></label>
       <label class="mcc-field">業種（SF で必須）<select id="mccNInd" class="mcc-sel"><option value="">選んでください</option>${(j.industries || []).map((o) => `<option value="${esc(o.value)}">${esc(o.label || o.value)}</option>`).join("")}</select></label></div>`);
     w.querySelectorAll("[data-link]").forEach((b) => b.addEventListener("click", async () => {
@@ -431,10 +431,13 @@
     }));
   }
   // MOCHICALL で足した担当者とメール（2026-11-18 福井さん「会社・担当者情報の編集と複数番号」）
-  function contactsHtml(info) {
+  //   メールは MOCHICALL で直した値だけでなく、SF のリードの今の Email・BALES/DOC/CSV の中身も出す（サーバーの mcmail.js で集めた d.mails。
+  //   2026-11-24 浦田空調工業：SF にメールがあるのに出ていなかった）。どこから来たメールかを横に添える。足した担当者のメールは名前の横に出す
+  function contactsHtml(info, d = {}) {
     const I = info || {}; const cs = I.contacts || [];
-    if (!cs.length && !I.email && !I.web && !I.corp) return "";
-    return `<div class="mcc-contacts">${I.email ? `<div><small>メール</small>${esc(I.email)}</div>` : ""}${I.web ? `<div><small>Web</small><a href="${esc(/^https?:/i.test(I.web) ? I.web : `https://${I.web}`)}" target="_blank" rel="noopener">${esc(I.web)}</a></div>` : ""}${I.corp ? `<div><small>法人番号</small>${esc(I.corp)}</div>` : ""}${cs.map((c) => `<div><b>${esc(c.name || "名前なし")}</b>${c.role ? `<small>${esc(c.role)}</small>` : ""}${c.email ? `<span>${esc(c.email)}</span>` : ""}</div>`).join("")}</div>`;
+    const ms = (d.mails || []).filter((m) => m.src !== "contact");
+    if (!cs.length && !ms.length && !d.mailErr && !I.web && !I.corp) return "";
+    return `<div class="mcc-contacts">${ms.map((m) => `<div><small>メール</small>${esc(m.addr)}<span>${esc(m.label)}</span></div>`).join("")}${d.mailErr && !ms.some((m) => m.src === "sf") ? `<div style="color:var(--c-warn)"><small>メール</small>${esc(d.mailErr)}</div>` : ""}${I.web ? `<div><small>Web</small><a href="${esc(/^https?:/i.test(I.web) ? I.web : `https://${I.web}`)}" target="_blank" rel="noopener">${esc(I.web)}</a></div>` : ""}${I.corp ? `<div><small>法人番号</small>${esc(I.corp)}</div>` : ""}${cs.map((c) => `<div><b>${esc(c.name || "名前なし")}</b>${c.role ? `<small>${esc(c.role)}</small>` : ""}${c.email ? `<span>${esc(c.email)}</span>` : ""}</div>`).join("")}</div>`;
   }
   // 会社・担当者の情報を直す。番号と担当者は行を足して増やせる（BALES と同じく1社に何人・何本でも持てるように）
   function editDialog() {
@@ -821,7 +824,8 @@
   function hDefault(k) {
     const L = S.d && S.d.lead; if (!L || !S.f) return ""; const I = L.info || {};
     if (k === "name") return realNm(S.f.gate.name || (L.gate && L.gate.name)) || realNm(L.person);
-    if (k === "mail") return I.email || ((I.contacts || []).find((c) => c.email) || {}).email || "";
+    // ヒアリング欄が空なら、左の欄と同じ順のメール（MOCHICALL で直した値 → SF → 元のデータ）の先頭を入れておく
+    if (k === "mail") return (((S.d && S.d.mails) || []).find((m) => m.src !== "hear") || {}).addr || I.email || ((I.contacts || []).find((c) => c.email) || {}).email || "";
     if (k === "tel") return S.f.phone || L.phone || "";
     return "";
   }
