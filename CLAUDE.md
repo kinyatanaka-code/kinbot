@@ -86,7 +86,9 @@ Neo Career / C Career の営業チーム（DOC・MOCHICA）が毎日使ってい
 3. **`git push --force` は使わない**。`git reset --hard` も、自分の直しを捨てると決めたとき以外は使わない。
 4. **ファイルを丸ごと上げない**：GitHub の画面での上書き、Contents API でのファイル丸ごとの更新、zip を解凍したフォルダからの push はしない（古い中身で相手の直しを消す原因になる）。
 5. rebase で同じところがぶつかったら、**両方の直しを残す**。`BUILD_TAG` の行と `dev/kinbot-memory.md` はよくぶつかるが、両方の文を残せばよい。分からないときは手を止めて人に聞く。
-6. 福井さんは主に MOCHICA（`public/mochica*`・`public/mcbales.js`・`server/index.js` の `/api/mochica/` まわり・`public/zoom-ext/`）を直す。DOC の画面やほかの機能を直すときは、田中さんに一言伝える。
+6. **福井さんが直せるのは MOCHICA だけ**（`public/mochica*`・`public/mc*`・`server/mc*.js`・`server/index.js` と `server/db.js` の MOCHICA の場所（`/api/mochica/`・`/api/mccall/`・Bales・`mc_` の表）・`public/zoom-ext/`）。
+   - **kincall・kinbot・kinXs と、みんなで使う作り（`server/salesforce.js`・`server/auth.js`・`package.json`・ほかの画面・共通の関数）は、福井さんは直さない**（2026-11-24 田中さん「福井が kincall,kinbot,kinXs の修正はできないようにして」）。MOCHICALL のためにそこを直したいときは、手を止めて「何を・なぜ」を福井さんに伝え、田中さんに頼んでもらう。
+   - `bash dev/safe-push.sh` の中の `dev/owner-guard.mjs` が、本文に「開発: 福井」があるコミットを見て、MOCHICA の外を直していたら上げずに止める。止められたら、そのファイルを元に戻してから上げ直す。このチェックを外したり、safe-push.sh を使わずに上げたりしない。
    - **お金がかかる直しは、田中さんの許可をもらってから**（2026-11-20 田中さん）。福井さんの Claude は、次に当てはまる直しを始める前に手を止めて、「何を・なぜ・月にどれくらいかかりそうか」を福井さんに伝え、田中さんの許可をもらうよう頼む。許可が出るまで上げない。
      - AI（Gemini・Groq・Claude など）を呼ぶ回数や量が増える（新しい AI の処理、自動で回る AI、読むものが増える、上限を上げる）
      - お金のかかる外のサービスを新しく使う・呼ぶ回数が増える（Recall の録画ボット、Zoom・MiiTel・Bales などの有料の API、地図・検索の API など）

@@ -29,6 +29,8 @@ for try in 1 2 3; do
     echo "（BUILD_TAG の行や dev/kinbot-memory.md は、両方の文を残せば大丈夫です）"
     exit 1
   fi
+  echo "== 持ち場の確認（福井さんの直しが MOCHICA の外に出ていないか） =="
+  node dev/owner-guard.mjs
   echo "== 精度チェック =="
   node dev/precheck.mjs
   echo "== GitHub に上げています =="
