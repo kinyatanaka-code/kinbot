@@ -292,7 +292,8 @@ async function loadTable() {
   try {
     const q = $("clFind") && $("clFind").value.trim();
     const who = (callAsMember && listId !== "all" && listId !== "today") ? ((listId === "nurture" || listId === "crosslost-now") ? "&member=" + encodeURIComponent(callAsMember) : "&assignedTo=" + encodeURIComponent(callAsMember)) : "";
-    const d = await (await fetch(`/api/calls/targets?list=${encodeURIComponent(listId)}${q ? "&q=" + encodeURIComponent(q) : ""}${who}`)).json();
+    const url = `/api/calls/targets?list=${encodeURIComponent(listId)}${q ? "&q=" + encodeURIComponent(q) : ""}${who}`;
+    const d = await (await fetch(url)).json();
     if (seq !== _loadSeq) return;   // 途中で別の読み込み（検索語の変更・リスト切替）が始まった
     if (d.error) throw new Error(d.error);
     kinds = d["結果の種類"] || [];
@@ -302,6 +303,7 @@ async function loadTable() {
     _sfDisconnected = !!d["SF未接続"];
     render();
     loadToday();
+    if (_sfDisconnected) kcSfRetry(url, seq);
   } catch (e) {
     if (seq !== _loadSeq) return;
     box.innerHTML = `<div class="empty-state">読み込めませんでした：${esc(e.message)}</div>`;
@@ -327,6 +329,37 @@ try { const _f = JSON.parse(localStorage.getItem("kcFilt") || "{}");
 } catch {}
 let hideApo = false;   // アポ獲得済みを隠しているか
 let _sfDisconnected = false;   // SFに接続できず履歴件数が数えられなかった
+// SF の連携が切れて履歴（SF の架電の件数）が数えられなかったときは、裏で数え直し、数えられたら履歴だけ差し替える
+//   （2026-11-24 田中さん「ここからリストの SF 履歴は自動で復旧させてほしい」）。サーバーは切れた連携を飛ばして次の人で数えるので、
+//   少し待てば戻ることが多い。30秒・1分・1分半…と間をあけて5回まで。記録の窓を開いている間は表を描き直さず、閉じてから差し替える
+let _kcSfRetryT = null;
+function kcSfRetry(url, seq, n = 0) {
+  clearTimeout(_kcSfRetryT);
+  if (n >= 5) return;
+  _kcSfRetryT = setTimeout(async () => {
+    if (seq !== _loadSeq) return;   // 別のリストに移った
+    try {
+      const d = await (await fetch(url)).json();
+      if (seq !== _loadSeq) return;
+      if (d.error || d["SF未接続"]) return kcSfRetry(url, seq, n + 1);
+      const m = new Map((d.items || []).map((x) => [String(x.id), x["履歴数"]]));
+      for (const r of rows) if (m.has(String(r.id))) r["履歴数"] = m.get(String(r.id));
+      _sfDisconnected = false;
+      const go = () => {
+        if (seq !== _loadSeq) return;
+        if (document.querySelector(".kc-modal")) return setTimeout(go, 3000);
+        // 描き直しても、見ていた場所（縦・横のスクロール）がずれないように
+        const box = $("clTable"); const doc = document.scrollingElement;
+        const keep = (els) => els.map((el, i) => [i, el.scrollTop, el.scrollLeft]).filter((x) => x[1] || x[2]);
+        const d0 = [doc.scrollTop, doc.scrollLeft], b0 = box ? [box.scrollTop, box.scrollLeft] : null, in0 = box ? keep([...box.querySelectorAll("*")]) : [];
+        render();
+        doc.scrollTop = d0[0]; doc.scrollLeft = d0[1];
+        if (box && b0) { box.scrollTop = b0[0]; box.scrollLeft = b0[1]; const all = [...box.querySelectorAll("*")]; for (const [i, t, l] of in0) if (all[i]) { all[i].scrollTop = t; all[i].scrollLeft = l; } }
+      };
+      go();
+    } catch { kcSfRetry(url, seq, n + 1); }
+  }, 30000 * (n + 1));
+}
 let _reasonChips = null;       // 記録モーダルの理由チップ（サーバから取得）
 let sortBy = "", sortDesc = false;   // sortBy：stage/company/person/mail/lastcall/status/hist、追加列は "x:列名"
 try { const _s = JSON.parse(localStorage.getItem("kcSort") || "{}"); if (_s && typeof _s.by === "string") { sortBy = _s.by; sortDesc = !!_s.desc; } } catch {}
