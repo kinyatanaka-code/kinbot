@@ -11,7 +11,7 @@
     <link rel="manifest" href="/kinxs.webmanifest" />
     <meta name="theme-color" content="#0B3B2E" />
     <meta name="apple-mobile-web-app-title" content="kinXs" />
-    <link rel="stylesheet" href="style.css?v=20261124zb" />
+    <link rel="stylesheet" href="style.css?v=20261124zc" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1363,6 +1363,23 @@
   #kh2 .h2-mine .mi-flow{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:0 0 10px;}
   #kh2 .h2-mine .mi-arr{display:none;}
   #kh2 .h2-mine .mi-kpis{margin-bottom:6px;}
+  /* ホームの担当企業をすっきり（2026-11-24 田中さん「がたがた・ごちゃついている」）：
+     上＝3つの数を横に等しく、下＝キックオフ → 掲載中を1本の縦の流れ（色の点を線でつなぐ）にして、行の高さと数の位置をそろえる */
+  #kh2 .h2-mine .mi-kpis{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:10px;}
+  #kh2 .h2-mine .mi-kpis .mi-kpi{flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:2px;padding:8px 12px;border-radius:12px;}
+  #kh2 .h2-mine .mi-kpis .mi-kpi .l{font-size:11.5px;}
+  #kh2 .h2-mine .mi-kpis .mi-kpi .v{font-size:22px;}
+  #kh2 .h2-mine .mi-flow{display:flex;flex-direction:column;gap:0;position:relative;margin:0 0 10px;padding:2px 0;background:#fff;border:1px solid #E3EEEA;border-radius:14px;}
+  #kh2 .h2-mine .mi-flow::before{content:"";position:absolute;left:19px;top:18px;bottom:18px;width:2px;border-radius:2px;background:linear-gradient(180deg,#E0A100,#C43D3D 30%,#3F72C9 55%,#8A4B00 78%,#1d9e75);opacity:.55;}
+  #kh2 .h2-mine .mi-flow .mi-kpi{position:relative;flex-direction:row;align-items:center;justify-content:space-between;gap:10px;min-height:34px;padding:4px 14px 4px 36px;border:0;border-radius:0;background:transparent;box-shadow:none;}
+  #kh2 .h2-mine .mi-flow .mi-kpi:not(:first-child){border-top:1px solid #F0F4F2;}
+  #kh2 .h2-mine .mi-flow .mi-kpi:first-child{border-radius:13px 13px 0 0;}
+  #kh2 .h2-mine .mi-flow .mi-kpi:last-child{border-radius:0 0 13px 13px;}
+  #kh2 .h2-mine .mi-flow .mi-kpi:hover{background:#F6FBF9;}
+  #kh2 .h2-mine .mi-flow .mi-kpi.on{background:color-mix(in srgb,var(--c,#1d9e75) 9%,#fff);box-shadow:none;}
+  #kh2 .h2-mine .mi-flow .mi-kpi .l{font-size:12.5px;color:#33463E;}
+  #kh2 .h2-mine .mi-flow .mi-kpi .l i{position:absolute;left:14px;top:50%;transform:translateY(-50%);width:12px;height:12px;margin:0;box-shadow:0 0 0 3px #fff;}
+  #kh2 .h2-mine .mi-flow .mi-kpi .v{font-size:19px;min-width:64px;text-align:right;font-variant-numeric:tabular-nums;}
   #kh2 .h2-mine .mi-kpi{flex-direction:row;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;}
   #kh2 .h2-mine .mi-kpi .l{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;align-items:center;font-size:12px;}
   #kh2 .h2-mine .mi-kpi .l i{margin-top:0;}
@@ -1589,8 +1606,8 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261124zb" defer></script>
-    <script src="kinxs.js?v=20261124zb"></script>
+    <script src="kbchat.js?v=20261124zc" defer></script>
+    <script src="kinxs.js?v=20261124zc"></script>
   <script>
   // スマホのメニューの開け閉め。項目を押したら閉じる（2026-11-24）
   (function () {
