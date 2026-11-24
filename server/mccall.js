@@ -1741,7 +1741,8 @@ export function registerMcCall(app, deps) {
     // 商材で分ける（2026-11-24 福井さん）。list=-1 は「キャリミキのリストすべて」。
     //   「担当のリストすべて」（list なし）は MOCHICA のリストだけにする（キャリミキの会社が MOCHICA のトークの流れに混ざらないように）
     const prod = ids.length ? new Map((await P().query(`SELECT id, product FROM mc_call_lists WHERE id = ANY($1)`, [ids])).rows.map((r) => [r.id, r.product || "mochica"])) : new Map();
-    const cmPick = listId === -1 || (listId > 0 && prod.get(listId) === "careermixer");
+    // リストを1本（またはキャリミキすべて）選んだときは、今日かけるリストの人でも選んだリストからかける（2026-11-24 福井さん「リスト選択が止まっていて選べない」）
+    const cmPick = listId === -1 || listId > 0;
     if (listId === -1) ids = ids.filter((x) => prod.get(x) === "careermixer");
     else if (!(listId > 0)) ids = ids.filter((x) => prod.get(x) !== "careermixer");
     // 今日かけるリストの人は、入れ先のリスト（と本人の掛け直しのあるリスト）だけ。画面のリストの選び方は使わない（2026-11-23 福井さん）。

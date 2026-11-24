@@ -132,8 +132,9 @@
     const opt = (l) => `<option value="${l.id}" ${l.id === S.listId ? "selected" : ""}>${esc(l.name)}（今かける ${l.now}）</option>`;
     const cm = S.lists.filter(isCm), mc = S.lists.filter((l) => !isCm(l));
     const cmGroup = cm.length ? `<optgroup label="キャリアミキサー（キャリミキ）"><option value="-1" ${S.listId === -1 ? "selected" : ""}>キャリミキのリストすべて（今かける ${cm.reduce((a, l) => a + l.now, 0)}）</option>${cm.map(opt).join("")}</optgroup>` : "";
-    // 今日かけるリストの人は MOCHICA のリストを選ばない（今日の分からかける）。キャリミキのリストだけは選べる
-    if (t) { sel.innerHTML = `<optgroup label="MOCHICA"><option value="0" selected>今日かけるリスト 残り ${Number(t.left ?? t.ready ?? 0)}件／${Number(t.n || 0)}件（見込みアポ率 ${(Number(t.exp || 0) * 100).toFixed(1)}%）</option></optgroup>${cmGroup}`; sel.disabled = !cm.length;
+    // 今日かけるリストの人は、いちばん上が今日かけるリスト。下の MOCHICA・キャリミキのリストも選べる（2026-11-24 福井さん「リスト選択が止まっていて選べない」）。
+    //   前はキャリミキのリストが無いと選ぶ欄ごと止まっていた
+    if (t) { sel.innerHTML = `<optgroup label="MOCHICA"><option value="0" ${S.listId === 0 ? "selected" : ""}>今日かけるリスト 残り ${Number(t.left ?? t.ready ?? 0)}件／${Number(t.n || 0)}件（見込みアポ率 ${(Number(t.exp || 0) * 100).toFixed(1)}%）</option>${mc.map(opt).join("")}</optgroup>${cmGroup}`; sel.disabled = false;
       sel.title = `リスト管理の今日かけるリスト（所有者：${t.owner || ""}）。予定のナーチャリング ${Number(t.due_nurture || 0)}・予定のそのほか ${Number(t.due_other || 0)}・過去失注 ${Number(t.pastlost || 0)}・新規 ${Number(t.newlist || 0)}。時刻が来た掛け直しも先に出ます`; return; }
     sel.disabled = false; sel.title = "";
     sel.innerHTML = (cm.length ? `<optgroup label="MOCHICA">` : "") + `<option value="0" ${S.listId === 0 ? "selected" : ""}>担当のリストすべて${cm.length ? "（MOCHICA）" : ""}</option>` + mc.map(opt).join("") + (cm.length ? `</optgroup>${cmGroup}` : "");
@@ -149,7 +150,8 @@
   async function loadQueue(openFirst) {
     try {
       const j = await api(`/api/mccall/queue${S.listId ? `?list=${S.listId}` : ""}`); S.queue = j.items || []; S.later = j.later || 0; S.noTalk = j.noTalk || []; S.researching = j.researching || 0; S.why = j.why || null; S.stop = j.stop || "";
-      { const had = !!S.today; S.today = j.today || null; if (had || S.today) drawListSel(); }
+      // リストを選んでいる間はサーバーが today を返さない。そこで消すと一番上の「今日かけるリスト」が選べなくなるので、選んでいないときだけ入れ替える
+      { const had = !!S.today; if (!S.listId || j.today) S.today = j.today || null; if (had || S.today) drawListSel(); }
       if (openFirst || !S.d) { const f = S.queue.find((x) => !S.d || x.id !== S.d.lead.id); if (f) await open(f.id); else empty(); }
     } catch (e) { setNotice([{ kind: "danger", text: `かける順番を読めませんでした：${e.message}` }]); }
   }
