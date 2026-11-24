@@ -2552,8 +2552,9 @@ async function renderMine(boxArg, opts = {}) {
     ["dn", "来月納品待ち", "#5DCAA5", (x) => waitIng(x) && dlvYm(x) === nextYm, dlvNote, (a, b) => String(a.name).localeCompare(String(b.name), "ja")],
     // キックオフ未実施＝CS の確認MTG（フォローMTG）がまだの会社（2026-11-24 田中さん）。キックオフ（FS）の予定が無い・済んでいない会社に加えて、
     //   「フォローMTG設定済」（予定は入ったが、まだ実施していない）も入れる
-    ["ko", "キックオフ未実施", "#E0A100", (x) => (x.actions || []).some((a) => a.kind === "キックオフ未実施") || x.label === "フォローMTG設定済",
-      (x) => ((x.actions || []).find((a) => a.kind === "キックオフ未実施") || {}).detail || (x.label === "フォローMTG設定済" ? "フォローMTG設定済（確認MTGはまだ実施していません）" : "")],
+    //   フォローMTG設定済でも、受注後に【ユ/フォ】・ユーザーフォロー・CS 担当の商談履歴があれば実施済みとして外す（x.followDone・サーバーで判定）（2026-11-24 田中さん）
+    ["ko", "キックオフ未実施", "#E0A100", (x) => (x.actions || []).some((a) => a.kind === "キックオフ未実施") || (x.label === "フォローMTG設定済" && !x.followDone),
+      (x) => ((x.actions || []).find((a) => a.kind === "キックオフ未実施") || {}).detail || (x.label === "フォローMTG設定済" ? "フォローMTG設定済（確認MTGの商談履歴がまだありません）" : "")],
     ["ks", "検収書の回収が必要", "#C43D3D", (x) => !x.delivered && !(String(x.kenshuSt || "").startsWith("回収済み") || x.kenshuSt === "対象外"), (x) => `検収書：${x.kenshuSt || "未回収"}${x.ksMonth ? `・回収予定 ${Number(x.ksMonth.slice(5))}月` : ""}`],
     ["ml", "納品メールの対応が必要", "#3F72C9", (x) => !String(x.mail || "").startsWith("送付済み") && (!x.delivered || !!x.ksMonth), (x) => `納品メール：${x.mail || "未送付"}`],
     ["np", "納品済み・未掲載", "#8A4B00", (x) => x.delivered && !pubd(x), (x) => `納品 ${x.deliveredOn || "—"}${x.noPlace ? "・未掲載と決めた会社" : ""}`],
