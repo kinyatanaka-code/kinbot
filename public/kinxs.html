@@ -11,7 +11,7 @@
     <link rel="manifest" href="/kinxs.webmanifest" />
     <meta name="theme-color" content="#0B3B2E" />
     <meta name="apple-mobile-web-app-title" content="kinXs" />
-    <link rel="stylesheet" href="style.css?v=20261124x" />
+    <link rel="stylesheet" href="style.css?v=20261124y" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1285,6 +1285,18 @@
 .mi-arr i svg{margin-left:1px;}
 @keyframes miFlow{from{background-position:200% 0}to{background-position:0 0}}
 @media (prefers-reduced-motion:reduce){.mi-arr::before{animation:none;}}
+/* 担当企業の画面：上に詰め、会社の一覧だけを中で巻き取る（2026-11-24 田中さん） */
+#vMine .kx-head{margin-bottom:0;}
+#vMineBody{padding-top:0;}
+#vMineBody .mi-tools{margin:-10px 0 8px;}
+#vMineBody .mi-kpis{gap:8px;margin-bottom:8px;}
+#vMineBody .mi-kpi{padding:8px 12px;gap:2px;}
+#vMineBody .mi-kpi .v{font-size:24px;}
+#vMineBody .mi-flow{margin:0 0 10px;}
+#vMineBody .mi-h{margin:0 0 6px;}
+.mi-fixed{display:flex;flex-direction:column;min-height:0;}
+.mi-fixed > *{flex:none;}
+.mi-fixed > .mi-list,.mi-fixed > [data-mtk]{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;align-content:start;padding:2px 4px 8px 0;}
 .mi-sub{display:flex;flex-wrap:wrap;gap:2px 8px;font-size:11px;font-weight:700;color:#5b6b66;}
 .mi-sub b{color:var(--c,#0d5b47);}
 #kh2 .h2-mine .mi-sub{display:none;}
@@ -1577,8 +1589,8 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261124x" defer></script>
-    <script src="kinxs.js?v=20261124x"></script>
+    <script src="kbchat.js?v=20261124y" defer></script>
+    <script src="kinxs.js?v=20261124y"></script>
   <script>
   // スマホのメニューの開け閉め。項目を押したら閉じる（2026-11-24）
   (function () {

@@ -2556,7 +2556,13 @@ async function renderMine(boxArg, opts = {}) {
     ["np", "納品済み・未掲載", "#8A4B00", (x) => x.delivered && !pubd(x), (x) => `納品 ${x.deliveredOn || "—"}${x.noPlace ? "・未掲載と決めた会社" : ""}`],
     ["pb", "納品済み・掲載中", "#1d9e75", (x) => x.delivered && pubd(x), (x) => `掲載 ${x.publishedOn || "日付なし"}${(x.places || []).length ? `・${x.places.map((p) => p.where).filter(Boolean).slice(0, 2).join("・")}` : ""}`],
   ];
+  // 担当企業の画面は1画面に固定して、会社の一覧だけを中で巻き取る（2026-11-24 田中さん「上に詰めて、会社一覧はスクロールできるように」）。スマホ（幅860px以下）は今まで通り
+  const miFit = () => { if (home || !box.isConnected) return; const wide = window.innerWidth > 860; box.classList.toggle("mi-fixed", wide);
+    box.style.height = wide ? `${Math.max(420, window.innerHeight - box.getBoundingClientRect().top - 12)}px` : ""; };
+  if (!home && !renderMine._fitOn) { renderMine._fitOn = true; window.addEventListener("resize", () => { if (VIEW === "mine" && renderMine.fit) renderMine.fit(); }); }
+  if (!home) renderMine.fit = miFit;
   const draw = () => {
+    requestAnimationFrame(miFit);
     const mine = all.filter((x) => !st.who || (kxSurname(x.cs) || "") === st.who);
     const cur = KS.find((k) => k[0] === st.k);
     const list = cur ? mine.filter(cur[3]).sort(cur[5] || ((a, b) => String(b.booked || "").localeCompare(String(a.booked || "")))) : [];
