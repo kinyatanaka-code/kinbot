@@ -2105,7 +2105,7 @@ export function registerMcCall(app, deps) {
   // ---- SF のリードと結びついていない会社を、架電画面から SF につなぐ（2026-11-24 福井さん「架電画面から SF リード新規作成」） ----
   //   リードの状況を変えられない・活動が SF に残らない、をその場でなくすため。
   //   重複リードを作らないよう、先に SF の MOCHICA のリードを会社名・電話で探し、あれば「結びつける」を勧める。
-  //   新しく作るときのレコードタイプは必ず「Mochica（リード）」（DOC のリードと混ざらないように）。業種は人が SF の選択肢から選ぶ（AI は使わない）
+  //   新しく作るときのレコードタイプは必ず「Mochica（リード）」（DOC のリードと混ざらないように）。業種は画面で候補を自動推定し、SF の選択肢から確定する。
   const MC_RT = "Mochica（リード）";
   async function mochicaRtId(owner) {
     const d = await sfQuery(owner, `SELECT Id, Name FROM RecordType WHERE SobjectType = 'Lead' AND IsActive = true AND Name LIKE '%Mochica%'`);

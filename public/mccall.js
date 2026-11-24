@@ -11,6 +11,14 @@
   const api = async (u, o = {}) => { const r = await fetch(u, { credentials: "include", headers: { "content-type": "application/json" }, ...o }); const j = await r.json().catch(() => ({})); if (!r.ok) throw Object.assign(new Error(j.error || `うまくいきませんでした（${r.status}）`), { status: r.status, data: j }); return j; };
   const post = (u, b) => api(u, { method: "POST", body: JSON.stringify(b || {}) });
   const ls = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} }, del(k) { try { localStorage.removeItem(k); } catch {} } };
+  // 「飛ばす」は架電リストを完了扱いにはせず、このタブでの架電中だけ候補から外す。
+  // sessionStorage なので、画面を読み直しても戻らず、ブラウザのタブを閉じれば次回は改めて検討できる。
+  const ss = { get(k) { try { return sessionStorage.getItem(k); } catch { return null; } }, set(k, v) { try { sessionStorage.setItem(k, v); } catch {} } };
+  const skippedIds = () => {
+    try { return new Set(JSON.parse(ss.get("mcc_skipped_leads") || "[]").map(Number).filter((id) => id > 0)); }
+    catch { return new Set(); }
+  };
+  const saveSkippedIds = (ids) => ss.set("mcc_skipped_leads", JSON.stringify([...ids]));
   // 書きかけのメモは会社ごとにこのパソコンに残す（通話中に別の会社へ移ったり、画面を読み直したりしても消えないように）
   const memoKey = (id) => `mcc_memo_${id}`;
   const digits = (v) => String(v || "").normalize("NFKC").replace(/[^0-9+]/g, "");
@@ -26,7 +34,7 @@
     person: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>',
   };
 
-  const S = { meta: null, admin: false, tab: "call", lists: [], listId: parseInt(ls.get("mcc_list") || "0", 10) || 0, queue: [], later: 0,
+  const S = { meta: null, admin: false, tab: "call", lists: [], listId: parseInt(ls.get("mcc_list") || "0", 10) || 0, queue: [], later: 0, skipped: skippedIds(), skippedInQueue: 0,
     d: null, cache: new Map(), f: null, notices: [], ni: 0, toast: null, busy: false, mounted: false, src: null, reps: null, ldBack: null };
   let memoEl = null;
   const CALL_TOOLS = [["mccTalk", "スクリプトを見る"], ["mccWork", "ヒアリングを入力"], ["mccMemoPanel", "架電メモを書く"]];
@@ -151,7 +159,9 @@
   }
   async function loadQueue(openFirst) {
     try {
-      const j = await api(`/api/mccall/queue${S.listId ? `?list=${S.listId}` : ""}`); S.queue = j.items || []; S.later = j.later || 0; S.noTalk = j.noTalk || []; S.researching = j.researching || 0; S.why = j.why || null; S.stop = j.stop || "";
+      const j = await api(`/api/mccall/queue${S.listId ? `?list=${S.listId}` : ""}`); const items = j.items || [];
+      S.skippedInQueue = items.filter((x) => S.skipped.has(Number(x.id))).length;
+      S.queue = items.filter((x) => !S.skipped.has(Number(x.id))); S.later = j.later || 0; S.noTalk = j.noTalk || []; S.researching = j.researching || 0; S.why = j.why || null; S.stop = j.stop || "";
       // リストを選んでいる間はサーバーが today を返さない。そこで消すと一番上の「今日かけるリスト」が選べなくなるので、選んでいないときだけ入れ替える
       { const had = !!S.today; if (!S.listId || j.today) S.today = j.today || null; if (had || S.today) drawListSel(); }
       if (openFirst || !S.d) { const f = S.queue.find((x) => !S.d || x.id !== S.d.lead.id); if (f) await open(f.id); else empty(); }
@@ -163,6 +173,7 @@
     return a.length ? `管理者（${a.slice(0, 4).join("・")}${a.length > 4 ? " ほか" : ""}）` : "管理者"; }
   function emptyText() {
     const W = S.why || {}; const ask = adminsText();
+    if (S.skippedInQueue) return { html: `今回飛ばした企業を除くと、かける企業はありません。<br>飛ばした企業は、このタブを閉じるまで表示しません。` };
     if (S.stop === "ban") return { retry: 30000, html: `アプローチ禁止の名簿を読めないため、安全のため「かける」を止めています（禁止の会社にかけてしまわないように）。<br>30秒ごとに自動で読み直します。5分たっても直らないときは、${esc(ask)}に知らせてください。` };
     if (!S.lists.length) {
       if (S.admin) return { html: `まだ架電リストがありません。<br><button class="mcc-btn primary" id="mccGoLists" style="margin-top:12px">リストを作る</button>` };
@@ -423,7 +434,23 @@
       <label class="mcc-field">電話<input id="mccNPh" inputmode="tel" value="${esc(F.phone)}" /></label>
       <label class="mcc-field">メール<input id="mccNMa" type="email" value="${esc(F.email || ((S.d.mails || [])[0] || {}).addr || "")}" /></label>
       <label class="mcc-field">Web ページ<input id="mccNWeb" type="url" value="${esc(F.web)}" /></label>
-      <label class="mcc-field">業種（SF で必須）<select id="mccNInd" class="mcc-sel"><option value="">選んでください</option>${(j.industries || []).map((o) => `<option value="${esc(o.value)}">${esc(o.label || o.value)}</option>`).join("")}</select></label></div>`);
+      <label class="mcc-field">業種（SF で必須）<select id="mccNInd" class="mcc-sel"><option value="">選んでください</option>${(j.industries || []).map((o) => `<option value="${esc(o.value)}">${esc(o.label || o.value)}</option>`).join("")}</select><small id="mccNIndNote" style="color:var(--c-muted)">業種を調べています…</small></label></div>`);
+    const indSel = w.querySelector("#mccNInd"), indNote = w.querySelector("#mccNIndNote");
+    const guessIndustry = async () => {
+      const company = w.querySelector("#mccNCo")?.value.trim() || "";
+      const website = w.querySelector("#mccNWeb")?.value.trim() || "";
+      if (!company || !indSel || indSel.value) return;
+      try {
+        const q = new URLSearchParams({ company, website });
+        const g = await api(`/api/salesforce/industry-guess?${q}`);
+        if (indSel.value) return;
+        if (g.industry && !indSel.value && [...indSel.options].some((o) => o.value === g.industry)) {
+          indSel.value = g.industry;
+          indNote.textContent = `業種は${g.from || "見立て"}から「${g.industry}」を選びました${g.reason ? `（${g.reason}）` : ""}。違っていたら直してください。`;
+        } else indNote.textContent = "業種を特定できませんでした。選んでください。";
+      } catch { indNote.textContent = ""; }
+    };
+    guessIndustry();
     w.querySelectorAll("[data-link]").forEach((b) => b.addEventListener("click", async () => {
       b.disabled = true;
       try { const r = await post(`/api/mccall/leads/${id}/sf-create`, { inbound: ib, link: b.dataset.link }); w.remove(); S.dlg = null; await done(r); }
@@ -1337,8 +1364,10 @@
   }
   async function skip() {
     if (!S.d) return; const id = S.d.lead.id; release(); if (isInbound(id)) S.inbound = null;
-    S.queue = S.queue.filter((x) => x.id !== id); S.queue.push({ id, company: S.d.lead.company });   // 飛ばした会社はいちばん後ろへ
+    S.skipped.add(id); saveSkippedIds(S.skipped);
+    S.queue = S.queue.filter((x) => x.id !== id);
     const n = nextItem(); if (n && n.id !== id) await open(n.id);
+    else { S.d = null; await loadQueue(true); }
   }
   function release() { if (S.d) post(`/api/mccall/leads/${S.d.lead.id}/release`).catch(() => {}); }
   async function undo(logId) {
@@ -1554,7 +1583,7 @@
       <dt><kbd>1</kbd>〜<kbd>9</kbd>・<kbd>0</kbd></dt><dd>いま出ている選択肢を選ぶ（発信してから。0 は10番目。コールのみ・現在使われておりませんは押すとすぐ記録して次へ。担当者不在は掛け直す時間を選ぶ（1 なら自動）。受付ブロックは断り文句を選ぶと記録して次へ。営業時間外は営業時間を残して Enter）</dd><dt><kbd>Enter</kbd></dt><dd>記録して次の企業へ</dd>
       <dt><kbd>Backspace</kbd></dt><dd>ひとつ前の選択に戻る</dd><dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>トークの段階を手で切り替える（ふだんは通話の進み具合で自動で切り替わる）</dd><dt><kbd>C</kbd></dt><dd>選んでいる番号に発信</dd>
       <dt><kbd>T</kbd></dt><dd>担当者につながった（トークが担当者向けに変わり、日程の候補が出る）</dd>
-      <dt><kbd>S</kbd></dt><dd>この企業を飛ばす（いちばん後ろへ。発信する前だけ）</dd><dt><kbd>Z</kbd></dt><dd>いま記録したものを元に戻す</dd>
+      <dt><kbd>S</kbd></dt><dd>この企業を飛ばす（このタブを閉じるまで再表示しない。発信する前だけ）</dd><dt><kbd>Z</kbd></dt><dd>いま記録したものを元に戻す</dd>
       <dt><kbd>Ctrl</kbd>+<kbd>Enter</kbd></dt><dd>メモを書いている途中でも記録する</dd><dt><kbd>Esc</kbd></dt><dd>入力欄から出る・窓を閉じる</dd></dl></div>`);
   }
 
