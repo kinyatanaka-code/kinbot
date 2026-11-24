@@ -1800,7 +1800,7 @@ function renderHomeV2() {
     ${ms ? `<div class="h2-bars">${reqN.filter(([, n]) => n).map(([r, n]) => `<button type="button" class="h2-bar" data-miss="${esc(r.key)}"><span class="k">${esc(r.short || r.name)}</span><span class="b" data-grow><i style="width:${(n / maxReq) * 100}%"></i></span><span class="n">${n}</span></button>`).join("") || '<div class="h2-note">足りない情報はありません</div>'}</div>` : '<div class="h2-note">SFを読んでいます…</div>'}</section></div>
   </div>`;
   kxFitHome2();
-  if ($("kh2Mine")) renderMine($("kh2Mine"), { home: true, items: lsData.items || [] });
+  if ($("kh2Mine")) renderMine($("kh2Mine"), { home: true, items: lsData.items || [], who: kxCsF });
   // 動きは1回だけ：月を開いた（変えた）ときに全体を1回。情報不足は、あとから読めたときにその枠だけ1回（2026-11-04 「2回読み込まれるのやめてほしい」）
   if (kh2.animKey !== ym) { kh2.animKey = ym; kh2.missAnim = !!ms; kxCountUp(box); }
   else if (ms && !kh2.missAnim) { kh2.missAnim = true; kxCountUp(box.querySelector(".h2-miss")); }
@@ -2528,8 +2528,11 @@ async function renderMine(boxArg, opts = {}) {
   if (opts.items) d = { items: opts.items };
   else { box.innerHTML = '<div class="kx-empty">読み込み中…</div>'; try { d = await api(kxUsersUrl()); } catch (e) { box.innerHTML = `<div class="kx-empty">読めませんでした：${esc(e.message)}</div>`; return; } }
   const all = (d.items || []).filter((x) => !x.archived && kxHasDoc(x) && x.label !== "解約済み");
-  const st = window.__mine || (window.__mine = { who: "", k: "all" });
-  if (!st.who) { const me0 = kxSurname(window.__kxMe || ""); st.who = me0 || ""; }
+  // ホームでは、要アクションの「自分／全員」にそろえる（担当のプルダウンとタスクは出さない）（2026-11-24 田中さん「ホームの場合、担当企業のタスクはいらない」「自分と全員で選択するから担当企業のプルダウンはいらない」）
+  //   ホームと担当企業の画面で、選んだ数（k）が混ざらないように覚え場所を分ける
+  const st = home ? (window.__mineH || (window.__mineH = { who: "", k: "all" })) : (window.__mine || (window.__mine = { who: "", k: "all" }));
+  if (home) { st.who = opts.who || ""; if (st.k === "tk") st.k = "all"; }
+  else if (!st.who) { const me0 = kxSurname(window.__kxMe || ""); st.who = me0 || ""; }
   const names = [...new Set(all.map((x) => kxSurname(x.cs) || "").filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
   if (st.who && !names.includes(st.who)) names.unshift(st.who);
   const pubd = (x) => !!(x.published || x.publishedOn || (x.places || []).length);
@@ -2558,15 +2561,15 @@ async function renderMine(boxArg, opts = {}) {
     const cur = KS.find((k) => k[0] === st.k);
     const list = cur ? mine.filter(cur[3]).sort(cur[5] || ((a, b) => String(b.booked || "").localeCompare(String(a.booked || "")))) : [];
     const whoSel = `<label class="kx-note" style="display:flex;align-items:center;gap:6px">CS 担当<select class="kx-in" data-mwho style="width:auto"><option value="">全員</option>${names.map((n) => `<option ${n === st.who ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label>`;
-    box.innerHTML = `${home ? `<div class="h2-h"><h2>担当企業</h2><span class="h2-big">${mine.length}<small>社</small></span><span style="margin-left:auto">${whoSel}</span><a class="h2-link" href="/kinxs?p=mine">担当企業へ ›</a></div>` : `<div class="mi-tools">${whoSel}</div>`}
+    box.innerHTML = `${home ? `<div class="h2-h"><h2>担当企業</h2><span class="h2-big">${mine.length}<small>社</small></span><a class="h2-link" href="/kinxs?p=mine" style="margin-left:auto">担当企業へ ›</a></div>` : `<div class="mi-tools">${whoSel}</div>`}
       <div class="mi-kpis">${KS.map(([k, l, c, f]) => `<button type="button" class="mi-kpi ${st.k === k ? "on" : ""}" style="--c:${c}" data-mk="${k}"><span class="l"><i></i>${esc(l)}</span><span class="v">${mine.filter(f).length}<small>社</small></span></button>`).join("")}
-        <button type="button" class="mi-kpi ${st.k === "tk" ? "on" : ""}" style="--c:#6B4FB8" data-mk="tk"><span class="l"><i></i>タスク</span><span class="v" data-mtk-n>…<small>件</small></span></button></div>
+        ${home ? "" : `<button type="button" class="mi-kpi ${st.k === "tk" ? "on" : ""}" style="--c:#6B4FB8" data-mk="tk"><span class="l"><i></i>タスク</span><span class="v" data-mtk-n>…<small>件</small></span></button>`}</div>
       ${st.k === "tk" ? `<div class="mi-h">タスク（ホームと同じもの・期日の近い順）</div><div data-mtk><div class="kx-note">読み込み中…</div></div>`
         : `<div class="mi-h">${esc(cur ? cur[1] : "")}<span class="kx-note">${list.length}社</span></div><div class="mi-list">${list.length ? list.map((x) => `<div class="mi-co" role="button" tabindex="0" data-mopen="${esc(x.id)}">${kxLogoMini(x)}<span class="t"><b>${esc(x.name)}</b><small>${esc(cur[4](x) || "")}</small></span><span class="lb">${esc(x.label)}</span></div>`).join("") : '<div class="kx-empty" style="grid-column:1/-1">ありません</div>'}</div>`}`;
-    box.querySelector("[data-mwho]").addEventListener("change", (e) => { st.who = e.target.value; draw(); });
+    const wsel = box.querySelector("[data-mwho]"); if (wsel) wsel.addEventListener("change", (e) => { st.who = e.target.value; draw(); });
     box.querySelectorAll("[data-mk]").forEach((b) => b.addEventListener("click", () => { st.k = b.dataset.mk; draw(); }));
     box.querySelectorAll("[data-mopen]").forEach((el) => { const go = () => openDetail(el.dataset.mopen); el.addEventListener("click", go); el.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); }); });
-    loadTasks();
+    if (!home) loadTasks();
   };
   // タスク：ホームのタスクと同じ（その人のもの）。数は先に出し、タスクを選んだら並べる
   const loadTasks = async () => {
