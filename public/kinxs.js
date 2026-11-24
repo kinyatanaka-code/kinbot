@@ -1738,7 +1738,8 @@ function renderHomeV2() {
   const kxMineCo2 = (x) => !kxCsF || (kxSurname(x.cs) || "") === kxCsF;
   // 要アクションは緊急度の高いものだけ：キックオフ未実施と、検収書が今月回収で未回収の企業（2026-11-12 久野さんの要望）
   const kxThisYm = kxNowYm();
-  const kxUrgent = (a) => a.kind === "キックオフ未実施" || (a.kind === "検収書 未回収" && String(a.due || "").slice(0, 7) === kxThisYm);
+  //   キックオフは「未設定」（予定がまだ無い）だけにした（2026-11-24 田中さん。予定あり・予定日過ぎは担当企業の「キックオフ未実施」へ）
+  const kxUrgent = (a) => (a.kind === "キックオフ未実施" && a.ko === "未設定") || (a.kind === "検収書 未回収" && String(a.due || "").slice(0, 7) === kxThisYm);
   const actAll = items.filter((x) => kxHasDoc(x)).flatMap((x) => (x.actions || []).filter(kxUrgent).filter((a) => { const hd = window.__kxHomeDone || {}; return !(hd[x.id] && hd[x.id].has(kxDoneKey(a))); }).map((a) => ({ x, a, who: kxActWho(x, a) })));
   const csNames = [...new Set(actAll.map((r) => r.who))].sort((a, b) => a.localeCompare(b, "ja"));
   const actRows = actAll.filter((r) => !kxCsF || r.who === kxCsF).sort((u, v) => (u.a.left ?? 0) - (v.a.left ?? 0));
@@ -1746,7 +1747,8 @@ function renderHomeV2() {
   // 検収書は「今月が回収月の会社」を出す（2026-11-16 田中さん「その月の検収書回収企業を出してもらったほうがいい」）：
   //   未回収は要アクションの行、回収済み（今月回収した・回収済みにした）は下に「済み」として並べる。数は「未回収／今月の回収社数」
   const ksDoneRows = items.filter((x) => kxHasDoc(x) && x.ksMonth === kxThisYm && !x.archived && (String(x.kenshuSt || "").startsWith("回収済み") || x.kenshuSt === "対象外" || String(x.kenshuOn || "").slice(0, 7) === kxThisYm) && kxMineCo2(x));
-  const kinds = [["ko", "キックオフ未設定・未実施", (a) => a.kind === "キックオフ未実施", "#E0A100"], ["ks", `${Number(kxThisYm.slice(5))}月の検収書回収・未回収`, (a) => a.kind === "検収書 未回収", "#C43D3D"], ["tk", "タスク", () => false, "#3F72C9"]];
+  // ホームの要アクションは「キックオフ未設定」（キックオフの予定がまだ入っていない会社）だけ。予定は入ったがまだの会社（確認MTG 未実施）は担当企業の「キックオフ未実施」で見る（2026-11-24 田中さん）
+  const kinds = [["ko", "キックオフ未設定", (a) => a.kind === "キックオフ未実施" && a.ko === "未設定", "#E0A100"], ["ks", `${Number(kxThisYm.slice(5))}月の検収書回収・未回収`, (a) => a.kind === "検収書 未回収", "#C43D3D"], ["tk", "タスク", () => false, "#3F72C9"]];
   const kf = kh2.kf || ""; const shown = kf === "tk" ? [] : actRows.filter((r) => !kf || kinds.find((k) => k[0] === kf)[2](r.a));
   // 「自分」のときは、自分がCS担当の会社だけ（これからの更新・情報不足も）（2026-11-12 田中さん）
   const kxMineCo = (x) => !kxCsF || !x || (kxSurname(x.cs) || "") === kxCsF;
