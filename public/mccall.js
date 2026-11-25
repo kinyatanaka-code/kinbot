@@ -147,7 +147,7 @@
     const cmGroup = cm.length ? `<optgroup label="キャリアミキサー（キャリミキ）"><option value="-1" ${S.listId === -1 ? "selected" : ""}>キャリミキのリストすべて（今かける ${cm.reduce((a, l) => a + l.now, 0)}）</option>${cm.map(opt).join("")}</optgroup>` : "";
     // 今日かけるリストの人は、いちばん上が今日かけるリスト。下の MOCHICA・キャリミキのリストも選べる（2026-11-24 福井さん「リスト選択が止まっていて選べない」）。
     //   前はキャリミキのリストが無いと選ぶ欄ごと止まっていた
-    if (t) { sel.innerHTML = `<optgroup label="MOCHICA"><option value="0" ${S.listId === 0 ? "selected" : ""}>今日かけるリスト 残り ${Number(t.left ?? t.ready ?? 0)}件／${Number(t.n || 0)}件（見込みアポ率 ${(Number(t.exp || 0) * 100).toFixed(1)}%）</option>${mc.map(opt).join("")}</optgroup>${cmGroup}`; sel.disabled = false;
+    if (t) { sel.innerHTML = `<optgroup label="MOCHICA"><option value="0" ${S.listId === 0 ? "selected" : ""}>今日かけるリスト 残り ${Number(t.left ?? t.ready ?? 0)}件／${Number(t.n || 0)}件${Number(t.wait || 0) ? `・掛け直し待ち ${Number(t.wait)}件` : ""}（見込みアポ率 ${(Number(t.exp || 0) * 100).toFixed(1)}%）</option>${mc.map(opt).join("")}</optgroup>${cmGroup}`; sel.disabled = false;
       sel.title = `リスト管理の今日かけるリスト（所有者：${t.owner || ""}）。予定のナーチャリング ${Number(t.due_nurture || 0)}・予定のそのほか ${Number(t.due_other || 0)}・過去失注 ${Number(t.pastlost || 0)}・新規 ${Number(t.newlist || 0)}。時刻が来た掛け直しも先に出ます`; return; }
     sel.disabled = false; sel.title = "";
     sel.innerHTML = (cm.length ? `<optgroup label="MOCHICA">` : "") + `<option value="0" ${S.listId === 0 ? "selected" : ""}>担当のリストすべて${cm.length ? "（MOCHICA）" : ""}</option>` + mc.map(opt).join("") + (cm.length ? `</optgroup>${cmGroup}` : "");
@@ -199,7 +199,8 @@
     if (t) {
       const left = Number(t.left || 0), n = Number(t.n || 0);
       const lines = [
-        left ? `今日かけるリストのあなたの分は 残り <b>${left}件</b>／${n}件 ですが、いまはどれもかけられません（掛け直しの時刻待ち・ほかの人が開いている）。` : `今日かけるリストのあなたの分（${n}件）は、今かけられる会社をかけ終わりました。`,
+        // 残り＝今日まだかけていない会社（2026-11-25 福井さん）。0なら、今日の分は全部1回ずつかけ終わったということ
+        left ? `今日かけるリストのあなたの分は、まだかけていない会社が 残り <b>${left}件</b>／${n}件 ありますが、いまはどれもかけられません（ほかの人が開いている など）。` : `今日かけるリストのあなたの分（${n}件）は、全部1回ずつかけ終わりました。`,
         W.locked ? `<b>${W.locked}件</b> はほかの人が開いています（10分たつと戻ります）。` : "",
         t.held ? `<b>${t.held}件</b> は ${HELD_TXT}` : "",
         S.later ? `今日このあと掛け直す企業が <b>${S.later}件</b> あります（時刻が来たら先頭に並びます）。` : "",
@@ -1518,8 +1519,9 @@
       if (ap && ap.warn && ap.warn.length) { S.apoWarn = { at: Date.now(), items: ap.warn.map((t) => `${company}のアポ：${t}`) }; drawNotices(); }
       loadStats(); S.busy = false;
       setTimeout(loadStats, 8000);   // SF への書き込みは記録のあとで行うので、少し待って書けたかを確かめ直す
-      const n = nextItem(); if (n) await open(n.id); else { S.d = null; await loadQueue(true); }
-      if (S.queue.length < 5) loadQueue(false);
+      // 次の会社を開いたあとも、記録のたびに読み直す（今日かけるリストの「残り」をすぐ減らすため。
+      //   前は順番が5件を切るまで読み直さず、数字が古いままだった。2026-11-25 福井さん）
+      const n = nextItem(); if (n) { await open(n.id); loadQueue(false); } else { S.d = null; await loadQueue(true); }
     } catch (e) { S.busy = false; setNotice([{ kind: "danger", text: `記録できませんでした：${e.message}` }]); }
   }
   async function skip() {

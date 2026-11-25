@@ -2250,10 +2250,14 @@ export function registerMcCall(app, deps) {
         FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL`, [use, u, tidNow || 0, todayDay()])).rows[0];
       why = { others: +r.others, todayOthers: +r.today_others, locked: +r.locked, waiting: +r.waiting, held: +r.held };
     }
-    // 今日かけるリストの人は、今日の分のうち残り（まだ終わっていない・今かけられる）も返す
+    // 今日かけるリストの人は、今日の分のうち残り（今日まだ1回もかけていない会社）も返す
+    //   前は「終わっていない会社」を数えていて、不在・受付で掛け直しになった会社も残りに入ったままだった。
+    //   そのため、かけても数字が減らなかった（2026-11-25 福井さん）。今日かけて掛け直し待ちの会社は wait で別に返す
     //   検討時期待ちの分は残りに数えず、別に held で返す（「残り○件なのに出ない」と迷わないように）
-    if (today) { const r = (await P().query(`SELECT count(*) FILTER (WHERE NOT ${HOLD_Q}) AS left, count(*) FILTER (WHERE ${HOLD_Q}) AS held FROM mc_call_leads
-        WHERE list_id=$1 AND assigned_to=$2 AND today_day=$3 AND NOT done AND dup_of IS NULL`, [tm.tid, u, tm.day])).rows[0]; today.left = +r.left; today.held = +r.held; }
+    if (today) { const r = (await P().query(`SELECT count(*) FILTER (WHERE NOT ${HOLD_Q} AND (last_at IS NULL OR last_at < $4)) AS left,
+          count(*) FILTER (WHERE NOT ${HOLD_Q} AND last_at >= $4) AS wait, count(*) FILTER (WHERE ${HOLD_Q}) AS held FROM mc_call_leads
+        WHERE list_id=$1 AND assigned_to=$2 AND today_day=$3 AND NOT done AND dup_of IS NULL`, [tm.tid, u, tm.day, jstDayStart(new Date())])).rows[0];
+      today.left = +r.left; today.wait = +r.wait; today.held = +r.held; }
     await blindAttempts(items, u);
     res.json({ ok: true, items: items.map((x) => ({ ...x, outcome: outcomeLabel(x.last_outcome), streak: x.miss_streak || 0, why: x.reasons })), later: +later, noTalk, researching, why, today });
     // 裏で：検討時期を読むための属性（seg）を計算し、SF の検討開始時期が書かれた日を埋める（次に開いたときの判定に効く。かける人を待たせない）
