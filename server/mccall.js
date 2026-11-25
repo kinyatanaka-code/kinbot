@@ -1916,6 +1916,20 @@ export function registerMcCall(app, deps) {
       // BALES の次回アクション → MOCHICALL の掛け直し（先の予定は約束として、最近過ぎた予定は時刻が来た掛け直しとして。90日より前は写さない）
       const nextOf = (r) => { const t = r.next_at ? new Date(r.next_at).getTime() : NaN; if (!Number.isFinite(t) || now - t > staleMs) return [null, null];
         return t > now ? [new Date(t), WHY_HUMAN] : [new Date(t), "BALES の次回アクション（予定日を過ぎています）"]; };
+      // MOCHICALL にあるリード c をどうするか決めて up に積む（BALES の行から見つけたものと、重複で別の形で入っていたものの両方で使う）
+      const decide = (c, o, u, nAt, nWhy, cl) => {
+        if (c.done) return tally(o, "done");
+        if (c.product === "careermixer") return tally(o, "careermixer");
+        const k = `${c.src}\u0000${c.src_key}`; if (seenKey.has(k)) return tally(o, "same"); seenKey.add(k);
+        const ownerChanged = c.handover_at && c.handover_owner !== o;
+        const takeOver = !c.handover_at || ownerChanged || !c.assigned_to;
+        const busyOther = (c.busy && String(c.locked_by || "").toLowerCase() !== u) || (c.assigned_to && c.assigned_to !== u && c.today_day === day);
+        const needMove = c.list_id !== tid && (c.stock || c.closed || !cl.has(c.list_id));
+        if (!takeOver && !needMove) return tally(o, c.assigned_to === u ? "kept" : "keptOther");
+        if (busyOther) return tally(o, "busy");   // ほかの人が開いている・今日の分でかけている：次の回にする
+        up.push({ id: c.id, a: takeOver ? u : c.assigned_to, l: needMove ? hid : null, n: !c.handover_at ? nAt : null, w: !c.handover_at ? nWhy : null, o });
+        tally(o, takeOver ? (c.assigned_to && c.assigned_to !== u ? "reassigned" : "assigned") : "moved");
+      };
       for (const r of rows) {
         const o = String(r.owner || "").trim() || "（未割り振り）", u = owners.get(o);
         if (!u) { tally(o, o === "（未割り振り）" ? "noOwner" : "notUsing"); continue; }
@@ -1923,20 +1937,30 @@ export function registerMcCall(app, deps) {
         const id = map.get(`${bm.listKey}|${r.row_key}`), c = id ? cur.get(id) : null;
         const [nAt, nWhy] = nextOf(r);
         if (!c) { add.push({ r, o, u, nAt, nWhy }); tally(o, "add"); continue; }
-        if (c.done) { tally(o, "done"); continue; }
-        if (c.product === "careermixer") { tally(o, "careermixer"); continue; }
-        const k = `${c.src}\u0000${c.src_key}`; if (seenKey.has(k)) { tally(o, "same"); continue; } seenKey.add(k);
-        const ownerChanged = c.handover_at && c.handover_owner !== o;
-        const takeOver = !c.handover_at || ownerChanged || !c.assigned_to;
-        const busyOther = (c.busy && String(c.locked_by || "").toLowerCase() !== u) || (c.assigned_to && c.assigned_to !== u && c.today_day === day);
-        const needMove = c.list_id !== tid && (c.stock || c.closed || !callable.has(c.list_id));
-        if (!takeOver && !needMove) { tally(o, c.assigned_to === u ? "kept" : "keptOther"); continue; }
-        if (busyOther) { tally(o, "busy"); continue; }   // ほかの人が開いている・今日の分でかけている：次の回にする
-        up.push({ id: c.id, a: takeOver ? u : c.assigned_to, l: needMove ? hid : null, n: !c.handover_at ? nAt : null, w: !c.handover_at ? nWhy : null, o });
-        tally(o, takeOver ? (c.assigned_to && c.assigned_to !== u ? "reassigned" : "assigned") : "moved");
+        decide(c, o, u, nAt, nWhy, callable);
       }
-      const out = { dry, list: hid, targets: rows.length, owners: [...per.values()].sort((a, b) => b.n - a.n), updated: 0, added: 0 };
+      const out = { dry, list: hid, targets: rows.length, owners: [...per.values()].sort((a, b) => b.n - a.n), updated: 0, added: 0, dupTaken: 0 };
       if (dry) { out.plan = { update: up.length, add: add.length }; return out; }
+      // 新しく入れる。同じ会社が別の形ですでに MOCHICALL にあって入れられないときは、そのリードを引き継ぐ（2026-11-25：1回目で40件中34件がこれだった）
+      const dupOf = [];
+      for (const a of add) {
+        const { r, u, o, nAt, nWhy } = a;
+        const x = await addLeadUnique({ list_id: hid, src: "bales", src_key: `${bm.listKey}|${r.row_key}`, company: r.company, phone: r.phone, person: r.person, sf_lead_id: r.lid || null, hot: r.hot,
+          assigned_to: u, next_at: nAt, next_why: nWhy, handover_at: new Date(), handover_owner: o }, {}).catch((e) => ({ error: e.message }));
+        if (x.added) out.added++;
+        else if (x.dup && x.dup.lead_id) dupOf.push({ ...a, lead: x.dup.lead_id });
+      }
+      if (dupOf.length) {
+        const did = (await P().query(`SELECT id, COALESCE(dup_of, id) AS c FROM mc_call_leads WHERE id = ANY($1)`, [dupOf.map((x) => x.lead)])).rows;
+        const canon = new Map(did.map((r) => [r.id, r.c]));
+        const rowsD = new Map((await P().query(`SELECT c.id, c.src, c.src_key, c.done, c.list_id, c.assigned_to, c.today_day, c.next_at, c.handover_at, c.handover_owner,
+            (c.locked_by IS NOT NULL AND c.locked_at >= now() - interval '10 minutes') AS busy, c.locked_by, l.product, l.stock, l.closed
+          FROM mc_call_leads c JOIN mc_call_lists l ON l.id = c.list_id WHERE c.id = ANY($1)`, [[...new Set(canon.values())]])).rows.map((r) => [r.id, r]));
+        const clD = await listsWithTalk([...new Set([...rowsD.values()].map((c) => c.list_id))]);
+        const n0 = up.length;
+        for (const a of dupOf) { const c = rowsD.get(canon.get(a.lead)); if (c) decide(c, a.o, a.u, a.nAt, a.nWhy, clD); }
+        out.dupTaken = up.length - n0;
+      }
       // まとめて書く。終わったリード・ほかの人が開いたばかりのリード・キャリミキのリストのリードは、書く直前にもう一度確かめて動かさない
       for (let i = 0; i < up.length; i += 500) {
         const s = up.slice(i, i + 500);
@@ -1952,16 +1976,11 @@ export function registerMcCall(app, deps) {
           [s.map((x) => x.id), s.map((x) => x.a), s.map((x) => x.l), s.map((x) => x.n), s.map((x) => x.w), s.map((x) => x.o)]);
         out.updated += x.rowCount;
       }
-      for (const { r, u, o, nAt, nWhy } of add) {
-        const x = await addLeadUnique({ list_id: hid, src: "bales", src_key: `${bm.listKey}|${r.row_key}`, company: r.company, phone: r.phone, person: r.person, sf_lead_id: r.lid || null, hot: r.hot,
-          assigned_to: u, next_at: nAt, next_why: nWhy, handover_at: new Date(), handover_owner: o }, {}).catch((e) => ({ error: e.message }));
-        if (x.added) out.added++;
-      }
       // 引き継いだ人を入れ先のリストのメンバーにする（その人の「かける」にリストが出るように）。ほかの人には出さない
       const mem = (await P().query(`SELECT DISTINCT assigned_to AS e FROM mc_call_leads WHERE list_id=$1 AND assigned_to IS NOT NULL`, [hid])).rows.map((r) => r.e);
       await P().query(`UPDATE mc_call_lists SET members=$2 WHERE id=$1`, [hid, mem.length ? mem : ["-"]]);
       _handoverAt = Date.now();
-      console.log(`[mccall] BALES のナーチャリングを引き継ぎました：対象 ${rows.length}件・書き換え ${out.updated}件・新しく入れた ${out.added}件 ${JSON.stringify(out.owners.map((x) => `${x.owner}:${x.n}`))}`);
+      console.log(`[mccall] BALES のナーチャリングを引き継ぎました：対象 ${rows.length}件・書き換え ${out.updated}件（うち重複で別の形にあったもの ${out.dupTaken}件）・新しく入れた ${out.added}件 ${JSON.stringify(out.owners.map((x) => `${x.owner}:${x.n}`))}`);
       return out;
     })();
     if (dry) return run;
