@@ -18600,6 +18600,15 @@ app.get("/api/kinxs/accounts/:id/hiring", async (req, res) => {
     res.json({ ok: true, ...(await kxHiringMake(req.params.id, req.user)) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// 会社の中身（detail）で読む SF の取引先・担当者は、10分覚えておく（2026-11-25 田中さん「kinXs は動きが重たい」）。
+//   開くたびに SF を2回読んでいて、1回あたり 0.5〜1 秒かかっていた。取引先の住所・電話・担当者はめったに変わらない
+const _kxSfMemo = new Map();
+async function kxSfMemo(key, fn) {
+  const c = _kxSfMemo.get(key); if (c && Date.now() - c.at < 10 * 60000) return c.v;
+  const v = await fn(); _kxSfMemo.set(key, { at: Date.now(), v });
+  if (_kxSfMemo.size > 2000) _kxSfMemo.delete(_kxSfMemo.keys().next().value);
+  return v;
+}
 app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
   try {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
@@ -18658,7 +18667,7 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
         }
         if (accId) {
           const id = String(accId).replace(/'/g, "");
-          const a = ((await sfQuery(sfU, `SELECT Website, Phone, BillingPostalCode, BillingState, BillingCity, BillingStreet FROM Account WHERE Id='${id}' LIMIT 1`)).records || [])[0];
+          const a = (await kxSfMemo(`acc:${id}`, async () => ((await sfQuery(sfU, `SELECT Website, Phone, BillingPostalCode, BillingState, BillingCity, BillingStreet FROM Account WHERE Id='${id}' LIMIT 1`)).records || [])[0] || null));
           const tagSf = out.sfMatched ? "SF（会社名で照合）" : "SF";
           if (a) {
             if (!out.website && a.Website) { out.website = a.Website; out.source.website = tagSf; }
@@ -18670,7 +18679,7 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
             // まとめた（旧社名の）取引先の担当者もいっしょに
             const mergedIds = (await kinxsList().catch(() => [])).filter((y) => y.merged_into === x.id).map((y) => String(y.account_id).replace(/'/g, "")).filter((y) => /^[0-9a-zA-Z]{15,18}$/.test(y));
             const idList = [id, ...mergedIds].map((y) => `'${y}'`).join(",");
-            const cs = (await sfQuery(sfU, `SELECT Name, Title, Phone, MobilePhone, Email FROM Contact WHERE AccountId IN (${idList}) ORDER BY CreatedDate DESC LIMIT 8`)).records || [];
+            const cs = await kxSfMemo(`con:${idList}`, async () => (await sfQuery(sfU, `SELECT Name, Title, Phone, MobilePhone, Email FROM Contact WHERE AccountId IN (${idList}) ORDER BY CreatedDate DESC LIMIT 8`)).records || []);
             out.contacts = cs.map((c) => ({ name: c.Name || "", title: c.Title || "", phone: c.Phone || c.MobilePhone || "", email: c.Email || "" }));
             if (cs.length) out.source.contacts = tagSf;
           }
@@ -35110,7 +35119,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-25mg 合流：2026-11-25nx BALES：取り込み・同期・引き継ぎで次回アクションのコメントも反映／2026-11-25ad SHOBO リスト管理：表で選んだ会社（どのリストでも）を、その人のかけるリストに追加できる（件数・表・今日かけるリストにも入る・優先度も一緒に付けられる）／2026-11-25tk MOCHICALL：管理者は架電画面からトークスクリプトを直せるように／2026-11-25td MOCHICALL：リストを選ぶ欄に今日かけるリストが2つ出ていたのを1つに（全員分の入れ物のリストは出さない）";
+const BUILD_TAG = "2026-11-25d kinXs：会社を押したらすぐモーダルの枠を出す（中身は届いてから）。カーソルを乗せた時点で先に読み始め、一度開いた会社は2分覚えてすぐ出す。SF の取引先・担当者は10分覚える。／2026-11-25mg 合流：2026-11-25nx BALES：取り込み・同期・引き継ぎで次回アクションのコメントも反映／2026-11-25ad SHOBO リスト管理：表で選んだ会社（どのリストでも）を、その人のかけるリストに追加できる（件数・表・今日かけるリストにも入る・優先度も一緒に付けられる）／2026-11-25tk MOCHICALL：管理者は架電画面からトークスクリプトを直せるように／2026-11-25td MOCHICALL：リストを選ぶ欄に今日かけるリストが2つ出ていたのを1つに（全員分の入れ物のリストは出さない）";
 const BUILD_FEATURES = [
   "MOCHICALL：リスト管理で「過去の履歴：見せる／伏せる」を選べる（伏せたリストは架電画面で過去の架電・メール・フォームの記録を出さない）",
   "MOCHICALL：リストを選ぶ欄から「今日かけるリスト（リスト管理）」（全員の今日の分の入れ物）を外し、本人の今日の分だけ出す",

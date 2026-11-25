@@ -723,12 +723,42 @@ function kxStatusPane(d) {
     </div>`;
   return view + edit;
 }
+// 会社の中身（detail）を先に取っておく・覚えておく（2026-11-25 田中さん「kinXs は全体的に動きが重たい。クリックしたらすぐモーダルが開かれてほしい」）。
+//   detail は 1〜2 秒かかる（SF の取引先・担当者も読むため）。カーソルを会社に乗せた時点で読み始め、
+//   押したらすぐ枠を出し、届いたら中身を入れる。一度開いた会社は 2 分間覚えておき、すぐ出してから裏で新しいものに入れ替える
+const _kxDetail = new Map();   // id -> { at, p（読み込み中の Promise）, d }
+function kxDetailGet(id, fresh) {
+  const c = _kxDetail.get(id);
+  if (!fresh && c && (c.p || Date.now() - c.at < 120000)) return c.p || Promise.resolve(c.d);
+  const p = api(`/api/kinxs/accounts/${encodeURIComponent(id)}/detail`).then((d) => { _kxDetail.set(id, { at: Date.now(), d }); return d; }).catch((e) => { _kxDetail.delete(id); throw e; });
+  _kxDetail.set(id, { at: Date.now(), p, d: c && c.d });
+  return p;
+}
+// 会社のカード・行（data-open などに会社の ID が付いているもの）にカーソルが乗ったら、先に読み始める
+document.addEventListener("pointerover", (e) => {
+  const el = e.target && e.target.closest && e.target.closest("[data-open],[data-id],[data-card],[data-kh-open],[data-ms-open],[data-tk-co],[data-tk-open]");
+  const id = el && (el.dataset.open || el.dataset.id || el.dataset.card || el.dataset.khOpen || el.dataset.msOpen || el.dataset.tkCo || el.dataset.tkOpen);
+  if (id && /^(001[0-9A-Za-z]{12,15}|manual-[\w-]+)$/.test(id) && !_kxDetail.has(id)) kxDetailGet(id).catch(() => {});
+}, { passive: true });
 async function openDetail(id, reuse) {
+  // 押したらすぐ枠を出す（中身は届いてから）。保存のあとの描き直し（reuse）は今の画面のまま
+  let bg0 = reuse && reuse.bg;
+  if (!bg0) {
+    bg0 = document.createElement("div"); bg0.className = "kx-drawer-bg";
+    const row = ((lsData && lsData.items) || []).find((y) => y.id === id) || {};
+    bg0.innerHTML = `<aside class="kx-drawer" role="dialog" aria-busy="true" style="width:min(560px,100%)"><div style="display:flex;align-items:center;gap:14px"><div class="kx-dlogo">${row.logo ? `<img src="${esc(row.logo)}" alt="" />` : ""}</div><div style="min-width:0"><h2>${esc(row.name || "")}</h2><div class="kx-note">読み込んでいます…</div></div></div><div class="kx-sec" style="height:120px;opacity:.5"></div><div class="kx-sec" style="height:220px;opacity:.35"></div></aside>`;
+    bg0.addEventListener("click", (e) => { if (e.target === bg0 && bg0.querySelector('[aria-busy="true"]')) bg0.remove(); });
+    document.body.appendChild(bg0);
+  }
   let d;
-  try { d = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/detail`); } catch (e) { alert(e.message); return; }
+  const cached = !reuse && _kxDetail.get(id) && _kxDetail.get(id).d;
+  try { d = reuse ? await kxDetailGet(id, true) : (cached || await kxDetailGet(id)); } catch (e) { if (!reuse) bg0.remove(); alert(e.message); return; }
+  if (!bg0.isConnected) return;   // 読み込み中に閉じた
+  // 覚えていたものを出したときは、裏で新しいものを読み、変わっていたら描き直す（開いているタブ・スクロールはそのまま）
+  if (cached) kxDetailGet(id, true).then((d2) => { if (bg0.isConnected && JSON.stringify(d2) !== JSON.stringify(cached)) { const on = bg0.querySelector("[data-tab].on"); const dr = bg0.querySelector(".kx-drawer"); openDetail(id, { bg: bg0, tab: on && on.dataset.tab, scroll: dr && dr.scrollTop }); } }).catch(() => {});
   const x = d.item;
   // 保存したあとは、モーダルを閉じずに中身だけ描き直す（開いていたタブ・スクロールの位置もそのまま）
-  const bg = (reuse && reuse.bg) || document.createElement("div"); bg.className = "kx-drawer-bg";
+  const bg = bg0; bg.className = "kx-drawer-bg";
   const tog = (key, val, opts) => `<div class="kx-tog" data-tog="${key}">${opts.map(([v, t]) => `<button type="button" data-v="${v}" class="${String(val) === String(v) ? "on" : ""}">${t}</button>`).join("")}</div>`;
   bg.innerHTML = `<aside class="kx-drawer" role="dialog" aria-label="${esc(x.name)}" style="width:min(560px,100%)">
     <div style="display:flex;align-items:center;gap:14px">
