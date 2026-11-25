@@ -11,7 +11,7 @@
     <link rel="manifest" href="/kinxs.webmanifest" />
     <meta name="theme-color" content="#0B3B2E" />
     <meta name="apple-mobile-web-app-title" content="kinXs" />
-    <link rel="stylesheet" href="style.css?v=20261125zd" />
+    <link rel="stylesheet" href="style.css?v=20261125ze" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1315,6 +1315,12 @@
 .mi-sub{display:flex;flex-wrap:wrap;gap:2px 8px;font-size:11px;font-weight:700;color:#5b6b66;}
 .mi-sub b{color:var(--c,#0d5b47);}
 #kh2 .h2-mine .mi-sub{display:none;}
+/* 段階が7つになったので、横一列に7枚＋矢印6つで並べる（9列のままだと2段目にずれて崩れていた）（2026-11-25 田中さん「崩れてる」） */
+.mi-flow{grid-template-columns:repeat(6,minmax(0,1fr) auto) minmax(0,1fr);}
+.mi-flow .mi-kpi{min-width:0;}
+.mi-flow .mi-kpi .l{flex-wrap:wrap;}
+.mi-flow .mi-def{display:block;font-size:10.5px;line-height:1.4;font-weight:600;}
+@media (max-width:1100px){ .mi-flow{grid-template-columns:repeat(3,minmax(0,1fr) auto) minmax(0,1fr);row-gap:8px;} .mi-flow > .mi-arr:nth-of-type(4){display:none;} }
 @media (max-width:760px){ .mi-flow{grid-template-columns:1fr;} .mi-arr{transform:rotate(90deg);height:30px;width:auto;} }
   .mi-kpi.on{border-color:var(--c,#1d9e75);box-shadow:0 0 0 3px color-mix(in srgb,var(--c,#1d9e75) 18%,transparent)}
   .mi-kpi .l{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#4F6158}
@@ -1663,8 +1669,8 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261125zd" defer></script>
-    <script src="kinxs.js?v=20261125zd"></script>
+    <script src="kbchat.js?v=20261125ze" defer></script>
+    <script src="kinxs.js?v=20261125ze"></script>
   <script>
   // スマホのメニューの開け閉め。項目を押したら閉じる（2026-11-24）
   (function () {
