@@ -1709,10 +1709,10 @@ function kh3Layout(box, o) {
   const sec = document.createElement("section"); sec.className = "h2-box h3-task";
   sec.innerHTML = `<div class="h2-h"><h2>タスク</h2></div>
     <div class="h3-tiles"><div class="t all"><small>ぜんぶ</small><b data-tk-n>${v(kh2.tkN)}</b><span>件</span></div><div class="t over"><small>期限切れ</small><b data-tk-over2>${v(kh2.tkOver)}</b><span>件</span></div><div class="t today"><small>今日</small><b data-tk-today>${v(kh2.tkToday)}</b><span>件</span></div></div>
-    <div class="h3-alert${o.actCos ? "" : " calm"}" role="alert"><div class="h3-alert-h"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17h.01"/></svg><b>要アクション ${o.actCos}社</b>${o.ksTxt ? `<span class="s">${esc(o.ksTxt)}</span>` : ""}</div></div>
+    <div class="h3-alert${o.actCos ? "" : " calm"}" role="alert"><div class="h3-alert-h"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17h.01"/></svg><b>${o.actCos ? `要アクション ${o.actCos}社` : "要アクションはありません"}</b>${o.ksTxt ? `<span class="s">${esc(o.ksTxt)}</span>` : ""}</div></div>
     <div class="h2-tk" id="kh2Tasks"><div class="kx-note" style="padding:10px 4px">読み込み中…</div></div>`;
   if (scope) sec.querySelector(".h2-h").appendChild(scope);
-  if (list) { list.hidden = false; sec.querySelector(".h3-alert").appendChild(list); }
+  if (list && o.actCos) { list.hidden = false; sec.querySelector(".h3-alert").appendChild(list); }   // 0社のときは見出しの1行だけ（場所をとらない）
   if (mine) side.prepend(mine);
   left.innerHTML = ""; left.appendChild(sec);
   row.classList.add("h3");
