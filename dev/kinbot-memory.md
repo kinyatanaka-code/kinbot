@@ -3050,3 +3050,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-25j 田中さん「VR だけの場合は企業IDは .aticoti の前」：kxDocCompanyId（kinXs）と detail の docAiUsers の企業IDで、AI の URL が無ければ VR の URL の「<ID>.aticoti.」から取る（polus.aticoti.com → polus）。順番は AI の URL → VR の URL → CS連携のポータルの企業ID。
 - 2026-11-25k 田中さん「担当企業も余白クリックしたら大きくモーダルで画面みれるようにしたい」：ホームの #kh2Mine の余白（ボタン・カード・行・切りかえ以外）を押すと kxMineBig() で幅1240pxのモーダルを出し、中に renderMine（home ではない担当企業の画面そのもの、opts.big）を描く。Esc・背景・閉じるで閉じる。
 - 2026-11-25m 田中さん「だから担当企業へ いらないかもな」：ホームの担当企業の見出しの「担当企業へ ›」リンクをなくした（余白を押すと kxMineBig で大きく開けるため）。左のメニューの担当企業はそのまま。
+- 2026-11-25n 田中さん「虫眼鏡はやめて（笑）」：#kh2Mine の cursor:zoom-in をやめた（余白を押すと大きく開くのはそのまま）。

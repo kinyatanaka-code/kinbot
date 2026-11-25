@@ -1874,7 +1874,7 @@ function renderHomeV2() {
   if ($("kh2Mine")) renderMine($("kh2Mine"), { home: true, items: lsData.items || [], who: kxCsF });
   // 担当企業の枠の余白を押したら、担当企業の画面を大きくモーダルで出す（2026-11-25 田中さん「担当企業も余白クリックしたら大きくモーダルで」）。
   //   会社のカード・行・ボタン・切りかえを押したときは、これまでどおりそれぞれの動き
-  { const mb = $("kh2Mine"); if (mb && !mb.dataset.bigWired) { mb.dataset.bigWired = "1"; mb.style.cursor = "zoom-in";
+  { const mb = $("kh2Mine"); if (mb && !mb.dataset.bigWired) { mb.dataset.bigWired = "1";   // カーソルはふつうのまま（虫めがねはやめた 2026-11-25 田中さん）
     mb.addEventListener("click", (e) => { if (e.target.closest("button, a, select, input, label, [data-open], [data-mk], [data-mwho], .kx-uc, .h2-li, [role=button]")) return; kxMineBig(); }); } }
   // 動きは1回だけ：月を開いた（変えた）ときに全体を1回。情報不足は、あとから読めたときにその枠だけ1回（2026-11-04 「2回読み込まれるのやめてほしい」）
   if (kh2.animKey !== ym) { kh2.animKey = ym; kh2.missAnim = !!ms; kxCountUp(box); }
