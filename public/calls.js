@@ -8379,7 +8379,13 @@ function nmRenderCards() {
     const allLs = _nmLists.filter((x) => !["アーカイブ", "リサイクル"].includes(String(x.name || "").trim()));
     const zanA = allLs.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0);
     const nurA = allLs.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0);
-    html += `<div class="nm-sec"><div class="nm-sec-h">全体</div><div class="nm-grid"><button type="button" class="nm-card nm-allcard" data-owner="__all__"><div class="nm-card-name">全リスト</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zanA.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nurA.toLocaleString()}・${allLs.length} リスト</div>${_nmRates && _nmRates.byCaller ? `<div class="nm-rates">${nmRatePill(Object.values(_nmRates.byCaller).reduce((s, o) => ({ calls: s.calls + Number((o && o.calls) || 0), apos: s.apos + Number((o && o.apos) || 0) }), { calls: 0, apos: 0 }), "全体のアポ率（直近3か月・全員）")}</div>` : ""}</button>${_nmTree ? _nmTree.map((f) => f.name === "リサイクル" ? nmSpecialCard("recycle", "リサイクル", _nmStage.recycle, "ステージ＝リサイクル（全体）") : f.name === "アーカイブ" ? nmSpecialCard("archive", "アーカイブ", _nmStage.archive, "ステージ＝アーカイブ・使われていない番号（全体）") : nmTypeCardHtml(f)).join("") : ""}</div></div>`;
+    html += `<div class="nm-sec"><div class="nm-sec-h">全体</div><div class="nm-grid">${(() => {
+      // すべてのリスト（2026-11-25 田中さん「kincall に入っている全てのリストをまとめたリストカードを作って」）
+      //   「全リスト」はかける画面に出ているリストだけ。こちらは非表示にしたリスト・アーカイブ・リサイクルも入れた、kincall にあるリストの全部
+      const ev = [..._nmLists, ..._nmHiddenLists];
+      const zanE = ev.reduce((s0, x) => s0 + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0);
+      return `<button type="button" class="nm-card nm-allcard nm-everycard" data-owner="__every__" title="非表示にしたリストも含めた、kincall にあるリストの全部"><div class="nm-card-name">すべてのリスト</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zanE.toLocaleString()}</span></div><div class="nm-card-sub">${ev.length} リスト（表示 ${_nmLists.length}・非表示 ${_nmHiddenLists.length}）</div></button>`;
+    })()}<button type="button" class="nm-card nm-allcard" data-owner="__all__"><div class="nm-card-name">全リスト</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zanA.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nurA.toLocaleString()}・${allLs.length} リスト</div>${_nmRates && _nmRates.byCaller ? `<div class="nm-rates">${nmRatePill(Object.values(_nmRates.byCaller).reduce((s, o) => ({ calls: s.calls + Number((o && o.calls) || 0), apos: s.apos + Number((o && o.apos) || 0) }), { calls: 0, apos: 0 }), "全体のアポ率（直近3か月・全員）")}</div>` : ""}</button>${_nmTree ? _nmTree.map((f) => f.name === "リサイクル" ? nmSpecialCard("recycle", "リサイクル", _nmStage.recycle, "ステージ＝リサイクル（全体）") : f.name === "アーカイブ" ? nmSpecialCard("archive", "アーカイブ", _nmStage.archive, "ステージ＝アーカイブ・使われていない番号（全体）") : nmTypeCardHtml(f)).join("") : ""}</div></div>`;
     if (!_nmTree) nmLoadTree().then(() => { if (!_nmSel && _nmMode !== "group") nmRenderCards(); });   // 全リストの隣のリストの種類（2026-11-08）
   }
   if (!_nmShift || _nmShiftDay !== nmTodayStr()) nmLoadShift();
@@ -8448,7 +8454,7 @@ function nmRenderCards() {
     if (c.dataset.folder) { _nmSel = { type: "folder", key: c.dataset.folder, name: c.dataset.folder }; nmRenderDetail(); return; }   // リストの種類（フォルダ）
     if (c.dataset.group) { _nmSel = { type: "group", key: c.dataset.group, name: c.dataset.gname }; nmRenderDetail(); return; }       // リストの種類（グループ）
     if (c.dataset.special) _nmSel = { type: "special", key: c.dataset.special, member: c.dataset.member || "", name: c.dataset.mname || "" };
-    else _nmSel = { type: "owner", key: c.dataset.owner, name: c.dataset.owner === "__all__" ? "全リスト" : nmMemberName(c.dataset.owner) };
+    else _nmSel = { type: "owner", key: c.dataset.owner, name: c.dataset.owner === "__all__" ? "全リスト" : c.dataset.owner === "__every__" ? "すべてのリスト（非表示も含む）" : nmMemberName(c.dataset.owner) };
     nmRenderDetail();
   }));
 }
@@ -8693,6 +8699,7 @@ function nmRenderDetail() {
   const pick = (arr) => {
     if (_nmSel.type === "owner") {
       if (_nmSel.key === "__other__") return arr.filter((x) => !String(x.owner || "").trim() && !["アーカイブ", "リサイクル"].includes(String(x.name || "").trim()));
+      if (_nmSel.key === "__every__") return arr;   // すべてのリスト：表示・非表示・アーカイブ・リサイクルを全部
       if (_nmSel.key === "__all__") return arr.filter((x) => !["アーカイブ", "リサイクル"].includes(String(x.name || "").trim()) && (!_nmSel.sub || _nmSel.sub === "__flat__" || nmNameKey(x.name) === _nmSel.sub));
       return arr.filter((x) => String(x.owner || "").toLowerCase() === String(_nmSel.key).toLowerCase());
     }
@@ -8711,7 +8718,7 @@ function nmRenderDetail() {
   // 【ナーチャリング】〇〇 のような入れ物のリストは、このまとめのカードに含めて、個別のカードには出さない。
   const isNurList = (x) => /【\s*ナーチャリング\s*】/.test(String(x.name || "")) || /ナーチャリング/.test(String(x.group_name || ""));
   let nurCard = "", todayCard = "";
-  if (_nmSel.type === "owner" && _nmSel.key !== "__other__" && _nmSel.key !== "__all__") {
+  if (_nmSel.type === "owner" && _nmSel.key !== "__other__" && _nmSel.key !== "__all__" && _nmSel.key !== "__every__") {
     const parts = [];
     let nurTotal = 0;
     for (const x of ls) {
@@ -13193,7 +13200,7 @@ async function nmEnsureSlots() {
 function nmSlotCards() {
   nmEnsureSlots();
   return "";   // 枠は本物のリストとして作るので、空の枠のカードは出さない（2026-11-09）
-  if (!_nmSel || _nmSel.type !== "owner" || ["__other__", "__all__"].includes(_nmSel.key)) return "";
+  if (!_nmSel || _nmSel.type !== "owner" || ["__other__", "__all__", "__every__"].includes(_nmSel.key)) return "";
   if (!_nmTree) { nmLoadTree().then(() => { if (_nmSel && _nmSel.type === "owner") nmRenderDetail(); }); return ""; }
   const me = String(_nmSel.key || "").toLowerCase();
   const mine = _nmLists.filter((x) => String(x.owner || "").toLowerCase() === me);
