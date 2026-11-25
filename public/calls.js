@@ -9639,6 +9639,7 @@ async function orgLoadEdit(listIds) {
   edSetTableMode(true);   // 表だけの全画面一覧に切り替え
   if ($("edTableTitle")) $("edTableTitle").textContent = `リスト編集（${(listIds || []).length} 件のリスト）`;
   tbl.innerHTML = '<div class="note">読み込んでいます…</div>';
+  _edShowN = 500;
   const st = $("edSt"); if (st) st.textContent = "";
   try {
     // リストを1本ずつ順番に取りに行くと、たくさん選んだとき（すべてのリスト 251本など）に何分も待つので、6本ずつ同時に取りに行く（2026-11-25 田中さん「なんでこんな読み込みに時間かかる？」）
@@ -10337,17 +10338,22 @@ async function edNurMove(ids, to) {
     const st2 = $("edNurSt"); if (st2) st2.textContent = `${d.moved || ids.length}件を「${nmMemberName(to)}」へ移しました`;
   } catch (e) { const st2 = $("edNurSt"); if (st2) st2.textContent = "失敗：" + (e.message || ""); }
 }
+// 表に一度に描く行の数（2026-11-25 田中さん「なんでこんな読み込みに時間かかる？」）
+//   すべてのリスト（数万件）を1行ずつプルダウン付きで全部描くと、ブラウザが固まる。最初は500件だけ描き、「さらに表示」で足す
+//   件数・絞り込み・一括の操作（移す・抜き出す・ステージ）は、描いていない行も含めた全件が対象のまま
+let _edShowN = 500;
 function edRenderBody() {
   const g = _edg;
-  const rows = edFiltered();
-  if ($("edCount")) $("edCount").textContent = `${rows.length.toLocaleString()} / ${_edRows.length.toLocaleString()}件`;
-  if ($("edNurN")) $("edNurN").textContent = rows.length.toLocaleString();
+  const rowsAll = edFiltered();
+  const rows = rowsAll.slice(0, _edShowN);
+  if ($("edCount")) $("edCount").textContent = `${rowsAll.length.toLocaleString()} / ${_edRows.length.toLocaleString()}件`;
+  if ($("edNurN")) $("edNurN").textContent = rowsAll.length.toLocaleString();
   // 件数は「絞り込んだ ○ 件を」の1か所にだけ出し、ボタンは短く（2026-11-16 田中さん「この辺醜い」）
-  if ($("edBulkN")) $("edBulkN").textContent = rows.length.toLocaleString();
-  if ($("edExtract")) { $("edExtract").textContent = "新リストに抜き出す"; $("edExtract").disabled = rows.length === 0; }
-  if ($("edMoveBtn")) { $("edMoveBtn").textContent = "移す"; $("edMoveBtn").disabled = rows.length === 0; }
-  if ($("edStageBtn")) { $("edStageBtn").textContent = "ステージを変える"; $("edStageBtn").disabled = rows.length === 0; }
-  if ($("edIndSplit")) $("edIndSplit").disabled = rows.length === 0;
+  if ($("edBulkN")) $("edBulkN").textContent = rowsAll.length.toLocaleString();
+  if ($("edExtract")) { $("edExtract").textContent = "新リストに抜き出す"; $("edExtract").disabled = rowsAll.length === 0; }
+  if ($("edMoveBtn")) { $("edMoveBtn").textContent = "移す"; $("edMoveBtn").disabled = rowsAll.length === 0; }
+  if ($("edStageBtn")) { $("edStageBtn").textContent = "ステージを変える"; $("edStageBtn").disabled = rowsAll.length === 0; }
+  if ($("edIndSplit")) $("edIndSplit").disabled = rowsAll.length === 0;
   const tb = $("edTbody"); if (!tb) return;
   tb.innerHTML = rows.length
     ? rows.map((r) => {
@@ -10378,6 +10384,10 @@ function edRenderBody() {
       </tr>`;
       }).join("")
     : `<tr><td colspan="11" class="empty-state" style="padding:18px">条件に合うリードがありません。</td></tr>`;
+  if (rowsAll.length > rows.length) {
+    tb.insertAdjacentHTML("beforeend", `<tr><td colspan="20" style="padding:12px;text-align:center"><span class="kc-none">${rows.length.toLocaleString()} / ${rowsAll.length.toLocaleString()} 件を表示中</span> <button type="button" class="btn-ghost" data-ed-more style="margin-left:8px">さらに 500 件表示</button></td></tr>`);
+    tb.querySelector("[data-ed-more]").addEventListener("click", () => { _edShowN += 500; edRenderBody(); });
+  }
   tb.querySelectorAll(".ed-nurwho").forEach((sel) => sel.addEventListener("change", () => edNurMove([sel.dataset.id], sel.value)));
   tb.querySelectorAll(".ed-group").forEach((sel) => sel.addEventListener("change", async () => {
     const list = sel.dataset.list; const gid = sel.value; const gname = gid ? ((GROUPS.find((x) => String(x.id) === String(gid)) || {}).name || "") : "";
