@@ -1418,6 +1418,11 @@
     let again = false, found = false;
     const w = dialog(`問い合わせフォームから送る：${pv.company}`, "サーバーのブラウザが相手のフォームに入力して送ります。どの欄に何を入れるかを確かめてから「送る」を押してください。", "送る", async (w) => {
       const v = (id) => w.querySelector(id).value;
+      // 送るのはサーバーのブラウザで相手のページを開いて入力・確認画面・送信と進むので、1〜2分かかる。
+      //   押したあと何も出ないと「止まった」と思われるので、ボタンに進み具合を出す（2026-11-25 福井さん「送信ボタンを押して止まった」）
+      const okBtn = w.querySelector("[data-ok]"); const okLabel = okBtn.textContent; const t0 = Date.now();
+      const tick = () => { okBtn.textContent = `送っています…（${Math.round((Date.now() - t0) / 1000)}秒・2分ほどかかることがあります）`; };
+      tick(); const iv = setInterval(tick, 1000);
       try {
         const r = await post(`/api/mccall/leads/${L.id}/form/send`, { url: v("#mccFUrl").trim(), kana: v("#mccFKana").trim(), subject: v("#mccFSub").trim(), body: v("#mccFBody"), answers: answersOf(), again });
         S.f.formSent = r.status === "sent" ? "送りました" : "送信を押しました（届いたかは相手のページで確かめてください）";
@@ -1425,10 +1430,11 @@
         S.cache.delete(L.id); try { const d = await api(`/api/mccall/leads/${L.id}`); if (S.d && S.d.lead.id === L.id) { S.d = d; drawRight(); } } catch {}
         if (S.d && S.d.lead.id === L.id) drawCenter();
       } catch (e) {
+        clearInterval(iv); okBtn.textContent = okLabel;
         // 30日のうちに送っている会社：もう一度押せば送る
-        if (e.status === 409 && e.data && e.data.dup) { again = true; w.querySelector("[data-ok]").textContent = "それでも送る"; }
+        if (e.status === 409 && e.data && e.data.dup) { again = true; okBtn.textContent = "それでも送る"; }
         throw e;
-      }
+      } finally { clearInterval(iv); }
     }, `<div style="display:grid;gap:8px;margin-top:12px">
         <p class="mcc-note" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">名乗り：<b id="mccFNanori">${esc(pv.nanori || "")}</b>${pv.from && pv.from.tel ? `<span>電話：${esc(pv.from.tel)}</span>` : ""}<button class="mcc-btn" id="mccFSig" type="button">自分の署名・名乗り</button></p>
         ${pv.ready ? "" : `<p class="mcc-note" id="mccFNotReady" style="color:var(--c-warn)">あなたの電話番号が分からないので、まだ送れません。「自分の署名・名乗り」で、電話番号の入った署名を入れてください。</p>`}

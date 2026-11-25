@@ -65,15 +65,22 @@ function roleOf(f) {
 }
 
 // 選ぶ欄（お問い合わせの種類など）は「その他」→「ご提案・営業・サービス」→ いちばん上の順で選ぶ
-function pickOption(opts) {
+//   ただし国・地域を聞く欄は「日本」を選ぶ（2026-11-25 ネクスティ エレクトロニクスの「所在国」で「その他」を選んでいた。こちらは日本の会社なので）
+function pickOption(opts, label = "") {
   const real = opts.filter((o) => o.v !== "" && !/選択|お選び|please|select|---|－/i.test(o.t));
+  if (/国|country|地域|region/i.test(label)) { const jp = real.find((o) => /^\s*(日本|japan)/i.test(o.t)); if (jp) return jp; }
   return real.find((o) => /その他|other/i.test(o.t)) || real.find((o) => /ご?提案|営業|サービス|業務|協業|取引/.test(o.t)) || real[0] || null;
 }
+
+// 待ち時間の上限。相手のページの中を読む処理（evaluate）には上限が無く、広告などの枠が固まると返事が返らなくなる。
+//   1か所で止まると、順番待ちのあとのフォーム送信もすべて止まるので、必ず上限を付ける（2026-11-25「送るを押して止まった」）
+const within = (p, ms, fallback) => { let t; return Promise.race([Promise.resolve(p).catch(() => fallback), new Promise((r) => { t = setTimeout(() => r(fallback), ms); })]).finally(() => clearTimeout(t)); };
 
 // ページの中（フレームも含む）から、送る相手のフォームを探して、欄の一覧を作る
 async function scanFrames(page) {
   for (const fr of page.frames()) {
-    const got = await fr.evaluate(() => {
+    if (fr.isDetached()) continue;
+    const got = await within(fr.evaluate(() => {
       const vis = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none"; };
       const areas = [...document.querySelectorAll("textarea")].filter(vis);
       const mails = [...document.querySelectorAll('input[type="email"],input[name*="mail" i]')].filter(vis);
@@ -123,7 +130,7 @@ async function scanFrames(page) {
       const captcha = /recaptcha\/api2\/anchor|class="g-recaptcha"|hcaptcha\.com|challenges\.cloudflare\.com|cf-turnstile/.test(html) && !/grecaptcha-badge/.test(html) ? "block"
         : /grecaptcha-badge|recaptcha\/api\.js\?render=/.test(html) ? "v3" : "";
       return { fields: out, captcha, title: document.title };
-    }).catch(() => null);
+    }), 10000, null);
     if (got && got.fields.length) return { frame: fr, ...got };
   }
   return null;
@@ -135,7 +142,7 @@ async function findContact(page, web, say) {
   await page.waitForTimeout(1500);
   let scan = await scanFrames(page);
   if (scan) return { url: page.url(), scan };
-  const links = await page.evaluate(() => [...document.querySelectorAll("a[href]")].map((a) => ({ href: a.href, t: (a.innerText || a.getAttribute("title") || (a.querySelector("img") || {}).alt || "").replace(/\s+/g, " ").trim().slice(0, 40) }))).catch(() => []);
+  const links = await within(page.evaluate(() => [...document.querySelectorAll("a[href]")].map((a) => ({ href: a.href, t: (a.innerText || a.getAttribute("title") || (a.querySelector("img") || {}).alt || "").replace(/\s+/g, " ").trim().slice(0, 40) }))), 10000, []);
   const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
   const base = host(page.url());
   const cands = [...new Map(links.filter((l) => /^https?:/.test(l.href) && !NOT_CONTACT.test(l.href + " " + l.t) && (CONTACT_TX.test(l.t) || CONTACT_HREF.test(l.href)))
@@ -187,7 +194,7 @@ function planOf(scan, P) {
       case "kana_mei": v = kmei; break;
       case "agree": v = true; show = "チェックを入れる"; break;
       case "pref": { const o = (f.opts || []).find((x) => P.addr && x.t && String(P.addr).startsWith(x.t)); if (o) { v = o.v; show = o.t; } break; }
-      case "choice": if (f.required || /種別|種類|項目|内容|区分|カテゴリ|件名|用件|type|category/i.test(f.label + f.name)) { const o = pickOption(f.opts || []); if (o) { v = o.v; show = o.t; } } break;
+      case "choice": if (f.required || /種別|種類|項目|内容|区分|カテゴリ|件名|用件|type|category/i.test(f.label + f.name)) { const o = pickOption(f.opts || [], `${f.label} ${f.name}`); if (o) { v = o.v; show = o.t; } } break;
     }
     // 画面で人が入れた答え（クイズ・決められなかった欄）。選ぶ欄は、答えの文字に合う選択肢を選ぶ
     const key = keyOf(f), ans = P.answers && P.answers[key];
@@ -224,34 +231,49 @@ async function fillPlan(frame, plan) {
 }
 
 // 送信（確認画面がある作りなら、もう一度「送信」を押す）
-async function submit(page, frame, say) {
-  const clickSend = async (fr, re) => {
-    const btns = fr.locator('button, input[type="submit"], input[type="image"], input[type="button"], a[role="button"]');
-    const n = await btns.count();
-    for (let k = 0; k < n; k++) {
-      const b = btns.nth(k);
-      if (!(await b.isVisible().catch(() => false))) continue;
-      const t = ((await b.innerText().catch(() => "")) || (await b.getAttribute("value").catch(() => "")) || (await b.getAttribute("alt").catch(() => "")) || "").trim();
-      const typ = (await b.getAttribute("type").catch(() => "")) || "";
-      if (re.test(t) || (!t && typ === "submit")) { await b.click({ timeout: 8000 }); return t || "送信"; }
+//   st.pressed：送信になりうるボタンを押したか。押したあとに時間切れになったら「送れたか分からない」にする（失敗と言うと二重に送ってしまうため）
+async function submit(page, frame, say, st = {}) {
+  // 押してはいけないボタン（2026-11-25 ネクスティ エレクトロニクス：頭の「検索」・確認画面の「再入力する」が送信のボタンより前にある）
+  const NOT_SEND = /検索|戻る|再入力|修正|訂正|クリア|リセット|やり直|閉じる|back|reset|clear|search|close/i;
+  // まず入力した欄の入っているフォームの中のボタンを探し、無ければページ全体から探す
+  const clickSend = async (fr, re, scope) => {
+    for (const root of scope ? [fr.locator(scope).first(), fr] : [fr]) {
+      const btns = root.locator('button, input[type="submit"], input[type="image"], input[type="button"], a[role="button"]');
+      const n = Math.min(await within(btns.count(), 5000, 0), 60);
+      for (let k = 0; k < n; k++) {
+        const b = btns.nth(k);
+        if (!(await within(b.isVisible(), 3000, false))) continue;
+        const t = ((await within(b.innerText({ timeout: 3000 }), 4000, "")) || (await within(b.getAttribute("value", { timeout: 3000 }), 4000, "")) || (await within(b.getAttribute("alt", { timeout: 3000 }), 4000, "")) || "").trim();
+        const typ = (await within(b.getAttribute("type", { timeout: 3000 }), 4000, "")) || "";
+        if (t && NOT_SEND.test(t)) continue;
+        if (re.test(t) || (!t && typ === "submit")) {
+          await b.click({ timeout: 8000 });
+          // 「確認画面に進む」はまだ送っていない。それ以外のボタンは送信になったかもしれない
+          if (!/確認|次へ|進む|confirm|入力内容/i.test(t)) st.pressed = true;
+          return t || "送信";
+        }
+      }
     }
     return "";
   };
-  const textOf = async () => { let s = ""; for (const fr of page.frames()) s += " " + (await fr.evaluate(() => document.body ? document.body.innerText : "").catch(() => "")); return s.replace(/\s+/g, " "); };
+  const textOf = async () => { let s = ""; for (const fr of page.frames()) { if (fr.isDetached()) continue; s += " " + (await within(fr.evaluate(() => document.body ? document.body.innerText : ""), 5000, "")); } return s.replace(/\s+/g, " "); };
+  // 相手のページが分析のタグなどで通信し続けると networkidle にならないので、待つのは8秒まで
+  const settle = async () => { await page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => {}); await page.waitForTimeout(1500); };
   const SEND = /送信|確認|次へ|進む|submit|send|confirm|入力内容|問い?合わ?せる/i;
-  const first = await clickSend(frame, SEND);
+  const first = await clickSend(frame, SEND, "form:has([data-kbf])");
   if (!first) return { status: "failed", note: "送信のボタンが見つかりませんでした" };
   say(`「${first}」を押しました`);
-  await page.waitForLoadState("networkidle", { timeout: 12000 }).catch(() => {}); await page.waitForTimeout(1500);
+  await settle();
   let tx = await textOf();
   if (DONE_TX.test(tx)) return { status: "sent", note: snippet(tx, DONE_TX) };
   // 確認画面：「送信」「この内容で送る」を押す（入力欄が残っていてエラーが出ているなら止める）
   if (ERR_TX.test(tx) && (await scanFrames(page))) return { status: "failed", note: `入力のエラーが出ました：${snippet(tx, ERR_TX)}` };
   for (const fr of page.frames()) {
-    const t2 = await clickSend(fr, /送信|この内容で|送る|submit|send/i);
+    if (fr.isDetached()) continue;
+    const t2 = await clickSend(fr, /送信|この内容で|送る|submit|send/i, "form");
     if (t2) {
       say(`確認画面で「${t2}」を押しました`);
-      await page.waitForLoadState("networkidle", { timeout: 12000 }).catch(() => {}); await page.waitForTimeout(1500);
+      await settle();
       tx = await textOf();
       if (DONE_TX.test(tx)) return { status: "sent", note: snippet(tx, DONE_TX) };
       if (ERR_TX.test(tx)) return { status: "failed", note: `入力のエラーが出ました：${snippet(tx, ERR_TX)}` };
@@ -264,15 +286,38 @@ function snippet(tx, re) { const m = tx.match(re); if (!m) return tx.slice(0, 12
 
 // mode: "inspect"＝探して当てはめるだけ（送らない）／"send"＝入力して送る
 //   P：差出人の情報と本文（company, dept, name, kana, email, tel, zip, addr, site, subject, body）
+// 1回の上限（調べる＝90秒・送る＝120秒）。超えたらブラウザを閉じて理由を返す。
+//   上限が無いと、相手のページが固まったときに画面が「送る」を押したまま止まり、順番待ちのあとの人も全員止まる（2026-11-25）
+const RUN_LIMIT = { inspect: 90000, send: 120000 };
 export function formRun({ web, url, mode, P }) {
   return serial(async () => {
     const log = []; const say = (t) => { log.push(t); console.log(`[mcform] ${t}`); };
-    let browser;
+    const st = { browser: null, pressed: false, dead: false };
+    let timer;
+    const limit = RUN_LIMIT[mode === "send" ? "send" : "inspect"];
+    const over = new Promise((res) => { timer = setTimeout(() => res("timeout"), limit); });
+    try {
+      const r = await Promise.race([formWork({ web, url, mode, P }, st, say, log), over]);
+      if (r !== "timeout") return r;
+      st.dead = true;
+      say(`${limit / 1000}秒たっても終わらないので止めました`);
+      // 送信のボタンを押したあとなら、届いているかもしれないので「分からない」にする（失敗にすると、もう一度送って二重になる）
+      if (st.pressed) return { ok: true, status: "unsure", note: "送信を押したあと、相手のページの返事が来ませんでした。届いたかは相手のページで確かめてください", log };
+      return { ok: false, error: `相手のページの読み込みに時間がかかりすぎたので止めました（${limit / 1000}秒）。もう一度押すか、「フォームを開く」から手で送ってください`, log };
+    } finally {
+      clearTimeout(timer);
+      if (st.browser) await within(st.browser.close(), 10000, null);
+    }
+  });
+}
+async function formWork({ web, url, mode, P }, st, say, log) {
     try {
       const start = String(url || web || "").trim();
       if (!/^https?:\/\//i.test(start)) return { ok: false, error: "この会社の Web ページが分かりません。左の「会社の情報を直す」で Web ページを入れるか、問い合わせページの URL を入れてください", log };
       say("ブラウザを起動しています");
-      browser = await launch();
+      const browser = st.browser = await launch();
+      // 起動に時間がかかって上限を過ぎていたら、ここで閉じる（閉じ忘れたブラウザがメモリを食い続けないように）
+      if (st.dead) { await browser.close().catch(() => {}); return { ok: false, error: "時間切れ", log }; }
       const ctx = await browser.newContext({ locale: "ja-JP", viewport: { width: 1280, height: 1000 },
         userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36" });
       const page = await ctx.newPage();
@@ -290,12 +335,14 @@ export function formRun({ web, url, mode, P }) {
       if (mode !== "send") return { ok: true, url: found.url, plan: view, warn, log };
       await fillPlan(scan.frame, plan);
       say("入力しました");
-      const r = await submit(page, scan.frame, say);
+      const r = await submit(page, scan.frame, say, st);
       return { ok: r.status !== "failed", status: r.status, note: r.note, url: found.url, after: page.url(), plan: view, warn, error: r.status === "failed" ? r.note : "", log };
     } catch (e) {
-      return { ok: false, error: `フォームを開けませんでした：${String(e.message || e).split("\n")[0].slice(0, 160)}`, log };
-    } finally { if (browser) await browser.close().catch(() => {}); }
-  });
+      const why = String(e.message || e).split("\n")[0].slice(0, 160);
+      // 送信を押したあとの失敗は、届いているかもしれないので「分からない」にする
+      if (st.pressed) return { ok: true, status: "unsure", note: `送信を押したあと、相手のページで問題が起きました（${why}）。届いたかは相手のページで確かめてください`, log };
+      return { ok: false, error: `フォームを開けませんでした：${why}`, log };
+    }
 }
 
 export const _test = { roleOf, pickOption, planOf };
