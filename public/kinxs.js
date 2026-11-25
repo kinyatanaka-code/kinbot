@@ -2604,7 +2604,7 @@ function kxMineBig() {
   bg.querySelector("[data-x]").addEventListener("click", close);
   document.addEventListener("keydown", onKey);
   document.body.appendChild(bg);
-  renderMine(bg.querySelector("[data-mine-big]"), { big: true, items: (lsData && lsData.items) || [] });
+  renderMine(bg.querySelector("[data-mine-big]"), { big: true, items: (lsData && lsData.items) || [], who: (window.__mineH && window.__mineH.who) || "" });
 }
 async function renderMine(boxArg, opts = {}) {
   const box = boxArg || $("vMineBody"); if (!box) return;
@@ -2616,9 +2616,10 @@ async function renderMine(boxArg, opts = {}) {
   const all = (d.items || []).filter((x) => !x.archived && kxHasDoc(x) && x.label !== "解約済み");
   // ホームでは、要アクションの「自分／全員」にそろえる（担当のプルダウンとタスクは出さない）（2026-11-24 田中さん「ホームの場合、担当企業のタスクはいらない」「自分と全員で選択するから担当企業のプルダウンはいらない」）
   //   ホームと担当企業の画面で、選んだ数（k）が混ざらないように覚え場所を分ける
-  const st = home ? (window.__mineH || (window.__mineH = { who: "", k: "all" })) : (window.__mine || (window.__mine = { who: "", k: "all" }));
+  // 大きなモーダル（kxMineBig）は、開いたときのホームの「自分／全員」から始める（2026-11-25）
+  const st = home ? (window.__mineH || (window.__mineH = { who: "", k: "all" })) : opts.big ? (window.__mineB = { who: opts.who || "", k: (window.__mineH && window.__mineH.k) || "all" }) : (window.__mine || (window.__mine = { who: "", k: "all" }));
   if (home) { st.who = opts.who || ""; if (st.k === "tk") st.k = "all"; }
-  else if (!st.who) { const me0 = kxSurname(window.__kxMe || ""); st.who = me0 || ""; }
+  else if (!opts.big && !st.who) { const me0 = kxSurname(window.__kxMe || ""); st.who = me0 || ""; }
   const names = [...new Set(all.map((x) => kxSurname(x.cs) || "").filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
   if (st.who && !names.includes(st.who)) names.unshift(st.who);
   const pubd = (x) => !!(x.published || x.publishedOn || (x.places || []).length);
