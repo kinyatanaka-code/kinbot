@@ -2746,13 +2746,14 @@ async function renderMine(boxArg, opts = {}) {
     const cur = KS.find((k) => k[0] === st.k);
     const list = cur ? mine.filter(cur[3]).sort(cur[5] || ((a, b) => String(b.booked || "").localeCompare(String(a.booked || "")))) : [];
     const whoSel = `<label class="kx-note" style="display:flex;align-items:center;gap:6px">CS 担当<select class="kx-in" data-mwho style="width:auto"><option value="">全員</option>${names.map((n) => `<option ${n === st.who ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label>`;
-    box.innerHTML = `${home ? `<div class="h2-h"><h2>担当企業</h2><span class="h2-big">${mine.length}<small>社</small></span>${/* 「担当企業へ ›」は、余白を押すと大きなモーダルで出るようになったのでやめた（2026-11-25 田中さん「担当企業へ いらないかもな」） */ ""}</div>` : `<div class="mi-tools">${whoSel}</div>`}
+    box.innerHTML = `${home ? `<div class="h2-h"><h2>担当企業</h2><span class="h2-big">${mine.length}<small>社</small></span>${/* 今月・来月の納品待ちは見出しのとなりに小さく（押すとその会社を下に出す。もう一度押すと戻る）（2026-11-25 田中さん「ここいらない。今月納品待ちとかは担当企業のとなりに」） */ ""}${KS.filter((x) => x[0] === "dw" || x[0] === "dn").map(([k, l, c, f]) => `<button type="button" class="mi-chip ${st.k === k ? "on" : ""}" style="--c:${c}" data-mk="${k}">${esc(l)} <b>${mine.filter(f).length}</b><small>社</small></button>`).join("")}${/* 「担当企業へ ›」は、余白を押すと大きなモーダルで出るようになったのでやめた（2026-11-25 田中さん「担当企業へ いらないかもな」） */ ""}</div>` : `<div class="mi-tools">${whoSel}</div>`}
       ${(() => {
         // 並び（2026-11-24 田中さん）：上の段＝担当ユーザー数・今月納品待ち・来月納品待ち（・タスク）、
         //   下の段＝キックオフ未実施 → 検収書 → 納品メール → 納品済み・未掲載 → 納品済み・掲載中（進む順なので矢印でつなぐ）
         const tl = ([k, l, c, f]) => `<button type="button" class="mi-kpi ${st.k === k ? "on" : ""}" style="--c:${c}" data-mk="${k}"><span class="l"><i></i>${esc(l)}</span><span class="v">${mine.filter(f).length}<small>社</small></span></button>`;
         const TOP = ["all", "dw", "dn"];
-        return `<div class="mi-kpis">${KS.filter((x) => TOP.includes(x[0])).map(tl).join("")}`;
+        // ホームでは上の3つの数字の段は出さない（納品待ちは見出しのとなりへ）（2026-11-25 田中さん）
+        return `<div class="mi-kpis"${home ? " hidden" : ""}>${KS.filter((x) => TOP.includes(x[0])).map(tl).join("")}`;
       })()}
         ${home ? "" : `<button type="button" class="mi-kpi ${st.k === "tk" ? "on" : ""}" style="--c:#6B4FB8" data-mk="tk"><span class="l"><i></i>タスク</span><span class="v" data-mtk-n>…<small>件</small></span></button>`}</div>
       <div class="mi-flow">${KX_STAGES.map((g) => KS.find((x) => x[0] === g.k)).filter(Boolean).map(([k, l, c, f]) => {
@@ -2767,7 +2768,7 @@ async function renderMine(boxArg, opts = {}) {
       ${st.k === "tk" ? `<div class="mi-h">タスク（ホームと同じもの・期日の近い順）</div><div data-mtk><div class="kx-note">読み込み中…</div></div>`
         : `<div class="mi-h">${esc(cur ? cur[1] : "")}<span class="kx-note">${list.length}社</span></div><div class="mi-list">${list.length ? list.map((x) => `<div class="mi-co" role="button" tabindex="0" data-mopen="${esc(x.id)}">${kxLogoMini(x)}<span class="t"><b>${esc(x.name)}</b><small>${esc(cur[4](x) || "")}</small></span><span class="lb">${esc(x.label)}</span></div>`).join("") : '<div class="kx-empty" style="grid-column:1/-1">ありません</div>'}</div>`}`;
     const wsel = box.querySelector("[data-mwho]"); if (wsel) wsel.addEventListener("change", (e) => { st.who = e.target.value; draw(); });
-    box.querySelectorAll("[data-mk]").forEach((b) => b.addEventListener("click", () => { st.k = b.dataset.mk; draw(); }));
+    box.querySelectorAll("[data-mk]").forEach((b) => b.addEventListener("click", () => { st.k = home && st.k === b.dataset.mk ? "all" : b.dataset.mk; draw(); }));
     box.querySelectorAll("[data-mopen]").forEach((el) => { const go = () => openDetail(el.dataset.mopen); el.addEventListener("click", go); el.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); }); });
     if (!home) loadTasks();
   };

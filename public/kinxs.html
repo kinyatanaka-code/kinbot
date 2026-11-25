@@ -11,7 +11,7 @@
     <link rel="manifest" href="/kinxs.webmanifest" />
     <meta name="theme-color" content="#0B3B2E" />
     <meta name="apple-mobile-web-app-title" content="kinXs" />
-    <link rel="stylesheet" href="style.css?v=20261125t" />
+    <link rel="stylesheet" href="style.css?v=20261125u" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1488,6 +1488,10 @@
   @keyframes kxPico{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(1.08)}}
   @keyframes kxPicoDot{0%,100%{box-shadow:0 0 0 3px #fff,0 0 0 3px color-mix(in srgb,var(--c) 0%,transparent)}50%{box-shadow:0 0 0 3px #fff,0 0 0 8px color-mix(in srgb,var(--c) 35%,transparent)}}
   @media (prefers-reduced-motion:reduce){.mi-flow .mi-kpi.hot .v,.mi-flow .mi-kpi.hot .l i{animation:none;}}
+  /* ホームの担当企業の見出しのとなりの「今月納品待ち・来月納品待ち」（2026-11-25） */
+  .mi-chip{display:inline-flex;align-items:baseline;gap:3px;margin-left:8px;border:1px solid #D5E2DB;background:#fff;color:#33463E;border-radius:999px;padding:3px 10px;font:inherit;font-size:12px;cursor:pointer;}
+  .mi-chip b{font-size:15px;color:var(--c);} .mi-chip small{font-size:10.5px;} .mi-chip:hover{border-color:var(--c);} .mi-chip.on{background:color-mix(in srgb,var(--c) 14%,#fff);border-color:var(--c);}
+  #kh2 .h2-mine .mi-kpis[hidden]{display:none !important;}
 </style>
 </head>
   <body>
@@ -1648,8 +1652,8 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261125t" defer></script>
-    <script src="kinxs.js?v=20261125t"></script>
+    <script src="kbchat.js?v=20261125u" defer></script>
+    <script src="kinxs.js?v=20261125u"></script>
   <script>
   // スマホのメニューの開け閉め。項目を押したら閉じる（2026-11-24）
   (function () {
