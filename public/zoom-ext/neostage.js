@@ -136,7 +136,9 @@
   function fill(d) {
     const kind = pageKind(); const want = plan(d, kind); const ctx = ctxMap(); const done = new Set(); const miss = [];
     for (const el of fieldsAll()) {
-      const lab = labelOf(el); if (!lab) continue; const { who } = ctx(el);
+      const lab = labelOf(el); if (!lab) continue;
+      // 担当者の小見出しが見つからない画面（事業部新規）は、欄の名前（partner_charge_fullname_1 の末尾の数字）で何人目かを見る（2026-11-25）
+      const who = ctx(el).who || (/^partner_charge_\w+_([1-3])$/.test(el.name || "") ? `取引先担当者${RegExp.$1}` : "");
       const key = who && Object.prototype.hasOwnProperty.call(want, `${who}|${lab}`) ? `${who}|${lab}` : lab;
       if (!Object.prototype.hasOwnProperty.call(want, key) || done.has(key)) continue;
       if (who && !key.includes("|") && /^(氏名|氏名カナ|部署詳細|役職|メールアドレス)$/.test(lab)) continue;   // 担当者の欄に会社の値を入れない
@@ -166,12 +168,15 @@
     <button type="button" id="kbNeoOpen" style="display:flex;align-items:center;gap:6px;border:0;border-radius:999px;padding:9px 14px;background:${G};color:#fff;font-weight:800;cursor:pointer;box-shadow:0 4px 14px rgba(13,91,71,.3)">${ico}kinbot から入れる</button>
     <div id="kbNeoPanel" hidden style="width:340px;background:#fff;border:1px solid #d6e5de;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.18);padding:12px 12px 10px">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;color:${G};font-weight:800">${ico}<span>kinbot から入れる</span><button type="button" id="kbNeoX" style="margin-left:auto;border:0;background:transparent;font-size:16px;color:#7d8f87;cursor:pointer" aria-label="閉じる">×</button></div>
-      <div style="display:flex;gap:6px"><input id="kbNeoQ" placeholder="会社名で SF から探す" style="flex:1;border:1px solid #cfe0d8;border-radius:10px;padding:7px 10px;font-size:13px;outline:none"><button type="button" id="kbNeoGo" style="border:0;border-radius:10px;background:${G2};color:#fff;font-weight:700;padding:0 12px;cursor:pointer">探す</button></div>
+      <div id="kbNeoSearch" style="display:flex;gap:6px"><input id="kbNeoQ" placeholder="会社名で SF から探す" style="flex:1;border:1px solid #cfe0d8;border-radius:10px;padding:7px 10px;font-size:13px;outline:none"><button type="button" id="kbNeoGo" style="border:0;border-radius:10px;background:${G2};color:#fff;font-weight:700;padding:0 12px;cursor:pointer">探す</button></div>
       <div id="kbNeoList" style="max-height:220px;overflow:auto;margin-top:8px"></div>
       <div id="kbNeoMsg" style="margin-top:8px;font-size:12px;line-height:1.55;color:#4F6158"></div>
       <div style="margin-top:6px;font-size:11px;color:#8FA39A">入れた欄は緑の枠になります。「申請」は内容を確かめてから自分で押してください。</div>
     </div>`;
-  const mount = () => { if (!document.body || document.getElementById("kbNeoBox")) return; document.body.appendChild(box); wire(); wantStart(); };
+  const mount = () => { if (!document.body || document.getElementById("kbNeoBox")) return; document.body.appendChild(box); wire();
+    // 事業部新規は、SF を探す「kinbot から入れる」ではなく、専用のボタン（部署の画面の請求書送付先から写す）にする（2026-11-25 田中さん「事業部新規の場合のボタンをつけてほしい」）
+    if (pageKind() === "unit_new") { $("kbNeoOpen").innerHTML = `${ico}事業部新規の欄を入れる`; $("kbNeoSearch").style.display = "none"; const tt = $("kbNeoPanel").querySelector("span"); if (tt) tt.textContent = "事業部新規の欄を入れる"; return; }
+    wantStart(); };
   const $ = (id) => box.querySelector("#" + id);
   const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   function wire() {
