@@ -2617,10 +2617,14 @@ function kxStageInfo(x) {
   const koAct = (x.actions || []).find((a) => a.kind === "キックオフ未実施");
   const koSet = !koNotDone || !!x.kickoffClear || (koAct && koAct.ko && koAct.ko !== "未設定");
   const ken = !!x.delivered || String(x.kenshuSt || x.kenshu || "").startsWith("回収済み") || x.kenshuSt === "対象外" || !!x.kenshuNa;
-  const mail = String(x.mail || "").startsWith("送付済み");
+  // 納品メール：送付済みのほか、2026年10月より前に受注して納品済みとみなす会社（delivered で ksMonth が空）は対象外＝済み（担当企業の前の数え方と同じ）
+  const mail = String(x.mail || "").startsWith("送付済み") || (!!x.delivered && !x.ksMonth);
   const done = [!!(x.booked || x.docBooked), koSet, !koNotDone, ken, mail];
+  // 受注日が入っていなくても、先の段が済んでいれば受注は済み
+  if (!done[0] && done.slice(1).some(Boolean)) done[0] = true;
   let i = done.findIndex((v) => !v);
-  const mailDays = x.mailOn ? Math.floor((Date.now() - Date.parse(String(x.mailOn).slice(0, 10) + "T00:00:00+09:00")) / 86400000) : null;
+  const mOn = x.mailOn || (mail ? x.deliveredOn : "");   // 送った日が分からないときは納品日をめやすに
+  const mailDays = mOn ? Math.floor((Date.now() - Date.parse(String(mOn).slice(0, 10) + "T00:00:00+09:00")) / 86400000) : null;
   if (i < 0) i = pub ? 7 : mailDays != null && mailDays >= 60 ? 6 : 5;
   return { i, done, pub, mailDays };
 }
