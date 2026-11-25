@@ -11,7 +11,7 @@
     <link rel="manifest" href="/kinxs.webmanifest" />
     <meta name="theme-color" content="#0B3B2E" />
     <meta name="apple-mobile-web-app-title" content="kinXs" />
-    <link rel="stylesheet" href="style.css?v=20261125y" />
+    <link rel="stylesheet" href="style.css?v=20261125z" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1494,6 +1494,11 @@
   #kh2 .h2-mine .mi-kpis[hidden]{display:none !important;}
   /* ホームの担当企業は流れの下の会社の一覧を出さない（段を押すとモーダルで出るため）（2026-11-25 田中さん「ここはいらない」） */
   #kh2 .h2-mine .mi-h,#kh2 .h2-mine .mi-list{display:none !important;}
+  /* ホームの担当企業は、枠の高さいっぱいに流れの行を広げて、下に余白を出さない（画面の大きさに関係なく）（2026-11-25 田中さん「ここ余白ないようにしたい」） */
+  #kh2 .h2-row.h3 .h2-mine{display:flex;flex-direction:column;}
+  #kh2 .h2-row.h3 .h2-mine > .mi-flow{flex:1 1 auto;display:flex !important;flex-direction:column;margin:0 !important;min-height:0;}
+  #kh2 .h2-row.h3 .h2-mine > .mi-flow > .mi-kpi{flex:1 1 0;min-height:32px !important;}
+  #kh2 .h2-row.h3 .h2-mine > .mi-flow > .mi-kpi.hot{flex:1.5 1 0;}
 </style>
 </head>
   <body>
@@ -1654,8 +1659,8 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261125y" defer></script>
-    <script src="kinxs.js?v=20261125y"></script>
+    <script src="kbchat.js?v=20261125z" defer></script>
+    <script src="kinxs.js?v=20261125z"></script>
   <script>
   // スマホのメニューの開け閉め。項目を押したら閉じる（2026-11-24）
   (function () {
