@@ -32,7 +32,7 @@ import { planFromBales, MAX_AGE_H } from "./mcbalessync.js";   // BALES でか�
 import { FILL_APIS, FILL_SOQL_FIELDS, readMemo, readInputs, planFills, pickedFields, hiresBucket } from "./mcsffill.js";
 import { formRun } from "./mcform.js";   // 問い合わせフォームの自動送信（2026-11-20）
 import { MCDASH_ROSTER } from "./mcdash.js";   // インサイド8名の名簿（「かける」の状態を管理者に見せるため）
-import { rosterHit, startsWithSurname, rosterForms, foldPersonName } from "./mcname.js";   // 名前の照合（異体字・姓名の順などをそろえる）
+import { rosterHit, startsWithSurname, rosterForms, foldPersonName, pickBalesOwner } from "./mcname.js";   // 名前の照合（異体字・姓名の順などをそろえる）
 import { loadPeople, emailOf as rosterEmailOf, setPerson, rosterRows, PEOPLE_KINDS } from "./mcpeople.js";   // 名簿の人をメールで結びつける（2026-11-23）
 import { leadMails, sfLeadIdOf } from "./mcmail.js";   // 1社のメールを1か所で集める（SF・BALES・DOC のメールが画面に出なかったため。2026-11-24）
 import { HEAR_ITEMS, cleanHearing, mergeHearing, hearingLines as hearLines, apoCheck, valueText, mailDefaults, MAIL_ITEMS, HEAR_MAIL_SUBJECT, hearMailBody, realName } from "./mchearing.js";   // アポの必須ヒアリングとヒアリングのメール（2026-11-23）   // 問い合わせフォームの自動送信（2026-11-20）
@@ -42,6 +42,9 @@ const BIZ = "MOCHICA";
 // 商材。いまは MOCHICA とキャリアミキサー（キャリミキ）の2つ。知らない値は MOCHICA にする
 const PRODUCTS = ["mochica", "careermixer"];
 const productOf = (v) => (PRODUCTS.includes(String(v || "")) ? String(v) : "mochica");
+// キャリミキのリストの会社は MOCHICA の架電でかけない（2026-11-25 福井さん「MOCHICA 架電ではアプローチしない。キャリミキ商材のときだけ」）。
+//   リードを MOCHICA のリスト（今日かけるリストも）へ移す UPDATE に付けて、キャリミキのリストにあるリードを動かさないための条件
+const NOT_IN_CM = (col = "list_id") => `${col} NOT IN (SELECT id FROM mc_call_lists WHERE product = 'careermixer')`;
 
 // 到達の段階と、その中身。key は画面とサーバーで同じものを使う
 export const REACH = {
@@ -908,7 +911,10 @@ export function registerMcCall(app, deps) {
   //   見えるのは自分がかけてよいリストのうち、担当が空か自分のもの（管理者はすべて）。かける順番（/queue）と同じ考え方
   const BROWSE_SORT = { hot: "COALESCE(c.hot,0) DESC, c.id", last: "c.last_at DESC NULLS LAST, c.id", attempts: "c.attempts DESC, c.id", fewest: "c.attempts, COALESCE(c.hot,0) DESC, c.id", company: "c.company, c.id", next: "c.next_at NULLS LAST, c.id" };
   app.get("/api/mccall/browse", guard(async (req, res) => {
-    const ids = await myListIds(req); const listId = parseInt(req.query.list, 10);
+    let ids = await myListIds(req); const listId = parseInt(req.query.list, 10);
+    // prod を付けたら（架電画面の「探してかける」）その商材のリストだけ探す。MOCHICA でかけているときにキャリミキの会社が出ないように（2026-11-25）
+    const prodQ = String(req.query.prod || "");
+    if (PRODUCTS.includes(prodQ) && ids.length) { const pm = new Map((await P().query(`SELECT id, product FROM mc_call_lists WHERE id = ANY($1)`, [ids])).rows.map((r) => [r.id, r.product || "mochica"])); ids = ids.filter((x) => pm.get(x) === prodQ); }
     const use = listId ? ids.filter((x) => x === listId) : ids;
     if (!use.length) return res.json({ ok: true, items: [], total: 0 });
     const w = ["c.list_id = ANY($1)", "c.dup_of IS NULL"]; const p = [use];
@@ -1084,7 +1090,9 @@ export function registerMcCall(app, deps) {
   // 「SHOBO から足す」の元：このリスト以外の、閉じていない MOCHICA のリスト（保管も含む）。from で絞れる
   async function poolIds(id, from) {
     const want = (Array.isArray(from) ? from : []).map((x) => parseInt(x, 10)).filter((x) => x > 0);
-    const rows = (await P().query(`SELECT id FROM mc_call_lists WHERE biz=$1 AND NOT closed AND id <> $2`, [BIZ, id])).rows.map((r) => r.id);
+    // 入れ先が MOCHICA なら、キャリミキのリストは元にしない（キャリミキの会社を MOCHICA でかけないため。2026-11-25）
+    const rows = (await P().query(`SELECT l.id FROM mc_call_lists l WHERE l.biz=$1 AND NOT l.closed AND l.id <> $2
+      AND (COALESCE(l.product,'mochica') <> 'careermixer' OR (SELECT product FROM mc_call_lists WHERE id=$2) = 'careermixer')`, [BIZ, id])).rows.map((r) => r.id);
     return want.length ? rows.filter((x) => want.includes(x)) : rows;
   }
   // 数える・選ぶときの決まり。持ってくるときは、いま架電中（10分以内に開いた）のリードは動かさない
@@ -1123,8 +1131,10 @@ export function registerMcCall(app, deps) {
     const to = parseInt(b.toListId, 10); const ids = leadIdsOf(b);
     if (!ids.length) return res.status(400).json({ error: "移すリードを選んでください" });
     if (!to || to === id) return res.status(400).json({ error: "移し先のリストを選んでください" });
-    const t = (await P().query(`SELECT id, closed FROM mc_call_lists WHERE id=$1`, [to])).rows[0];
+    const t = (await P().query(`SELECT id, closed, product FROM mc_call_lists WHERE id=$1`, [to])).rows[0];
     if (!t || t.closed) return res.status(400).json({ error: "移し先のリストが見つからないか、閉じています" });
+    const fromP = ((await P().query(`SELECT product FROM mc_call_lists WHERE id=$1`, [id])).rows[0] || {}).product;
+    if (fromP === "careermixer" && t.product !== "careermixer") return res.status(400).json({ error: "キャリミキのリストの会社は、MOCHICA のリストへは移せません（MOCHICA の架電ではかけない決まりです）。キャリミキのリストへ移してください" });
     const x = await P().query(`UPDATE mc_call_leads c SET list_id=$2, assigned_to=NULL, locked_by=NULL, locked_at=NULL
       WHERE c.list_id=$1 AND c.id = ANY($3) AND NOT EXISTS (SELECT 1 FROM mc_call_leads d WHERE d.list_id=$2 AND d.src=c.src AND d.src_key=c.src_key)`, [id, to, ids]);
     res.json({ ok: true, moved: x.rowCount, skipped: ids.length - x.rowCount });
@@ -1244,12 +1254,14 @@ export function registerMcCall(app, deps) {
     const toList = parseInt(b.toList, 10) || 0, onlyList = parseInt(b.list, 10) || 0;
     if (!n) return res.status(400).json({ error: "配る件数を入れてください" });
     if (!toList && !members.length) return res.status(400).json({ error: "配る人を選んでください" });
-    const lists = (await P().query(`SELECT id, name, stock, members FROM mc_call_lists WHERE biz=$1 AND NOT closed`, [BIZ])).rows;
+    const lists = (await P().query(`SELECT id, name, stock, members, product FROM mc_call_lists WHERE biz=$1 AND NOT closed`, [BIZ])).rows;
     const lmap = new Map(lists.map((l) => [l.id, l]));
     const dest = toList ? lmap.get(toList) : null;
     if (toList && !dest) return res.status(400).json({ error: "入れるリストが見つからないか、閉じています" });
     if (dest && dest.stock) return res.status(400).json({ error: "保管のリストには入れられません。かける対象のリストを選んでください" });
     let src = lists.filter((l) => (toList ? l.id !== toList && (from || b.pool === "any" || l.stock) : !l.stock)).map((l) => l.id);
+    // 入れ先が MOCHICA のリストなら、キャリミキのリストからは持ってこない（2026-11-25）
+    if (dest && dest.product !== "careermixer") src = src.filter((x) => (lmap.get(x) || {}).product !== "careermixer");
     if (onlyList) src = src.filter((x) => x === onlyList);
     if (!src.length) return res.status(400).json({ error: toList ? "持ってくる元のリストがありません（保管のリストが無いときは「ほかのリストの未割り当て」を選んでください）" : "配れるリードのあるリストがありません" });
     await refreshSeg(src, { budgetMs: 8000 });
@@ -1663,6 +1675,12 @@ export function registerMcCall(app, deps) {
   }
   // その人が、リスト管理のどの所有者か（名簿にメールで登録されていれば名簿の SF 氏名・Zoom 名、無ければ kinbot の名前で照らす）。10分覚える
   const _ownerMemo = new Map();
+  // kinbot の人と名簿のインサイドのフルネーム（そろえたもの）。名字だけの所有者に当てるとき、同じ名字の人がほかにいないかを見るため
+  async function everyoneNames() {
+    const out = new Set([...(await nameMap()).values()].map(foldPersonName).filter(Boolean));
+    for (const p of MCDASH_ROSTER.is) { const f = foldPersonName(p.sf); if (f) out.add(f); }
+    return out;
+  }
   async function todayOwnerOf(u, bm) {
     const ck = `${u}|${bm.listKey}|${bm.col}`, c = _ownerMemo.get(ck); if (c && Date.now() - c.at < 10 * 60 * 1000) return c.v;
     const forms = new Set();
@@ -1671,7 +1689,7 @@ export function registerMcCall(app, deps) {
     for (const p of MCDASH_ROSTER.is) if (rosterEmailOf(reg, "is", p.sf) === u || (kname && rosterHit(kname, [p]))) for (const f of rosterForms(p)) forms.add(f);
     if (foldPersonName(kname)) forms.add(foldPersonName(kname));
     const vals = forms.size ? await mcBalesValues(bm.listKey, bm.col).catch(() => []) : [];
-    const v = (vals.find((x) => forms.has(foldPersonName(x.v))) || {}).v || "";
+    const v = forms.size ? pickBalesOwner(forms, vals, await everyoneNames()) : "";
     _ownerMemo.set(ck, { at: Date.now(), v }); return v;
   }
   // 入れ先のリスト（無ければ作る。作るときは、いま使っているリストのトークを写す＝初日から「トークが無い」で止めないため）。閉じていれば null
@@ -1726,7 +1744,7 @@ export function registerMcCall(app, deps) {
       AND src='bales' AND left(src_key, length($5::text) + 1) = $5::text || '|'`, [tid, u, day, [...new Set(ids)], bm.listKey]);
     // 終わったリード（アポ・NG など）と、ほかの人が今開いているリードは動かさない。トークはリストごとなので、移したリードは選び直す
     const mv = ids.length ? await P().query(`UPDATE mc_call_leads SET talk_label = CASE WHEN list_id = $2 THEN talk_label ELSE NULL END, list_id=$2, assigned_to=$3, today_day=$4
-      WHERE id = ANY($1::int[]) AND NOT done AND dup_of IS NULL AND (locked_by IS NULL OR locked_by=$3 OR locked_at < now() - interval '10 minutes')`, [[...new Set(ids)], tid, u, day]) : { rowCount: 0 };
+      WHERE id = ANY($1::int[]) AND NOT done AND dup_of IS NULL AND (locked_by IS NULL OR locked_by=$3 OR locked_at < now() - interval '10 minutes') AND ${NOT_IN_CM()}`, [[...new Set(ids)], tid, u, day]) : { rowCount: 0 };
     const res = { owner, n: (t.keys || []).length, ready: mv.rowCount, added, banned, exp: t.exp || 0, due_nurture: t.due_nurture || 0, due_other: t.due_other || 0, pastlost: t.pastlost || 0, newlist: t.newlist || 0, made_at: t.made_at };
     if (added || mv.rowCount < res.n) console.log(`[mccall] 今日かけるリスト ${u}（${owner}）：${res.n}件中 ${mv.rowCount}件を「かける」へ（新しく入れた ${added}・禁止 ${banned}）`);
     _todaySync.set(u, { ck, at: Date.now(), res }); return res;
@@ -1819,7 +1837,7 @@ export function registerMcCall(app, deps) {
       // MOCHICALL でもう掛け直しの時刻が決まっていれば、そちらを使う（本人が決めた約束を上書きしない）
       if (cur.next_at) it.next = new Date(cur.next_at).toISOString();
       if (run) await P().query(`UPDATE mc_call_leads SET talk_label = CASE WHEN list_id = $2 THEN talk_label ELSE NULL END, list_id=$2, assigned_to=$3, next_at=COALESCE(next_at, $4)
-        WHERE id=$1 AND NOT done`, [id, tid, u, next]);
+        WHERE id=$1 AND NOT done AND ${NOT_IN_CM()}`, [id, tid, u, next]);
       moved++; per.set(u, (per.get(u) || 0) + 1); it.how = run ? "移して担当にした" : "移して担当にする"; items.push(it);
     }
     const out = { ok: true, run, list: { key: bm.listKey, name: lst.name, at: lst.run_at }, into: TODAY_LIST_NAME, target: rows.length, added, moved,
@@ -1939,6 +1957,9 @@ export function registerMcCall(app, deps) {
     let banOk = true; try { await banListOrStop(); } catch { banOk = false; }
     const gate = researchGate();
     const items = [];
+    // 今日かけるリストの本人の判定（BALES の所有者の名前と合うか）も見る（2026-11-25：名字だけの所有者と合わず、今日かけるリストが出ない人がいた）
+    const bm = await balesMain().catch(() => null);
+    const claimed = new Set();
     for (const p of people) {
       if (!p.email) { items.push({ ...p, level: "stop", msg: "kinbot のアカウントが見つかりません（メール未登録）。本人に kinbot へログインしてもらい、下の「名簿とメール」でそのメールを登録してください" }); continue; }
       const intern = await isMcIntern(p.email).catch(() => false);
@@ -1960,9 +1981,20 @@ export function registerMcCall(app, deps) {
       else if (n.now < 20) { level = "warn"; msg += "。今日のうちに無くなりそうです。リードを足してください"; }
       // 名前で判定している人は「メール未登録」と添える（名前が変わると外れるので、メールで登録してもらう）
       if (p.noEmail) { msg += "（メール未登録：名前で判定しています。下の「名簿とメール」で登録してください）"; if (level === "ok") level = "warn"; }
-      items.push({ ...p, intern, ...n, level, msg });
+      const owner = bm ? await todayOwnerOf(p.email, bm).catch(() => "") : "";
+      if (owner) claimed.add(owner);
+      else if (bm) { msg += "（今日かけるリスト：BALES の所有者の名前と合わないため出ません。kinbot の名前か BALES の所有者の名前をそろえてください）"; if (level === "ok") level = "warn"; }
+      items.push({ ...p, intern, ...n, owner, level, msg });
     }
-    res.json({ ok: true, items, banOk, research: researchState() });
+    // BALES の所有者のうち、だれにも結びつかない名前（今日かけるリストを作っても、だれの「かける」にも出ない）
+    let orphans = [];
+    if (bm) {
+      const vals = await mcBalesValues(bm.listKey, bm.col).catch(() => []);
+      const every = await everyoneNames();   // 全員分は所有者の値を1回だけ読み、手元で照合する（1人ずつ読むと重いため）
+      for (const x of users) { const fm = new Set([foldPersonName(x.name)].filter(Boolean)); for (const p of MCDASH_ROSTER.is) if (rosterHit(x.name, [p])) for (const g of rosterForms(p)) fm.add(g); const o = pickBalesOwner(fm, vals, every); if (o) claimed.add(o); }
+      orphans = vals.filter((x) => x.v && !claimed.has(x.v)).map((x) => ({ name: x.v, n: x.n }));
+    }
+    res.json({ ok: true, items, banOk, orphans, research: researchState() });
   }));
 
   // ---- 管理者：名簿とメール（2026-11-23 福井さん決定「本人をメールで登録する」）----

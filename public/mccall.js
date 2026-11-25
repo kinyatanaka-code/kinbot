@@ -292,7 +292,9 @@
       const v = q.value.normalize("NFKC").trim(); const my = ++seq;
       if (v.length < 2) { hide(); return; }
       list.hidden = false; list.innerHTML = `<div class="mcc-note" style="margin:0;padding:8px 10px">探しています…</div>`;
-      let j; try { j = await api(`/api/mccall/browse?${new URLSearchParams({ q: v, st: "open", sort: "hot" })}`); }
+      // いま選んでいる商材のリストだけ探す（MOCHICA でかけているときにキャリミキの会社が出ないように。2026-11-25）
+      const prod = S.listId === -1 || isCm(S.lists.find((l) => l.id === S.listId)) ? "careermixer" : "mochica";
+      let j; try { j = await api(`/api/mccall/browse?${new URLSearchParams({ q: v, st: "open", sort: "hot", prod })}`); }
       catch (e) { if (my === seq) list.innerHTML = `<div class="mcc-note" style="margin:0;padding:8px 10px">探せませんでした：${esc(e.message)}</div>`; return; }
       if (my !== seq) return;
       const items = (j.items || []).slice(0, 20);
@@ -1686,6 +1688,7 @@
     const R = j.research || {};
     box.innerHTML = `<h2>インサイドの「かける」の状態${bad ? `<span class="mcc-badge danger" style="margin-left:8px">止まっている人 ${bad}人</span>` : '<span class="mcc-badge" style="margin-left:8px">全員かけられます</span>'}</h2>
       ${j.banOk ? "" : '<p class="mcc-note" style="color:#B4441F;font-weight:700">アプローチ禁止の名簿が読めないため、全員の「かける」が止まっています。</p>'}
+      ${(j.orphans || []).length ? `<p class="mcc-note">BALES の所有者のうち、kinbot のだれとも名前が合わない人：${(j.orphans || []).map((o) => `${esc(o.name)}（${Number(o.n || 0)}件）`).join("・")}。この人たちの今日かけるリストは、だれの「かける」にも出ません（インターンでない人はそのままで大丈夫です）。</p>` : ""}
       <table class="mcc-tbl"><thead><tr><th>名前</th><th class="num">リスト</th><th class="num">今かけられる</th><th>状態</th></tr></thead><tbody>
       ${items.map((x) => `<tr><td>${esc(x.name)}${x.email ? "" : '<small style="color:var(--c-muted)">（アカウントなし）</small>'}</td><td class="num">${x.email ? `${x.talkLists}/${x.lists}` : "-"}</td><td class="num">${x.email ? x.now : "-"}</td>
         <td><span class="mcc-badge ${x.level === "stop" ? "danger" : x.level === "warn" ? "warm" : "doc"}">${x.level === "stop" ? "止まっている" : x.noEmail ? "メール未登録" : x.level === "warn" ? "もうすぐ無くなる" : "かけられる"}</span> ${esc(x.msg)}</td></tr>`).join("")}</tbody></table>

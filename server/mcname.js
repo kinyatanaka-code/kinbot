@@ -48,6 +48,23 @@ export function rosterForms(p) {
   return out;
 }
 
+// BALES の所有者の値の中から、その人の分を選ぶ（今日かけるリストの本人の判定）。
+//   forms：その人の名前の形（そろえたもの）、vals：所有者の値 [{ v }]、everyone：kinbot の人と名簿の人のフルネーム（そろえたもの）。
+//   まずフルネームで当てる。当たらなければ、名字だけの所有者（BALES に「小賀坂」「足立」「趙」「福井」と名字だけで入っている人）に当てる。
+//   名字で当てるのは、その名字で始まる所有者の値が1つだけで、しかも その名字の人が kinbot・名簿に1人だけのときに限る（同じ名字の人の分を取らないため）。
+//   （2026-11-25 福井さん：BALES の「福井」と kinbot の「福井聖」が合わず、今日かけるリストが出なかった。小賀坂・足立・趙も同じだった）
+export function pickBalesOwner(forms, vals, everyone) {
+  const fs = [...forms].filter(Boolean);
+  if (!fs.length) return "";
+  const exact = (vals || []).find((x) => forms.has(foldPersonName(x && x.v)));
+  if (exact) return exact.v;
+  const sur = (vals || []).filter((x) => { const f = foldPersonName(x && x.v); return f && fs.some((n) => n.length > f.length && n.startsWith(f)); });
+  if (sur.length !== 1) return "";
+  const f = foldPersonName(sur[0].v);
+  const same = new Set([...fs.filter((n) => n.startsWith(f)), ...[...(everyone || [])].filter((n) => n && n.length > f.length && n.startsWith(f))]);
+  return same.size === 1 ? sur[0].v : "";
+}
+
 // 名前が名簿のだれかに当たれば、その人（名簿の行）を返す
 export function rosterHit(name, roster) {
   const f = foldPersonName(name); if (!f) return null;
