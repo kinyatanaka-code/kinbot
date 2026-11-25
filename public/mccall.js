@@ -1788,6 +1788,7 @@
             ${S.lists.map((l) => `<tr><td><b>${esc(l.name)}</b><br><button class="mcc-btn" data-prod="${l.id}" title="押すと商材を切り替えます">商材：${isCm(l) ? "キャリミキ" : "MOCHICA"}</button> <button class="mcc-btn" data-blind="${l.id}" aria-pressed="${!!l.hide_history}" title="押すと切り替えます。伏せると、架電画面の「これまで」にはかける本人の記録だけが出ます（前回の結果・日時はそのまま）">過去の履歴：${l.hide_history ? "伏せる" : "見せる"}</button></td><td>${l.members && l.members.length ? `${l.members.length}人` : "MOCHICA 全員"}</td><td class="num">${l.open} / ${l.total}</td><td class="num">${l.now}</td><td class="num">${l.cross || ""}</td>
               <td style="white-space:nowrap"><button class="mcc-btn primary" data-add="${l.id}">リードを足す</button> <button class="mcc-btn" data-mem="${l.id}">メンバー</button> <button class="mcc-btn ${l.talks ? "" : "danger"}" data-scr="${l.id}" title="${l.talks ? `トーク ${l.talks}本` : "トークが無いのでかけられません"}">${l.talks ? `トーク（${l.talks}本）` : "トークを書く"}</button> <button class="mcc-btn primary" data-leads="${l.id}">割り振る・移す</button> <button class="mcc-btn danger" data-close="${l.id}">閉じる</button></td></tr>`).join("")}</tbody></table>` : '<p class="mcc-note">まだリストがありません。</p>'}
         </div>
+        <div class="mcc-card" id="mccTalkMap"></div>
         <div class="mcc-card" id="mccStock"></div>
         <div class="mcc-card" id="mccDups" hidden></div>
         <div class="mcc-card"><h2>今日の数字（全員）</h2>${all.length ? `<table class="mcc-tbl"><thead><tr><th>名前</th><th class="num">コール</th><th class="num">担当者と話せた</th><th class="num">アポ</th><th class="num">部署をまたいだ架電</th></tr></thead><tbody>${all.map((r) => `<tr><td>${esc(r.name)}</td><td class="num">${r.calls}</td><td class="num">${r.person}</td><td class="num">${r.apo}</td><td class="num">${r.cross}</td></tr>`).join("")}</tbody></table>` : '<p class="mcc-note">今日はまだ記録がありません。</p>'}</div>`;
@@ -1808,7 +1809,7 @@
       }));
       box.querySelectorAll("[data-mem]").forEach((b) => b.addEventListener("click", () => listDialog(S.lists.find((l) => l.id === +b.dataset.mem))));
       box.querySelectorAll("[data-add]").forEach((b) => b.addEventListener("click", () => addDialog(+b.dataset.add)));
-      drawStock();
+      drawStock(); drawTalkMap();
       box.querySelectorAll("[data-leads]").forEach((b) => b.addEventListener("click", () => drawLeads(S.lists.find((l) => l.id === +b.dataset.leads))));
       box.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", () => dialog("このリストを閉じますか", "閉じると、だれの「かける」にも出なくなります。記録は消えません。", "閉じる", async () => { await api(`/api/mccall/lists/${b.dataset.close}`, { method: "PATCH", body: JSON.stringify({ closed: true }) }); drawLists(); })));
     } catch (e) { box.innerHTML = `<div class="mcc-card">読めませんでした：${esc(e.message)}</div>`; }
@@ -1850,6 +1851,36 @@
       <div class="mcc-tblwrap"><table class="mcc-tbl"><thead><tr><th>止めたリード</th><th>リスト</th><th>先に入っていたリード</th><th>そのリスト・状態</th><th></th></tr></thead><tbody>
       ${j.items.map((r) => `<tr><td><b>${esc(r.company || "")}</b><small> ${esc(r.phone || "")}</small></td><td>${esc(r.list || "")}</td><td>${esc(r.ocompany || "")}<small> ${esc(r.ophone || "")}</small></td><td>${esc(r.olist || "")}${r.odone ? "（終わり）" : ""}${r.oout ? `<small> ${esc(r.oout)}</small>` : ""}</td><td><button class="mcc-btn" data-notdup="${r.id}">別の会社として残す</button></td></tr>`).join("")}</tbody></table></div>`;
     box.querySelectorAll("[data-notdup]").forEach((b) => b.addEventListener("click", () => dialog("別の会社として残しますか", "このリードを、先に入っていたリードとは別の会社としてかけられるようにします。同じ会社に2人がかけることにならないか確かめてから押してください。", "残す", async () => { await post(`/api/mccall/leads/${b.dataset.notdup}/not-dup`); toast("別の会社として残しました"); drawLists(); })));
+  }
+  // リスト×トークの対応表（2026-11-25 福井さん）。どのリストのどの欄（A/B/C）に、どのトークが入っているかを並べて見せ、
+  //   欄ごとに「ほかのリストのトークを使う」「外す」を選べる。写すと新しい版になるので、前の版の数字は施策に残る。
+  //   同じ中身のトークには同じ番号の印を付ける（どのリストが同じトークで動いているか分かるように）
+  async function drawTalkMap() {
+    const box = $("mccTalkMap"); if (!box) return;
+    let j; try { j = await api("/api/mccall/talk-map"); } catch (e) { box.innerHTML = `<h2>リストとトークの対応</h2><p class="mcc-note">読めませんでした：${esc(e.message)}</p>`; return; }
+    if (!j.lists.length) { box.hidden = true; return; }
+    box.hidden = false;
+    const at = new Map(j.talks.map((t) => [`${t.listId}:${t.label}`, t]));
+    const name = new Map(j.lists.map((l) => [l.id, l.name]));
+    const optsFor = (l, lb, cur) => `<option value="">${cur ? "（このまま）" : "（なし）"}</option>${cur ? '<option value="-">この欄を外す</option>' : ""}`
+      + j.talks.filter((t) => !(t.listId === l.id && t.label === lb)).map((t) => `<option value="${t.id}">「${esc(name.get(t.listId) || "")}」のトーク ${t.label}（第${t.ver}版）${cur && t.same && t.same === cur.same ? "＝いまと同じ" : ""}</option>`).join("");
+    const cell = (l, lb) => { const t = at.get(`${l.id}:${lb}`);
+      return `<td style="min-width:200px">${t ? `<div>${t.same ? `<span class="mcc-badge doc" title="同じ番号のトークは中身が同じです">同じトーク ${t.same}</span> ` : ""}<small style="color:var(--c-muted)">第${t.ver}版・${t.chars}字</small></div><div style="font-size:12px;margin:2px 0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px" title="${esc(t.head)}">${esc(t.head)}</div>` : '<div><small style="color:var(--c-muted)">なし</small></div>'}
+        <select class="mcc-sel" data-tm="${l.id}" data-tml="${lb}" style="width:100%" aria-label="「${esc(l.name)}」のトーク ${lb} を変える">${optsFor(l, lb, t)}</select></td>`; };
+    box.innerHTML = `<h2>リストとトークの対応</h2>
+      <p class="mcc-note">どのリストに、どのトークを使っているかの一覧です。欄の下で、ほかのリストのトークを選ぶと、そのトークを写して差し替えます（新しい版になり、前の版の数字は施策のタブに残ります）。写したあとで片方を直しても、もう片方は変わりません。トークの中身を直すときは、リストの「トーク」ボタンから。</p>
+      <div class="mcc-tblwrap"><table class="mcc-tbl"><thead><tr><th>リスト</th>${j.labels.map((lb) => `<th>トーク ${lb}</th>`).join("")}</tr></thead><tbody>
+      ${j.lists.map((l) => `<tr><td><b>${esc(l.name)}</b>${l.stock ? '<br><small style="color:var(--c-muted)">保管</small>' : ""}${j.labels.some((lb) => at.has(`${l.id}:${lb}`)) ? "" : '<br><span class="mcc-badge danger">トークが無いのでかけられません</span>'}</td>${j.labels.map((lb) => cell(l, lb)).join("")}</tr>`).join("")}</tbody></table></div>`;
+    box.querySelectorAll("[data-tm]").forEach((sel) => sel.addEventListener("change", () => {
+      const v = sel.value; if (!v) return; sel.value = "";   // やめたときに選んだままにならないよう、先に戻しておく
+      const to = +sel.dataset.tm; const lb = sel.dataset.tml; const src = j.talks.find((t) => String(t.id) === v);
+      const title = v === "-" ? `「${name.get(to)}」のトーク ${lb} を外しますか` : `「${name.get(to)}」のトーク ${lb} を差し替えますか`;
+      const body = v === "-" ? "外すと、このリストの会社にはこのトークが出なくなります（これまでの記録と数字は残ります）。" : `「${name.get(src.listId)}」のトーク ${src.label}（第${src.ver}版）を写します。いまの中身は前の版として残ります。`;
+      dialog(title, body, v === "-" ? "外す" : "差し替える", async () => {
+        await api("/api/mccall/talk-map", { method: "PUT", body: JSON.stringify({ to, label: lb, from: v === "-" ? null : +v }) });
+        S.cache.clear(); toast(v === "-" ? `トーク ${lb} を外しました` : `トーク ${lb} を差し替えました（次に開く会社から使います）`); drawLists();
+      });
+    }));
   }
   // トーク（売り方）。リスト（売り先）とセットで1つの施策（2026-11-20 福井さん）。
   //   A/B/C の3本まで書ける。2本以上あると会社ごとに1本を決めて比べる。直すと新しい版になり、前の版の数字は「施策」に残る

@@ -912,6 +912,35 @@ export function registerMcCall(app, deps) {
     const talks = await saveTalks(id, (req.body || {}).talks, me(req));
     res.json({ ok: true, talks });
   }));
+  // リスト×トークの対応表（2026-11-25 福井さん「リストとトークスクリプトの対応関係を編集できるように」）
+  //   トークはこれまでどおりリストごとに持つ（版と施策の数字をそのまま残すため）。ここでは、どのリストのどの欄に
+  //   どのトークが入っているかを並べて見せ、ほかのリストのトークを写して差し替えられるようにする。
+  //   中身が同じトークは同じ印（same）を付け、どのリストが同じトークを使っているかが分かるようにする。
+  app.get("/api/mccall/talk-map", adminOnly(async (req, res) => {
+    const ids = await myListIds(req, true);
+    const lists = ids.length ? (await P().query(`SELECT id, name, stock FROM mc_call_lists WHERE id = ANY($1) ORDER BY stock, created_at DESC`, [ids])).rows : [];
+    const talks = ids.length ? (await P().query(`SELECT id, list_id, label, ver, body, created_by, created_at FROM mc_call_talks WHERE active AND list_id = ANY($1) ORDER BY list_id, label`, [ids])).rows : [];
+    const norm = (s) => String(s || "").replace(/\s+/g, " ").trim();
+    const groups = new Map(); for (const t of talks) { const k = norm(t.body); if (!groups.has(k)) groups.set(k, groups.size + 1); }
+    const count = new Map(); for (const t of talks) { const g = groups.get(norm(t.body)); count.set(g, (count.get(g) || 0) + 1); }
+    res.json({ ok: true, labels: TALK_LABELS, lists: lists.map((l) => ({ id: l.id, name: l.name, stock: !!l.stock })),
+      talks: talks.map((t) => { const g = groups.get(norm(t.body)); return { id: t.id, listId: t.list_id, label: t.label, ver: t.ver, head: norm(t.body).slice(0, 80), chars: t.body.length, by: t.created_by, at: t.created_at, same: count.get(g) > 1 ? g : 0 }; }) });
+  }));
+  // 対応を1つ変える：to のリストの label の欄に、from（トークの id）の中身を入れる。from が空ならその欄を外す
+  app.put("/api/mccall/talk-map", adminOnly(async (req, res) => {
+    const b = req.body || {}; const to = parseInt(b.to, 10); const label = String(b.label || "").toUpperCase();
+    if (!TALK_LABELS.includes(label)) return res.status(400).json({ error: "トークの欄（A/B/C）が分かりません。画面を読み直してください" });
+    if (!(await myListIds(req, true)).includes(to)) return res.status(404).json({ error: "入れ先のリストが見つかりません（閉じたリストには入れられません）" });
+    const cur = await activeTalks(to); const want = new Map(cur.map((t) => [t.label, t.body]));
+    if (b.from) {
+      const src = (await P().query(`SELECT body FROM mc_call_talks WHERE id=$1 AND active`, [parseInt(b.from, 10)])).rows[0];
+      if (!src) return res.status(404).json({ error: "写すトークが見つかりません（ほかの人が直したかもしれません）。画面を読み直してください" });
+      want.set(label, src.body);
+    } else want.delete(label);
+    if (!want.size) return res.status(400).json({ error: "トークが1本も無いとこのリストはかけられません。ほかの欄にトークを入れてから外してください" });
+    const talks = await saveTalks(to, [...want].map(([l, body]) => ({ label: l, body })), me(req));
+    res.json({ ok: true, talks });
+  }));
   // ---- 施策（リスト×トーク×版）の数字。管理者は全員分、ほかの人は自分の分 ----
   app.get("/api/mccall/measures", guard(async (req, res) => {
     const dayOf = (s, def) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || "")); return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]) - 9 * 3600e3) : def; };
