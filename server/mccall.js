@@ -1577,10 +1577,14 @@ export function registerMcCall(app, deps) {
   const TODAY_LIST_NAME = "今日かけるリスト（リスト管理）";
   const todayDay = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
   // リスト管理で使っている Bales のリスト（画面の mainList と同じ：取り込み中でない、いちばん新しいもの）と、所有者の列（画面の ownerCol と同じ）
+  let _mainKey = "";
   async function balesMain() {
     const ls = (await P().query(`SELECT list_key, src, status, cols, view FROM mochica_bales_lists ORDER BY run_at DESC NULLS LAST`).catch(() => ({ rows: [] }))).rows;
     //   CSV・SF から足したリストは主にしない（画面の mainList と同じ。新しく CSV を足すと、今日かけるリストがその CSV だけで作られ「かける」が空になっていたため）（2026-11-25）
     const l = ls.find((x) => x.src !== "csv" && x.src !== "sf" && x.status !== "running") || ls.find((x) => x.status !== "running") || ls[0]; if (!l) return null;
+    // 主のリストが変わったらログに残す（今日かけるリストは主のリストで作るので、変わると全員の今日の分が作り直しになる。黙って切り替わると原因が追えないため）
+    if (_mainKey && _mainKey !== l.list_key) console.warn(`[mccall] 今日かけるリストの主のリストが変わりました：${_mainKey} → ${l.list_key}（${l.src || "bales"}）`);
+    _mainKey = l.list_key;
     const keys = new Set((Array.isArray(l.cols) ? l.cols : []).map((c) => c && c.key));
     if (keys.has("companyName") || keys.has("company_name") || String(l.list_key).startsWith("bales:")) return { listKey: l.list_key, col: !keys.has("operatorName") && keys.has("operator_name") ? "operator_name" : "operatorName" };
     const v = (Array.isArray(l.view) ? l.view : []).find((x) => /所有者|オーナー/.test(String((x && x.label) || "")));
@@ -1622,6 +1626,13 @@ export function registerMcCall(app, deps) {
     const t = await mcBalesToday(bm.listKey, { col: bm.col, val: owner }); if (!t) return null;
     const ck = `${day}|${bm.listKey}|${owner}|${tid}|${t.made_at ? new Date(t.made_at).getTime() : ""}`, prev = _todaySync.get(u);
     if (prev && prev.ck === ck && Date.now() - prev.at < 10 * 60 * 1000) return prev.res;
+    // 今日の分が0件で作られたときは、今日かけるリストの出し方をやめて今までの出し方（担当のリストすべて）に戻す（2026-11-25 福井さん「今かける企業はありません」で架電が止まった）。
+    //   0件のまま今日かけるリストの出し方を続けると「かける」が空になり、インターンが1社もかけられず止まる。
+    //   このとき今日の印も消さない（主のリストの判定が一時的にずれただけなら、直ったときにそのまま戻れるように）
+    if (!(t.keys || []).length) {
+      console.warn(`[mccall] 今日かけるリスト ${u}（${owner}）が0件で作られました（リスト ${bm.listKey}）。今までの出し方で出します`);
+      _todaySync.set(u, { ck, at: Date.now(), res: null }); return null;
+    }
     const sks = (t.keys || []).map((k) => `${bm.listKey}|${k}`);
     const ex = sks.length ? (await P().query(`SELECT id, src_key, dup_of FROM mc_call_leads WHERE src='bales' AND src_key = ANY($1) ORDER BY (dup_of IS NULL) DESC, id`, [sks])).rows : [];
     const found = new Map(); for (const r of ex) if (!found.has(r.src_key)) found.set(r.src_key, r.dup_of || r.id);
@@ -1638,8 +1649,11 @@ export function registerMcCall(app, deps) {
       }
       if (added) mynaviEnqueue(rows.map((r) => fromBales(r.data || {}).company)).catch((e) => console.error("[mccall] マイナビの調べを始められませんでした", e.message));
     }
-    // 今日の分を作り直した（リスト管理の作り直し・担当の付け替え）ときは、外れたリードの今日の印を外す（前の中身が「かける」に残らないように）
-    await P().query(`UPDATE mc_call_leads SET today_day=NULL WHERE list_id=$1 AND assigned_to=$2 AND today_day=$3 AND NOT (id = ANY($4::int[]))`, [tid, u, day, [...new Set(ids)]]);
+    // 今日の分を作り直した（リスト管理の作り直し・担当の付け替え）ときは、外れたリードの今日の印を外す（前の中身が「かける」に残らないように）。
+    //   外すのは同じ主のリストから入れたリードだけ（2026-11-25：CSV を足したとき主のリストがそれに切り替わり、朝からの今日の分の印が全部外れて「かける」が空になった。
+    //   別のリストで作られた今日の分では、ほかのリストから入れた印を消さない）
+    await P().query(`UPDATE mc_call_leads SET today_day=NULL WHERE list_id=$1 AND assigned_to=$2 AND today_day=$3 AND NOT (id = ANY($4::int[]))
+      AND src='bales' AND left(src_key, length($5::text) + 1) = $5::text || '|'`, [tid, u, day, [...new Set(ids)], bm.listKey]);
     // 終わったリード（アポ・NG など）と、ほかの人が今開いているリードは動かさない。トークはリストごとなので、移したリードは選び直す
     const mv = ids.length ? await P().query(`UPDATE mc_call_leads SET talk_label = CASE WHEN list_id = $2 THEN talk_label ELSE NULL END, list_id=$2, assigned_to=$3, today_day=$4
       WHERE id = ANY($1::int[]) AND NOT done AND dup_of IS NULL AND (locked_by IS NULL OR locked_by=$3 OR locked_at < now() - interval '10 minutes')`, [[...new Set(ids)], tid, u, day]) : { rowCount: 0 };
