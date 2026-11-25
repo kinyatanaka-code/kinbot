@@ -1846,7 +1846,7 @@ export function registerMcCall(app, deps) {
   //   調べたところ、2,833件のうち 2,370件がトークの無い「BALES：すべてのリード」に担当なしで置かれ、だれの「かける」にも出ていなかった。
   //   決めごと（福井さん）：
   //   ・担当は BALES の所有者（kinbot で割り振り直していればそちら）。所有者が MOCHICALL を使い始めるまでは引き継がない
-  //     （＝MOCHICALL で60日以内にかけたことのある人だけ。未割り振りの分は引き継がない）
+  //     （＝MOCHICALL で60日以内にかけた、または14日以内に今日かけるリストを受け取った人だけ。未割り振りの分は引き継がない）
   //   ・引き継いだ分は全部すぐ「かける」に出す（今日かけるリストの人も、今日の分と並べて出す）
   //   ・BALES の次回アクションは MOCHICALL の掛け直しに写す。先の予定はその時刻に、過ぎた予定は最近過ぎた順に出す。
   //     90日より前に過ぎた予定は「予定なし」と同じ扱いにする（何年も前の予定が毎日先頭に来ないように）
@@ -1868,12 +1868,16 @@ export function registerMcCall(app, deps) {
     })().finally(() => { _handoverListP = null; });
     return _handoverListP;
   }
-  // BALES の所有者 → 引き継ぐ人（メール）。MOCHICALL で60日以内にかけたことのある人だけ。同じ所有者に2人当たるときは引き継がない
+  // BALES の所有者 → 引き継ぐ人（メール）。MOCHICALL を使っている人だけ。同じ所有者に2人当たるときは引き継がない
   async function handoverOwners(bm) {
     const vals = await mcBalesValues(bm.listKey, bm.col).catch(() => []);
     const every = await everyoneNames();
     const reg = await loadPeople().catch(() => new Map());
-    const active = new Set((await P().query(`SELECT DISTINCT lower(caller) AS e FROM mc_call_logs WHERE caller IS NOT NULL AND created_at >= now() - interval '60 days'`)).rows.map((r) => r.e));
+    //   使っている＝60日以内に MOCHICALL でかけた、または14日以内に今日かけるリストを受け取った（＝「かける」を開いた）人。
+    //   かけた記録だけで見ると、開いて今日の分を受け取ったばかりの人（趙さん・小賀坂さん）が外れていたため
+    const since = new Date(Date.now() + 9 * 3600e3 - 14 * 86400e3).toISOString().slice(0, 10);
+    const active = new Set((await P().query(`SELECT DISTINCT lower(caller) AS e FROM mc_call_logs WHERE caller IS NOT NULL AND created_at >= now() - interval '60 days'
+      UNION SELECT DISTINCT lower(assigned_to) FROM mc_call_leads WHERE assigned_to IS NOT NULL AND today_day >= $1`, [since])).rows.map((r) => r.e));
     const claim = new Map();
     for (const x of await listUsers().catch(() => [])) {
       const e = String((x && x.email) || "").toLowerCase(); if (!e || !active.has(e)) continue;
