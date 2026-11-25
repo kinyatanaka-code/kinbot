@@ -105,6 +105,9 @@ async function ensure() {
     // 担当者と話せたときに聞いたこと（検討時期・採用ニーズ・説明会/面接の参加人数・採用目標人数）（2026-11-18 福井さん）
     //   リードには最新の値、記録にはそのとき聞いた値を残す（元に戻すで前の値へ戻せるように）
     await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS hearing JSONB`);
+    // SF の検討開始時期が書かれた日（when_src_at）・何で決めたか（when_src_by：history＝項目履歴／activity＝最終活動日／created＝作成日）・調べた日（when_chk_at）。
+    //   検討時期が先の会社を「かける」に出さない判定で、情報が1年以上前かどうかを見るため（2026-11-25 福井さん）
+    for (const s of [`ADD COLUMN IF NOT EXISTS when_src_at TIMESTAMPTZ`, `ADD COLUMN IF NOT EXISTS when_src_by TEXT`, `ADD COLUMN IF NOT EXISTS when_chk_at TIMESTAMPTZ`]) await q(`ALTER TABLE mc_call_leads ${s}`);
     await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS hearing JSONB`);
     // 掛け直しの型（2026-11-19 福井さん「科学的にアポが取れる架電に」）：担当者に届かないまま続けた回数と、休ませた日時。
     //   列を足す最初の1回だけ、いまある記録から「直近の連続不通の回数」を数えて入れる（既存の会社が0回から数え直しにならないように）。
@@ -491,6 +494,44 @@ export async function refreshSeg(listId, { budgetMs = 0 } = {}) {
   }
   return n;
 }
+// ---- SF の検討開始時期が書かれた日を埋める（2026-11-25 福井さん「情報源が1年以上前なら古い可能性があるので架電可能に」） ----
+//   SF のリードの項目履歴（LeadHistory）で、検討開始時期が最後に書かれた日を見る。履歴が無い（履歴を取り始める前に書かれた・作ったときから入っていた）ときは
+//   SF の最終活動日、それも無ければリードを作った日（福井さん決定）。調べた日を when_chk_at に残し、30日たったら調べ直す（SF で書き直されることがあるため）。
+//   「かける」を開いたときに裏で少しずつ（2分に1回・1000件まで）。SF の呼び出しは200件ごとに2回（履歴とリード）
+let _whenFillAt = 0, _whenFilling = null;
+export async function fillWhenSrc(owner, listIds) {
+  const ids = (Array.isArray(listIds) ? listIds : [listIds]).map((x) => parseInt(x, 10)).filter((x) => x > 0);
+  if (!owner || !ids.length || _whenFilling || Date.now() - _whenFillAt < 2 * 60e3) return 0;
+  _whenFillAt = Date.now();
+  _whenFilling = (async () => {
+    const rows = (await P().query(`SELECT id, sf_lead_id FROM mc_call_leads WHERE list_id = ANY($1::int[]) AND NOT done AND dup_of IS NULL
+        AND sf_lead_id ~ '^00Q[0-9A-Za-z]{12,15}$' AND NULLIF(seg->>'whenYm','') IS NOT NULL AND (when_chk_at IS NULL OR when_chk_at < now() - interval '30 days')
+      ORDER BY id LIMIT 1000`, [ids])).rows;
+    let n = 0;
+    for (let i = 0; i < rows.length; i += 200) {
+      const part = rows.slice(i, i + 200);
+      const inList = [...new Set(part.map((r) => r.sf_lead_id))].map((x) => `'${x}'`).join(",");
+      const k15 = (x) => String(x || "").slice(0, 15);   // SF の Id は15けたと18けたがある（先頭15けたは同じ）
+      const hist = new Map();
+      try {
+        for (const h of (await sfQueryAll(owner, `SELECT LeadId, CreatedDate FROM LeadHistory WHERE Field = 'Start_Considering_Date__c' AND LeadId IN (${inList}) ORDER BY CreatedDate DESC`, 5000)) || [])
+          if (!hist.has(k15(h.LeadId))) hist.set(k15(h.LeadId), h.CreatedDate);
+      } catch (e) { console.error("[mccall] SF の検討開始時期の項目履歴を読めませんでした（最終活動日・作成日で判定します）", e.message); }
+      const lead = new Map(((await sfQueryAll(owner, `SELECT Id, LastActivityDate, CreatedDate FROM Lead WHERE Id IN (${inList})`, 5000)) || []).map((l) => [k15(l.Id), l]));
+      const items = part.map((r) => {
+        const h = hist.get(k15(r.sf_lead_id)), l = lead.get(k15(r.sf_lead_id)) || {};
+        const [at, by] = h ? [h, "history"] : l.LastActivityDate ? [l.LastActivityDate, "activity"] : l.CreatedDate ? [l.CreatedDate, "created"] : [null, null];
+        return { id: r.id, at: at && Number.isFinite(Date.parse(at)) ? new Date(Date.parse(at)).toISOString() : null, by };
+      });
+      await P().query(`UPDATE mc_call_leads c SET when_src_at = x.at, when_src_by = x.by, when_chk_at = now() FROM jsonb_to_recordset($1::jsonb) AS x(id int, at timestamptz, by text) WHERE c.id = x.id`, [JSON.stringify(items)]);
+      n += part.length;
+    }
+    if (n) console.log(`[mccall] SF の検討開始時期が書かれた日を ${n}件 調べました`);
+    return n;
+  })().catch((e) => { console.error("[mccall] SF の検討開始時期が書かれた日を調べられませんでした（次に「かける」を開いたときにやり直します）", e.message); return 0; })
+    .finally(() => { _whenFilling = null; });
+  return _whenFilling;
+}
 // 絞り込みの軸。値は SQL で出す（最終架電・期限・検討時期は日がたつと変わるので、保存せずにその場で数える）
 //   2026-11-20 福井さん：ASUMO /teleapo の絞り込み条件にそろえた。ICP スコア・インテント・検証済み・タグ・メールのクリック・採用構成・
 //   条件1〜3 は SHOBO に判定の元データが無いので、決め方を合意してから足す（第2段）
@@ -516,6 +557,33 @@ const monthsAhead = (x) => `(CASE WHEN ${x} ~ '^[0-9]{4}-[0-9]{2}$' THEN (substr
 // 検討時期：架電で聞いた月（新しい）→ SF の検討開始時期
 const WHEN_SRC = `COALESCE(CASE WHEN COALESCE(c.hearing->>'when','') ~ '^[0-9]{1,2}月$' THEN regexp_replace(c.hearing->>'when','月$','') END, NULLIF(c.seg->>'whenYm',''))`;
 const WHEN_M = monthsAhead(WHEN_SRC);
+// ---- 検討時期待ち（2026-11-25 福井さん「SF の検討開始時期が3月など、時期が違いすぎる会社は適切な時期以外かけない。
+//   ただし情報源が1年以上前なら古い情報の可能性があるのでかけてよい」） ----
+//   検討時期の WHEN_OPEN_M か月前になるまで「かける」に出さない（福井さん決定：2か月前から）。データは書き換えず毎回その場で判定する（月がたてば自然に出てくる）。
+//   情報の日付：架電で聞いた検討時期は聞いた日（hearing.at。無ければ最後にかけた日）、SF などの検討開始時期は SF の項目履歴で書かれた日（when_src_at。
+//   fillWhenSrc が埋める。履歴が無ければ最終活動日→作成日）。まだ調べていなければ seg の SF 最終活動日。どれも無ければ新しい情報とみなす。
+//   月だけ（「3月」）は、情報の日付から見て次に来るその月と読む（2月に聞いた「3月」は、11月にはもう過ぎている）
+export const WHEN_OPEN_M = 2, WHEN_STALE_DAYS = 365;
+function whenSql(t) {
+  const src = WHEN_SRC.replace(/\bc\./g, `${t}.`);
+  const heard = `(COALESCE(${t}.hearing->>'when','') ~ '^[0-9]{1,2}月$')`, hAt = `${t}.hearing->>'at'`;
+  const at = `(CASE WHEN ${heard} THEN COALESCE(CASE WHEN ${hAt} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' THEN (${hAt})::timestamptz END, ${t}.last_at)
+    ELSE COALESCE(${t}.when_src_at, CASE WHEN COALESCE(${t}.seg->>'sfAct','') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' THEN (${t}.seg->>'sfAct')::timestamptz END) END)`;
+  const atJ = `(${at} AT TIME ZONE 'Asia/Tokyo')`, nowYm = `(EXTRACT(YEAR FROM ${JST})::int*12 + EXTRACT(MONTH FROM ${JST})::int)`;
+  const m = `(CASE WHEN ${src} ~ '^[0-9]{4}-[0-9]{2}$' THEN (substr(${src},1,4)::int*12 + substr(${src},6,2)::int) - ${nowYm}
+    WHEN ${src} ~ '^[0-9]{1,2}$' AND ${at} IS NOT NULL THEN ((EXTRACT(YEAR FROM ${atJ})::int + CASE WHEN ${src}::int < EXTRACT(MONTH FROM ${atJ})::int THEN 1 ELSE 0 END)*12 + ${src}::int) - ${nowYm}
+    WHEN ${src} ~ '^[0-9]{1,2}$' THEN ((${src}::int - EXTRACT(MONTH FROM ${JST})::int + 12) % 12) END)`;
+  return { at, m };
+}
+// hold＝時期待ち（かけない）／stale＝時期は先だが情報が1年以上前（かける）／ok＝時期が近い・過ぎた・分からない。
+//   架電で「未定」と聞けたら、SF の古い月より新しいので待たせない
+export function whenStateSql(t = "c") {
+  const { at, m } = whenSql(t);
+  return `(CASE WHEN COALESCE(${t}.hearing->>'when','') = '未定' OR ${m} IS NULL OR ${m} <= ${WHEN_OPEN_M} THEN 'ok'
+    WHEN ${at} IS NOT NULL AND ${at} < now() - interval '${WHEN_STALE_DAYS} days' THEN 'stale' ELSE 'hold' END)`;
+}
+// 「かける」に出さないもの。人と約束した掛け直しの時刻は、時期待ちでも守る（本人と決めた時刻なので）
+export const whenHoldSql = (t = "c") => `(${whenStateSql(t)} = 'hold' AND COALESCE(${t}.next_why,'') <> ${sqlLit(WHY_HUMAN)})`;
 const RENEW_M = monthsAhead(`NULLIF(c.seg->>'renewYm','')`);
 // 最後に断られた理由（SHOBO で記録したもの）
 const LAST_REJECT = `(SELECT l.reason FROM mc_call_logs l WHERE l.lead_id = c.id AND l.outcome = 'reject' AND NOT l.undone ORDER BY l.created_at DESC LIMIT 1)`;
@@ -574,6 +642,9 @@ export const SEG_DIMS = {
   pains: { label: "採用課題", multi: true, none: "分からない", sql: arrOf(PAINS.map(([v, re]) => [v, `${PAIN_TXT} ~ ${sqlLit(re)}`])), order: [...PAINS.map((x) => x[0]), "分からない"] },
   budget: { label: "検討時期", sql: `CASE WHEN ${WHEN_M} < 0 THEN '時期が過ぎた' WHEN ${WHEN_M} = 0 THEN '今月' WHEN ${WHEN_M} <= 3 THEN '3か月以内' WHEN ${WHEN_M} IS NOT NULL THEN '4か月以上先'
       WHEN c.hearing->>'when' = '未定' THEN '未定と言われた' ELSE '分からない' END`, order: ["今月", "3か月以内", "4か月以上先", "時期が過ぎた", "未定と言われた", "分からない"] },
+  // 「かける」に出すかどうか（上の whenStateSql と同じ判定。どの会社が時期待ちで外れているかをリスト管理で見られるように）
+  whenHold: { label: "検討時期待ち（かける時期か）", sql: `CASE ${whenStateSql("c")} WHEN 'hold' THEN '時期待ち（2か月前まで出さない）' WHEN 'stale' THEN '時期は先だが情報が1年以上前（かける）' ELSE 'かける時期' END`,
+    order: ["かける時期", "時期は先だが情報が1年以上前（かける）", "時期待ち（2か月前まで出さない）"] },
   renewal: { label: "更新時期", sql: `CASE WHEN ${RENEW_M} < 0 THEN '更新月が過ぎた' WHEN ${RENEW_M} = 0 THEN '今月更新' WHEN ${RENEW_M} = 1 THEN '来月更新' WHEN ${RENEW_M} <= 3 THEN '3か月以内'
       WHEN ${RENEW_M} <= 6 THEN '6か月以内' WHEN ${RENEW_M} IS NOT NULL THEN '7か月以上先' WHEN COALESCE(c.seg->>'ats','') <> '' THEN '競合利用中で更新月が未確認' ELSE '分からない' END`,
     order: ["今月更新", "来月更新", "3か月以内", "6か月以内", "7か月以上先", "更新月が過ぎた", "競合利用中で更新月が未確認", "分からない"] },
@@ -649,6 +720,7 @@ export async function withBans(filters, listIds) {
   return f;
 }
 
+let _whenBg = null, _whenBgAt = 0;
 export function registerMcCall(app, deps) {
   const { isAdmin, sfActor, mochicaSet } = deps;
   startPlayPumps();
@@ -1944,10 +2016,13 @@ export function registerMcCall(app, deps) {
     catch { return res.json({ ok: true, items: [], later: 0, noTalk, researching: 0, stop: "ban", today }); }
     // 今日かけるリストの人：今日の分（入れ先のリストで本人の担当・today_day が今日）＋時刻が来た本人の掛け直し（担当が本人か、担当なしで最後にかけたのが本人）。
     //   tid は数・day は日付の形なので、そのまま SQL に書く（ほかの問い合わせと $ の数を変えないため）
+    // 検討時期待ちの会社（検討時期の2か月前まで）は出さない。ただし情報が1年以上前なら出す（whenHoldSql・2026-11-25 福井さん）
+    const HOLD_Q = whenHoldSql("mc_call_leads");
     const todayW = tm && /^\d{4}-\d{2}-\d{2}$/.test(tm.day) ? ` AND ((list_id = ${Number(tm.tid)} AND assigned_to = $2 AND today_day = '${tm.day}')
         OR (next_at IS NOT NULL AND (assigned_to = $2 OR (assigned_to IS NULL AND (SELECT g.caller FROM mc_call_logs g WHERE g.lead_id = mc_call_leads.id AND NOT g.undone ORDER BY g.created_at DESC LIMIT 1) = $2))))` : "";
     const base = `list_id = ANY($1) AND NOT done AND dup_of IS NULL AND (next_at IS NULL OR next_at <= now())
-        AND (assigned_to IS NULL OR assigned_to=$2) AND (locked_by IS NULL OR locked_by=$2 OR locked_at < now() - interval '10 minutes')${todayW}`;
+        AND (assigned_to IS NULL OR assigned_to=$2) AND (locked_by IS NULL OR locked_by=$2 OR locked_at < now() - interval '10 minutes')${todayW}
+        AND NOT ${HOLD_Q}`;
     const order = `(next_at IS NOT NULL) DESC, next_at, COALESCE(hot,0) DESC, attempts, id`;
     // 順番は mccadence.js の rankQueue で決める（約束の掛け直し → 時刻が来た掛け直し → ホット度・検討時期・在席時間の順）。SQL では候補を多め（300件）に絞るだけ
     //   候補の300件には、リスト管理で優先度を高にした会社を先に入れる（低は後ろ）（2026-11-25 福井さん）
@@ -1987,14 +2062,21 @@ export function registerMcCall(app, deps) {
       const r = (await P().query(`SELECT count(*) FILTER (WHERE assigned_to IS NOT NULL AND assigned_to <> $2) AS others,
           count(*) FILTER (WHERE assigned_to IS NOT NULL AND assigned_to <> $2 AND list_id = $3 AND today_day = $4) AS today_others,
           count(*) FILTER (WHERE (assigned_to IS NULL OR assigned_to = $2) AND locked_by IS NOT NULL AND locked_by <> $2 AND locked_at >= now() - interval '10 minutes') AS locked,
-          count(*) FILTER (WHERE next_at > now()) AS waiting
+          count(*) FILTER (WHERE next_at > now()) AS waiting,
+          count(*) FILTER (WHERE (assigned_to IS NULL OR assigned_to = $2) AND ${HOLD_Q}) AS held
         FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL`, [use, u, tidNow || 0, todayDay()])).rows[0];
-      why = { others: +r.others, todayOthers: +r.today_others, locked: +r.locked, waiting: +r.waiting };
+      why = { others: +r.others, todayOthers: +r.today_others, locked: +r.locked, waiting: +r.waiting, held: +r.held };
     }
     // 今日かけるリストの人は、今日の分のうち残り（まだ終わっていない・今かけられる）も返す
-    if (today) today.left = +(await P().query(`SELECT count(*) FROM mc_call_leads WHERE list_id=$1 AND assigned_to=$2 AND today_day=$3 AND NOT done AND dup_of IS NULL`, [tm.tid, u, tm.day])).rows[0].count;
+    //   検討時期待ちの分は残りに数えず、別に held で返す（「残り○件なのに出ない」と迷わないように）
+    if (today) { const r = (await P().query(`SELECT count(*) FILTER (WHERE NOT ${HOLD_Q}) AS left, count(*) FILTER (WHERE ${HOLD_Q}) AS held FROM mc_call_leads
+        WHERE list_id=$1 AND assigned_to=$2 AND today_day=$3 AND NOT done AND dup_of IS NULL`, [tm.tid, u, tm.day])).rows[0]; today.left = +r.left; today.held = +r.held; }
     await blindAttempts(items, u);
     res.json({ ok: true, items: items.map((x) => ({ ...x, outcome: outcomeLabel(x.last_outcome), streak: x.miss_streak || 0, why: x.reasons })), later: +later, noTalk, researching, why, today });
+    // 裏で：検討時期を読むための属性（seg）を計算し、SF の検討開始時期が書かれた日を埋める（次に開いたときの判定に効く。かける人を待たせない）
+    //   画面は数十秒ごとに読み直すので、1分に1回まで
+    if (!_whenBg && Date.now() - _whenBgAt > 60e3) _whenBgAt = Date.now(), _whenBg = (async () => { await refreshSeg(use, { budgetMs: 5000 }); await fillWhenSrc(await sfActor(req), use); })()
+      .catch((e) => console.error("[mccall] 検討時期待ちの下準備ができませんでした（次に「かける」を開いたときにやり直します）", e.message)).finally(() => { _whenBg = null; });
   }));
   // ---- 管理者：インサイドの「かける」の状態（2026-11-23 福井さん「初週を止めずに回す」）----
   //   ダッシュボードの名簿のインサイド8名と、MOCHICA のインターンと判定された人について、
