@@ -2831,7 +2831,7 @@ export function registerMcCall(app, deps) {
   //   本人の Gmail で送り、SF のリードに活動（メール）を残す（正本は SF）。CC は既定で入れない（福井さんの決定）。
   //   ひな形・既定の資料は MOCHICA 専用の設定（mcDocSend…）にして、DOC の資料送付の設定は変えない。
   const MC_DOC_SUBJECT = "資料のご送付（{資料名}）";
-  const MC_DOC_BODY = "{担当者}様\n\nお世話になっております。MOCHICA の{差出人}です。\n先ほどお電話にてご案内した資料をお送りいたします。\n下記の URL よりご確認ください。\n\n{URL}\n\nご不明な点がございましたら、お気軽にご連絡ください。\n何卒よろしくお願いいたします。";
+  const MC_DOC_BODY = "{担当者}様\n\nお世話になっております。{名乗り}です。\n先ほどお電話にてご案内した資料をお送りいたします。\n下記の URL よりご確認ください。\n\n{URL}\n\nご不明な点がございましたら、お気軽にご連絡ください。\n何卒よろしくお願いいたします。";
   const isMail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim());
   // 宛先は画面と同じ探し方（mcmail.js の leadMails）の先頭。前はここだけ別の探し方で、SF のリードの今の Email を見ていなかった
   async function leadFor(req, id, { withMails = false } = {}) {
@@ -2859,12 +2859,72 @@ export function registerMcCall(app, deps) {
   // メールの署名（2026-11-24 福井さん「署名と企業名とメールアドレスが自動で埋まるように」）
   //   会社名・部署・電話は問い合わせフォームのひな形（MOCHICA 共通・管理者が入れる）、名前とメールは送る本人のもの。
   //   毎回手で書くと抜けや書き間違いが出るので、資料送付・ヒアリングのメールの両方で同じ署名を使う
+  //   本人の署名（「自分の署名・名乗り」で入れたもの）があれば、それをそのまま使う（2026-11-25 福井さん）
   async function mailSig(req) {
-    const c = await formSettings().catch(() => ({})); const u = me(req);
-    const name = (await nameMap()).get(u) || "";
+    const s = await senderOf(req);
+    if (s.sig) return s.sig;
     const line = "――――――――――――――――――";
-    return [line, c.company || "株式会社ネオキャリア", c.dept || "MOCHICA", name, c.tel ? `TEL：${c.tel}` : "", `Mail：${u}`, line].filter(Boolean).join("\n");
+    return [line, s.company, s.dept || "MOCHICA", s.name, s.tel ? `TEL：${s.tel}` : "", `Mail：${s.u}`, line].filter(Boolean).join("\n");
   }
+  // ---- 送る人ごとの名乗り・署名（2026-11-25 福井さん「株式会社ネオキャリアの福井です、のように名乗りが適切になるように」）----
+  //   メールもフォームも「会社名＋名字」で名乗る（前は「MOCHICA の福井聖です」で、会社名が無く、下の名前まで入っていた）。
+  //   署名は本人ごとに設定に持つ（mcSenders）。会社名・部署・電話・住所が管理者のひな形に無いときは、署名から読み取る
+  //   （ひな形が空のままだとフォームから送れなかったため）。
+  //   はじめから入れておく署名：福井さんが「福井聖の署名は以下を設定」と渡したもの。画面で直せば、そちらが優先される。
+  //   名前（空白を除く）で引く。メールアドレスはコードに書かず、{メール} に送る本人のアドレスを入れる
+  const SENDER_SEED = {
+    "福井聖": { sei: "福井", kana: "フクイ ショウ", sig: [
+      "■━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━■", "株式会社ネオキャリア", "事業開発本部　事業開発部", "福井聖／Sho Fukui", "",
+      "携帯電話：080-6813-0780", "E-mail：{メール}", "", "◆新宿本社", "〒160-0023 東京都新宿区西新宿1丁目22-2",
+      "電話：03-5908-8405", "FAX ：03-5908-8158", "URL：http://www.neo-career.co.jp", "■━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━■"].join("\n") },
+  };
+  // 署名の文から、フォームに入れる会社名・部署・電話・住所などを読み取る（書き方が人によって違うので、見つかったものだけ）
+  function sigParts(sig) {
+    const L = String(sig || "").split(/\r?\n/).map((s) => s.replace(/[　\s]+/g, " ").trim()).filter((s) => /[\p{L}\p{N}]/u.test(s.replace(/[■━―─◆]/g, "")));
+    const num = (s) => (s || "").replace(/[－ー‐]/g, "-").replace(/[^\d-]/g, "");
+    const pick = (re) => { for (const s of L) { const m = s.match(re); if (m) return m; } return null; };
+    const ci = L.findIndex((s) => s.length <= 40 && /株式会社|有限会社|合同会社|一般社団法人|（株）|\(株\)/.test(s) && !/[:：]/.test(s));
+    const company = ci >= 0 ? L[ci] : "";
+    const dept = ci >= 0 && L[ci + 1] && L[ci + 1].length <= 40 && /本部|部|課|室|グループ|チーム|事業/.test(L[ci + 1]) && !/[:：]/.test(L[ci + 1]) ? L[ci + 1] : "";
+    const mobile = num((pick(/(?:携帯|モバイル|mobile)[^0-9]*([0-9０-９][0-9０-９\-－ー‐ ]{8,})/i) || [])[1]);
+    const tel = num((pick(/^(?:電話|TEL|Tel|tel|代表)[^0-9a-zA-Z]*([0-9][0-9\-－ー‐ ]{8,})/) || [])[1]);
+    const zm = pick(/〒\s*(\d{3}-?\d{4})\s*(.*)$/);
+    const site = ((pick(/(https?:\/\/[^\s\]）)]+)/) || [])[1] || "").replace(/\/$/, "");
+    return { company, dept, mobile, tel, zip: zm ? zm[1] : "", addr: zm ? zm[2].trim() : "", site };
+  }
+  const seedOf = (name) => SENDER_SEED[String(name || "").replace(/[\s　]+/g, "")] || {};
+  async function senderOf(req) {
+    const u = me(req); const c = await formSettings(); const st = await getSettings().catch(() => ({}));
+    const name = (await nameMap()).get(u) || "";
+    const own = { ...seedOf(name), ...(((st.mcSenders || {})[u]) || {}) };
+    own.sig = String(own.sig || "").replace(/\{メール\}/g, u);
+    const sp = sigParts(own.sig);
+    // 名字：本人が入れたもの → 名前の空白より前。空白の無い名前（「福井聖」など）は分けられないので、名前のまま（画面で直せる）
+    const sei = String(own.sei || String(name).trim().split(/[\s　]+/)[0] || "").trim();
+    const company = c.company || sp.company || "株式会社ネオキャリア";
+    return { u, name, sei, sig: String(own.sig || ""), kana: c.kana[u] || own.kana || "", company,
+      companyKana: c.companyKana || (company === "株式会社ネオキャリア" ? "カブシキガイシャネオキャリア" : ""),
+      dept: c.dept || sp.dept, tel: c.tel || sp.mobile || sp.tel, zip: c.zip || sp.zip, addr: c.addr || sp.addr, site: c.site || sp.site,
+      nanori: sei ? `${company}の${sei}` : company };
+  }
+  // 前に保存されたひな形の「MOCHICA の{差出人}です」なども、名乗りに置き換えてから差し込む（保存し直さなくても直るように）
+  const nanoriFix = (t) => String(t || "").replace(/MOCHICA\s*の\s*\{差出人\}\s*です/g, "{名乗り}です").replace(/\{差出人の会社名\}\s*の\s*\{差出人\}\s*と申します/g, "{名乗り}と申します");
+  app.get("/api/mccall/my-sender", guard(async (req, res) => {
+    const s = await senderOf(req);
+    res.json({ ok: true, name: s.name, sei: s.sei, kana: s.kana, sig: s.sig || (await mailSig(req)), own: !!s.sig, nanori: s.nanori, company: s.company, tel: s.tel });
+  }));
+  app.put("/api/mccall/my-sender", guard(async (req, res) => {
+    const u = me(req); const b = req.body || {}; const st = await getSettings().catch(() => ({}));
+    const all = { ...(st.mcSenders || {}) }; const cur = { ...seedOf((await nameMap()).get(u)), ...(all[u] || {}) };
+    if (b.sei !== undefined) cur.sei = clip(b.sei, 20);
+    if (b.sig !== undefined) cur.sig = String(b.sig || "").replace(/\r\n/g, "\n").slice(0, 2000);
+    all[u] = { sei: cur.sei || "", sig: cur.sig || "" };
+    const patch = { mcSenders: all };
+    // フリガナはフォームの画面で覚えているもの（mcFormKana）と同じ所に置く（2か所に分かれて食い違わないように）
+    if (b.kana !== undefined) patch.mcFormKana = { ...(st.mcFormKana || {}), [u]: clip(b.kana, 60) };
+    await saveSettings(patch);
+    const s = await senderOf(req); res.json({ ok: true, nanori: s.nanori });
+  }));
   // 本文に {署名} があればそこへ、なければ最後に付ける。宛先の会社名が本文の頭に無ければ、宛名の上に足す
   function withSig(body, { company, sig }) {
     let t = String(body || "");
@@ -2918,9 +2978,10 @@ export function registerMcCall(app, deps) {
       const company = String(lead.company || "").trim(); const person = String((lead.gate && lead.gate.name) || lead.person || "").trim();
       // ヒアリングで聞いたメール → MOCHICALL で直したメール → SF → 元のデータ、の順（mcmail.js）
       const to = mails.length ? mails[0].addr : "";
-      const sender = (await nameMap()).get(me(req)) || "";
-      const fill = (t) => String(t || "").replace(/\{担当者\}/g, person || "ご担当者").replace(/\{会社名\}/g, company).replace(/\{差出人\}/g, sender).replace(/\{資料名\}/g, doc.name || "ご案内資料");
-      res.json({ ok: true, to, cc: conf.cc, company, person, subject: fill(conf.subject), body: withSig(fill(conf.body), { company, sig: await mailSig(req) }), docId: doc.id, docName: doc.name,
+      const s = await senderOf(req); const sender = s.name;
+      const fill = (t) => nanoriFix(t).replace(/\{担当者\}/g, person || "ご担当者").replace(/\{会社名\}/g, company).replace(/\{名乗り\}/g, s.nanori).replace(/\{名字\}/g, s.sei)
+        .replace(/\{差出人の会社名\}/g, s.company).replace(/\{差出人\}/g, sender).replace(/\{資料名\}/g, doc.name || "ご案内資料");
+      res.json({ ok: true, to, cc: conf.cc, company, person, nanori: s.nanori, subject: fill(conf.subject), body: withSig(fill(conf.body), { company, sig: await mailSig(req) }), docId: doc.id, docName: doc.name,
         docs: docs.map((d) => ({ id: d.id, name: d.name })), google: await googleConnected(me(req)).catch(() => false),
         warn: to ? "" : `この会社のメールアドレスが見つかりませんでした。宛先を入れてください${mailErr ? `（${mailErr}）` : ""}` });
     } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
@@ -2988,11 +3049,11 @@ export function registerMcCall(app, deps) {
     try {
       const id = parseInt(req.params.id, 10); const b = req.body || {};
       const { h, keys, company, person, to, mailErr } = await hearMailBase(req, id, b.keys);
-      const sender = (await nameMap()).get(me(req)) || "";
+      const s = await senderOf(req); const sender = s.name;
       const last = (await P().query(`SELECT created_at FROM mc_hear_mails WHERE lead_id=$1 ORDER BY created_at DESC LIMIT 1`, [id])).rows[0] || null;
       res.json({ ok: true, to, company, person, keys,
         items: MAIL_ITEMS.map((it) => ({ k: it.k, no: it.no || "", label: it.label, group: it.group, heard: !!valueText(it, h, NEED_CHOICES) })),
-        subject: HEAR_MAIL_SUBJECT.replace(/\{会社名\}/g, company), body: withSig(hearMailBody({ company, person, sender, keys }), { company, sig: await mailSig(req) }),
+        subject: HEAR_MAIL_SUBJECT.replace(/\{会社名\}/g, company), body: withSig(hearMailBody({ company, person, sender, nanori: s.nanori, keys }), { company, sig: await mailSig(req) }),
         google: await googleConnected(me(req)).catch(() => false), last: last ? last.created_at : null,
         warn: to ? "" : `担当者のメールアドレスが見つかりませんでした。宛先を入れてください${mailErr ? `（${mailErr}）` : ""}` });
     } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
@@ -3033,7 +3094,7 @@ export function registerMcCall(app, deps) {
   //   差出人の会社名・電話などは MOCHICA 共通のひな形（管理者が入れる）、名前とメールは送る本人のもの。
   //   流れ：preview（探して当てはめるだけ・送らない）→ 人が中身を確かめる → send（入力して送る）
   const MC_FORM_SUBJECT = "新卒採用のご支援についてのご案内";
-  const MC_FORM_BODY = "{会社名}\n{担当者}様\n\n突然のご連絡失礼いたします。{差出人の会社名}の{差出人}と申します。\n先ほどお電話にてご案内した件で、こちらのフォームよりご連絡いたしました。\n\n新卒採用の母集団づくりや選考の歩留まりの改善にお役立ていただける「MOCHICA」をご案内しております。\nご興味がございましたら、オンラインで15分ほどご説明の機会をいただけますと幸いです。\n\nご連絡先：{電話}／{メール}\n何卒よろしくお願いいたします。";
+  const MC_FORM_BODY = "{会社名}\n{担当者}様\n\n突然のご連絡失礼いたします。{名乗り}と申します。\n先ほどお電話にてご案内した件で、こちらのフォームよりご連絡いたしました。\n\n新卒採用の母集団づくりや選考の歩留まりの改善にお役立ていただける「MOCHICA」をご案内しております。\nご興味がございましたら、オンラインで15分ほどご説明の機会をいただけますと幸いです。\n\nご連絡先：{電話}／{メール}\n何卒よろしくお願いいたします。";
   async function formSettings() {
     const st = await getSettings().catch(() => ({}));
     return { subject: st.mcFormSubject || MC_FORM_SUBJECT, body: st.mcFormBody || MC_FORM_BODY, company: st.mcFormCompany || "", companyKana: st.mcFormCompanyKana || "",
@@ -3050,14 +3111,18 @@ export function registerMcCall(app, deps) {
     await saveSettings(patch); res.json({ ok: true });
   }));
   // 送る本人の情報と本文（差し込み済み）。本文・件名は画面で直したものを優先する
+  //   会社名・電話などは管理者のひな形 → 空なら本人の署名から（senderOf）。名乗りは「株式会社ネオキャリアの福井」の形
+  //   answers：フォームの中で何を入れるか分からなかった必須の欄に、画面で人が入れた答え（{欄の name: 値}）
   async function formProfile(req, lead, b = {}) {
-    const c = await formSettings(); const u = me(req);
-    const sender = (await nameMap()).get(u) || "";
+    const c = await formSettings(); const s = await senderOf(req); const u = s.u;
+    const sender = s.name;
     const company = String(lead.company || "").trim(); const person = String((lead.gate && lead.gate.name) || lead.person || "").trim();
-    const fill = (t) => String(t || "").replace(/\{担当者\}/g, person || "ご担当者").replace(/\{会社名\}/g, company).replace(/\{差出人の会社名\}/g, c.company)
-      .replace(/\{差出人\}/g, sender).replace(/\{電話\}/g, c.tel).replace(/\{メール\}/g, u);
-    const kana = b.kana != null ? clip(b.kana, 60) : (c.kana[u] || "");
-    return { c, sender, P: { company: c.company, companyKana: c.companyKana, dept: c.dept, name: sender, kana, email: u, tel: c.tel, zip: c.zip, addr: c.addr, site: c.site,
+    const fill = (t) => nanoriFix(t).replace(/\{担当者\}/g, person || "ご担当者").replace(/\{会社名\}/g, company).replace(/\{名乗り\}/g, s.nanori).replace(/\{名字\}/g, s.sei)
+      .replace(/\{差出人の会社名\}/g, s.company).replace(/\{差出人\}/g, sender).replace(/\{電話\}/g, s.tel).replace(/\{メール\}/g, u);
+    const kana = b.kana != null ? clip(b.kana, 60) : s.kana;
+    const answers = {};
+    if (b.answers && typeof b.answers === "object") for (const [k, v] of Object.entries(b.answers).slice(0, 20)) if (String(v || "").trim()) answers[clip(k, 100)] = clip(v, 200);
+    return { c, s, sender, ready: !!(s.company && s.tel), P: { company: s.company, companyKana: s.companyKana, dept: s.dept, name: sender, sei: s.sei, kana, email: u, tel: s.tel, zip: s.zip, addr: s.addr, site: s.site, answers,
       subject: b.subject != null ? clip(b.subject, 300) : fill(c.subject), body: b.body != null ? String(b.body).slice(0, 4000) : fill(c.body) } };
   }
   const formStart = (lead, b) => { const inf = lead.info || {}; return String((b && b.url) || inf.web || "").trim(); };
@@ -3070,10 +3135,10 @@ export function registerMcCall(app, deps) {
     try {
       const { lead, data } = await leadFor(req, parseInt(req.params.id, 10)); const b = req.body || {};
       if (!(await formGuard(req, res, lead))) return;
-      const { c, P: prof } = await formProfile(req, lead, b);
+      const { s, ready, P: prof } = await formProfile(req, lead, b);
       const web = formStart(lead, b) || fieldsIn(data, WEB_FIELD).find((w) => webKey(w)) || "";
       const last = (await P().query(`SELECT status, created_at FROM mc_form_sends WHERE lead_id=$1 AND status IN ('sent','unsure') ORDER BY created_at DESC LIMIT 1`, [lead.id])).rows[0] || null;
-      const base = { company: lead.company, subject: prof.subject, body: prof.body, kana: prof.kana, ready: !!(c.company && c.tel), last };
+      const base = { company: lead.company, subject: prof.subject, body: prof.body, kana: prof.kana, ready, nanori: s.nanori, from: { company: s.company, tel: s.tel }, last };
       if (b.scan === false) return res.json({ ok: true, ...base, url: web });   // 本文だけ先に見せる（フォームを調べるのは時間がかかるので別に呼ぶ）
       const r = await formRun({ web, mode: "inspect", P: prof });
       res.json({ ...base, ...r, ok: true, found: r.ok, url: r.url || web });
@@ -3083,8 +3148,8 @@ export function registerMcCall(app, deps) {
     try {
       const id = parseInt(req.params.id, 10); const { lead, data } = await leadFor(req, id); const b = req.body || {}; const u = me(req);
       if (!(await formGuard(req, res, lead))) return;
-      const { c, sender, P: prof } = await formProfile(req, lead, b);
-      if (!c.company || !c.tel) return res.status(400).json({ error: "差出人の会社名と電話番号がひな形に入っていません。管理者が「リスト」タブの「問い合わせフォームのひな形」で入れてください" });
+      const { c, sender, ready, P: prof } = await formProfile(req, lead, b);
+      if (!ready) return res.status(400).json({ error: "あなたの電話番号が分からないので送れません。この画面の「自分の署名・名乗り」で、電話番号の入った署名を入れてください" });
       if (!prof.body.trim()) return res.status(400).json({ error: "本文を入れてください" });
       const url = formStart(lead, b) || fieldsIn(data, WEB_FIELD).find((w) => webKey(w)) || "";
       // 同じ会社に30日のうちに2回送らない（相手に迷惑をかけないため。もう一度送るときは画面で「それでも送る」を押す）

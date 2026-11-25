@@ -133,8 +133,9 @@ export function mailDefaults(h, choices) {
   return MAIL_ITEMS.filter((it) => it.group !== "more" && shown(it, h || {}) && !valueText(it, h || {}, choices) && it.k !== "tel").map((it) => it.k);
 }
 export const HEAR_MAIL_SUBJECT = "【MOCHICA】ご面談に向けた事前のご質問（{会社名}様）";
-export function hearMailBody({ company, person, sender, keys }) {
+// nanori：「株式会社ネオキャリアの福井」のような名乗り（2026-11-25 福井さん。会社名＋名字で名乗るのが礼儀なので）
+export function hearMailBody({ company, person, sender, nanori, keys }) {
   const qs = keys.map((k) => BY_K.get(k)).filter((it) => it && it.mail !== false);
   const list = qs.map((it, i) => `${i + 1}. ${it.ask || it.label}\n　→ `).join("\n\n");
-  return `${company ? `${company}\n` : ""}${person || "ご担当者"}様\n\nお世話になっております。MOCHICA の${sender || ""}です。\n先ほどはお電話にてお時間をいただき、ありがとうございました。\n\nより貴社に合ったご提案をご用意するため、差し支えのない範囲で\n下記についてご返信いただけますと幸いです。\n（分かる項目だけで構いません。「→」の後ろにご記入ください）\n\n${list}\n\nお忙しいところ恐縮ですが、何卒よろしくお願いいたします。`;
+  return `${company ? `${company}\n` : ""}${person || "ご担当者"}様\n\nお世話になっております。${nanori || `MOCHICA の${sender || ""}`}です。\n先ほどはお電話にてお時間をいただき、ありがとうございました。\n\nより貴社に合ったご提案をご用意するため、差し支えのない範囲で\n下記についてご返信いただけますと幸いです。\n（分かる項目だけで構いません。「→」の後ろにご記入ください）\n\n${list}\n\nお忙しいところ恐縮ですが、何卒よろしくお願いいたします。`;
 }

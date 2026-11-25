@@ -1357,8 +1357,14 @@
         <label class="mcc-field">CC（なくてよい）<input id="mccDCc" value="${esc(pv.cc)}" autocomplete="off" /></label>
         <label class="mcc-field">件名<input id="mccDSub" value="${esc(pv.subject)}" /></label>
         <label class="mcc-field">本文<textarea id="mccDBody" style="min-height:200px">${esc(pv.body)}</textarea></label>
+        <div><button class="mcc-btn" id="mccDSig" type="button">自分の署名・名乗り</button></div>
         <p class="mcc-note">本文の {URL} には、「送る」を押したときに doc-room でこの会社用に作るルームの URL が入ります（だれがいつ開いたかは doc-room で分かります）。</p></div>`);
     if (!pv.google) { const ok = w.querySelector("[data-ok]"); ok.disabled = true; }
+    // 署名・名乗りを直したら本文を作り直す（自分で書き換えた本文は残す）
+    w.querySelector("#mccDSig").addEventListener("click", () => senderDialog(async () => {
+      const n = await post(`/api/mccall/leads/${L.id}/doc/preview`, { docId: w.querySelector("#mccDDoc").value }).catch(() => null); if (!n || !document.body.contains(w)) return;
+      if (w.querySelector("#mccDBody").value === pv.body) w.querySelector("#mccDBody").value = n.body; pv = n;
+    }));
     // 資料を変えたら、件名・本文を作り直す（宛先と CC は書いたまま残す）
     w.querySelector("#mccDDoc").addEventListener("change", async (e) => {
       try { const n = await post(`/api/mccall/leads/${L.id}/doc/preview`, { docId: e.target.value }); pv = n;
@@ -1389,8 +1395,13 @@
         <label class="mcc-field">CC（なくてよい）<input id="mccHMCc" value="" autocomplete="off" /></label>
         <div class="mcc-field">聞く項目<small style="font-weight:400">聞けている項目は「聞けた」と出ます</small><div class="mch-mailkeys">${pv.items.map((it) => `<label><input type="checkbox" data-hmk="${esc(it.k)}" ${pv.keys.includes(it.k) ? "checked" : ""} />${it.no ? `${esc(it.no)} ` : ""}${esc(it.label)}${it.group !== "more" ? '<span class="mch-req">必須</span>' : ""}${it.heard ? "<small>聞けた</small>" : ""}</label>`).join("")}</div></div>
         <label class="mcc-field">件名<input id="mccHMSub" value="${esc(pv.subject)}" /></label>
-        <label class="mcc-field">本文<textarea id="mccHMBody" style="min-height:220px">${esc(pv.body)}</textarea></label></div>`);
+        <label class="mcc-field">本文<textarea id="mccHMBody" style="min-height:220px">${esc(pv.body)}</textarea></label>
+        <div><button class="mcc-btn" id="mccHMSig" type="button">自分の署名・名乗り</button></div></div>`);
     if (!pv.google) w.querySelector("[data-ok]").disabled = true;
+    w.querySelector("#mccHMSig").addEventListener("click", () => senderDialog(async () => {
+      const n = await post(`/api/mccall/leads/${L.id}/hear-mail/preview`, { keys: keysOf(w) }).catch(() => null); if (!n || !document.body.contains(w)) return;
+      w.querySelector("#mccHMBody").value = n.body;
+    }));
     w.querySelectorAll("[data-hmk]").forEach((c) => c.addEventListener("change", async () => {
       try { const n = await post(`/api/mccall/leads/${L.id}/hear-mail/preview`, { keys: keysOf(w) }); w.querySelector("#mccHMBody").value = n.body; }
       catch (err) { toast(`本文を作り直せませんでした：${err.message}`); }
@@ -1408,7 +1419,7 @@
     const w = dialog(`問い合わせフォームから送る：${pv.company}`, "サーバーのブラウザが相手のフォームに入力して送ります。どの欄に何を入れるかを確かめてから「送る」を押してください。", "送る", async (w) => {
       const v = (id) => w.querySelector(id).value;
       try {
-        const r = await post(`/api/mccall/leads/${L.id}/form/send`, { url: v("#mccFUrl").trim(), kana: v("#mccFKana").trim(), subject: v("#mccFSub").trim(), body: v("#mccFBody"), again });
+        const r = await post(`/api/mccall/leads/${L.id}/form/send`, { url: v("#mccFUrl").trim(), kana: v("#mccFKana").trim(), subject: v("#mccFSub").trim(), body: v("#mccFBody"), answers: answersOf(), again });
         S.f.formSent = r.status === "sent" ? "送りました" : "送信を押しました（届いたかは相手のページで確かめてください）";
         toast(`問い合わせフォームから${r.status === "sent" ? "送りました" : "送信を押しました（完了の文言は見つかりませんでした）"}${r.sf ? `（${r.sf}）` : ""}`);
         S.cache.delete(L.id); try { const d = await api(`/api/mccall/leads/${L.id}`); if (S.d && S.d.lead.id === L.id) { S.d = d; drawRight(); } } catch {}
@@ -1419,7 +1430,8 @@
         throw e;
       }
     }, `<div style="display:grid;gap:8px;margin-top:12px">
-        ${pv.ready ? "" : `<p class="mcc-note" style="color:var(--c-warn)">差出人の会社名・電話番号がひな形に入っていないので、まだ送れません。管理者が「リスト」タブの「問い合わせフォームのひな形」で入れてください。</p>`}
+        <p class="mcc-note" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">名乗り：<b id="mccFNanori">${esc(pv.nanori || "")}</b>${pv.from && pv.from.tel ? `<span>電話：${esc(pv.from.tel)}</span>` : ""}<button class="mcc-btn" id="mccFSig" type="button">自分の署名・名乗り</button></p>
+        ${pv.ready ? "" : `<p class="mcc-note" id="mccFNotReady" style="color:var(--c-warn)">あなたの電話番号が分からないので、まだ送れません。「自分の署名・名乗り」で、電話番号の入った署名を入れてください。</p>`}
         ${pv.last ? `<p class="mcc-note" style="color:var(--c-warn)">この会社には ${esc(day(pv.last.created_at))} に問い合わせフォームから送っています。</p>` : ""}
         <label class="mcc-field">問い合わせページ（空なら会社の Web ページから探します）<span style="display:flex;gap:6px"><input id="mccFUrl" type="url" value="${esc(pv.url || "")}" placeholder="https://" autocomplete="off" style="flex:1" /><button class="mcc-btn" id="mccFScanBtn" type="button">調べ直す</button></span></label>
         <div id="mccFScan" class="mcc-note"></div>
@@ -1427,25 +1439,58 @@
         <label class="mcc-field">件名（件名の欄があるときだけ入ります）<input id="mccFSub" value="${esc(pv.subject)}" /></label>
         <label class="mcc-field">本文<textarea id="mccFBody" style="min-height:200px">${esc(pv.body)}</textarea></label></div>`);
     const ok = w.querySelector("[data-ok]"); const box = w.querySelector("#mccFScan");
-    const sync = () => { ok.disabled = !pv.ready || !found; };
+    // 自動で決められない必須の欄（クイズ・選ぶ欄など）は、ここで人が答える（2026-11-25 福井さん「フォーム送信自動化をもっと完成度上げて」）。
+    //   フリガナは上の「フリガナ」の欄で答える。全部埋まるまで「送る」は押せない
+    let ask = [];
+    const answersOf = () => { const a = {}; w.querySelectorAll("[data-ans]").forEach((i) => { if (i.value.trim()) a[i.dataset.ans] = i.value.trim(); }); return a; };
+    const answered = () => ask.every((q) => q.kana ? !!w.querySelector("#mccFKana").value.trim() : !!(answersOf()[q.key]));
+    const sync = () => { ok.disabled = !pv.ready || !found || !answered(); };
     const scan = async () => {
       found = false; sync();
       box.innerHTML = "フォームを探しています…（20〜40秒ほどかかります）";
       try {
-        const r = await post(`/api/mccall/leads/${L.id}/form/preview`, { url: w.querySelector("#mccFUrl").value.trim(), kana: w.querySelector("#mccFKana").value.trim(), subject: w.querySelector("#mccFSub").value, body: w.querySelector("#mccFBody").value });
+        const keep = answersOf();
+        const r = await post(`/api/mccall/leads/${L.id}/form/preview`, { url: w.querySelector("#mccFUrl").value.trim(), kana: w.querySelector("#mccFKana").value.trim(), subject: w.querySelector("#mccFSub").value, body: w.querySelector("#mccFBody").value, answers: keep });
         if (!document.body.contains(w)) return;
         if (r.url) w.querySelector("#mccFUrl").value = r.url;
-        found = !!r.found;
+        found = !!r.found || !!r.askable; ask = r.askable ? (r.ask || []) : [];
         const rows = (r.plan || []).map((p) => `<tr><th style="text-align:left;font-weight:600;padding:2px 8px 2px 0">${esc(p.label)}</th><td>${esc(p.value)}</td></tr>`).join("");
-        box.innerHTML = `${r.found ? `<b style="color:var(--c-ok,#0d5b47)">フォームが見つかりました。</b>この内容で入れます：` : `<b style="color:#B4441F">${esc(r.error || "フォームが見つかりませんでした")}</b>`}
+        const qs = ask.map((q) => q.kana ? `<div class="mcc-field">${esc(q.label)}：上の「あなたの名前のフリガナ」を入れてください</div>`
+          : `<label class="mcc-field">${esc(q.label)}${q.hint ? `<small style="font-weight:400">${esc(q.hint)}</small>` : ""}${q.opts && q.opts.length
+            ? `<select class="mcc-sel" data-ans="${esc(q.key)}" style="max-width:none"><option value="">選んでください</option>${q.opts.map((o) => `<option${keep[q.key] === o ? " selected" : ""}>${esc(o)}</option>`).join("")}</select>`
+            : `<input data-ans="${esc(q.key)}" value="${esc(keep[q.key] || "")}" autocomplete="off" />`}</label>`).join("");
+        box.innerHTML = `${r.found ? `<b style="color:var(--c-ok,#0d5b47)">フォームが見つかりました。</b>この内容で入れます：` : r.askable ? `<b style="color:var(--c-warn)">フォームが見つかりました。次の欄だけ答えを入れてください。</b>` : `<b style="color:#B4441F">${esc(r.error || "フォームが見つかりませんでした")}</b>`}
           ${r.warn ? `<div style="color:var(--c-warn)">${esc(r.warn)}</div>` : ""}
+          ${qs ? `<div style="display:grid;gap:6px;margin:6px 0;padding:8px;border:1px solid var(--c-warn);border-radius:8px">${qs}</div>` : ""}
           ${rows ? `<table style="margin-top:4px;font-size:12px">${rows}</table>` : ""}
           ${r.url && !r.found ? `<div><a href="${esc(r.url)}" target="_blank" rel="noopener">相手のページを開いて手で送る</a></div>` : ""}`;
+        box.querySelectorAll("[data-ans]").forEach((i) => i.addEventListener(i.tagName === "SELECT" ? "change" : "input", sync));
       } catch (e) { if (document.body.contains(w)) box.innerHTML = `<b style="color:#B4441F">フォームを調べられませんでした：${esc(e.message)}</b>`; }
       sync();
     };
+    w.querySelector("#mccFKana").addEventListener("input", sync);
     w.querySelector("#mccFScanBtn").addEventListener("click", scan);
+    // 署名・名乗りを直したら、本文を作り直す（自分で直した本文は消してしまうので、ひな形のままのときだけ）
+    w.querySelector("#mccFSig").addEventListener("click", () => senderDialog(async () => {
+      const n = await post(`/api/mccall/leads/${L.id}/form/preview`, { scan: false }).catch(() => null); if (!n || !document.body.contains(w)) return;
+      if (w.querySelector("#mccFBody").value === pv.body) w.querySelector("#mccFBody").value = n.body;
+      w.querySelector("#mccFNanori").textContent = n.nanori || ""; if (!w.querySelector("#mccFKana").value.trim()) w.querySelector("#mccFKana").value = n.kana || "";
+      pv = { ...pv, ready: n.ready, nanori: n.nanori, body: n.body }; const nr = w.querySelector("#mccFNotReady"); if (nr) nr.hidden = !!n.ready; sync();
+    }));
     sync(); scan();
+  }
+  // ---- 自分の署名・名乗り（2026-11-25 福井さん）：メールの最後の署名と、「株式会社ネオキャリアの福井です」の名字。本人ごとに覚える ----
+  //   署名の会社名・電話・住所は、問い合わせフォームの欄にも入る（管理者のひな形が空のとき）
+  async function senderDialog(onSaved) {
+    let s; try { s = await api("/api/mccall/my-sender"); } catch (e) { toast(e.message); return; }
+    dialog("自分の署名・名乗り", "メール・問い合わせフォームの名乗り（「株式会社ネオキャリアの福井です」）と、メールの最後に付く署名です。あなただけの設定です。", "保存する", async (w) => {
+      const r = await api("/api/mccall/my-sender", { method: "PUT", body: JSON.stringify({ sei: w.querySelector("#mccSgSei").value.trim(), kana: w.querySelector("#mccSgKana").value.trim(), sig: w.querySelector("#mccSgSig").value }) });
+      toast(`保存しました（名乗り：${r.nanori}）`);
+      if (onSaved) onSaved();
+    }, `<div style="display:grid;gap:8px;margin-top:12px">
+      <label class="mcc-field">名字（名乗りに使います。例：福井）<input id="mccSgSei" value="${esc(s.sei || "")}" autocomplete="off" /></label>
+      <label class="mcc-field">名前のフリガナ（フォームで聞かれたときに入ります）<input id="mccSgKana" value="${esc(s.kana || "")}" placeholder="例：フクイ ショウ" autocomplete="off" /></label>
+      <label class="mcc-field">署名${s.own ? "" : '<small style="font-weight:400">いまは自動で作った署名です。直して保存すると、こちらが使われます</small>'}<textarea id="mccSgSig" style="min-height:240px;font-family:inherit">${esc(s.sig || "")}</textarea></label></div>`);
   }
 
   async function record() {
@@ -1696,8 +1741,9 @@
   function dialog(title, body, okLabel, onOk, extra = "") {
     const w = document.createElement("div"); w.className = "mcc-dlg"; w.setAttribute("role", "dialog"); w.setAttribute("aria-modal", "true");
     w.innerHTML = `<div><h2>${esc(title)}</h2><p class="mcc-note">${esc(body)}</p>${extra}<div class="row"><button class="mcc-btn" data-x>やめる</button><button class="mcc-btn primary" data-ok>${esc(okLabel)}</button></div></div>`;
-    document.body.appendChild(w); S.dlg = w;
-    const close = () => { w.remove(); S.dlg = null; };
+    // 窓の上に窓を開いたとき（フォームの窓から「自分の署名・名乗り」など）、上の窓を閉じたら下の窓に戻す（キー操作が下の窓の裏で動かないように）
+    const prev = S.dlg; w._prev = prev; document.body.appendChild(w); S.dlg = w;
+    const close = () => { w.remove(); S.dlg = prev && document.body.contains(prev) ? prev : null; };
     w.querySelector("[data-x]").addEventListener("click", close);
     w.addEventListener("click", (e) => { if (e.target === w) close(); });
     w.querySelector("[data-ok]").addEventListener("click", async () => { const b = w.querySelector("[data-ok]"); b.disabled = true; try { const r = await onOk(w); if (r !== false) close(); } catch (e) { b.disabled = false; const p = w.querySelector(".err") || Object.assign(document.createElement("p"), { className: "mcc-note err" }); p.style.color = "#B4441F"; p.textContent = e.message; w.querySelector(".row").before(p); } });
@@ -1716,7 +1762,7 @@
   function syncSide() { document.body.classList.toggle("mcc-calling", !!visible()); if (window.mcSideSync) window.mcSideSync(); }
   function visible() { const p = document.querySelector('[data-pane="call"]'); return p && !p.hidden && S.tab === "call"; }
   function onKey(e) {
-    if (S.dlg) { if (e.key === "Escape") { S.dlg.remove(); S.dlg = null; } return; }
+    if (S.dlg) { if (e.key === "Escape") { const t = S.dlg; t.remove(); S.dlg = t._prev && document.body.contains(t._prev) ? t._prev : null; } return; }
     if (e.defaultPrevented || !visible() || !S.d || !S.f) return;
     const tag = (e.target && e.target.tagName) || ""; const typing = /INPUT|TEXTAREA|SELECT/.test(tag);
     if (typing) {
@@ -1821,7 +1867,7 @@
   // 資料送付のひな形（MOCHICA 専用。DOC の資料送付の設定とは別）（2026-11-17）
   async function tplDialog() {
     let c; try { c = await api("/api/mccall/doc-settings"); } catch (e) { toast(e.message); return; }
-    dialog("資料送付のひな形（MOCHICA）", "差し込み：{担当者} {会社名} {差出人} {資料名} {URL} {署名}。{署名} を書かなければ最後に自動で付きます（会社名・部署・電話は問い合わせフォームのひな形から）。DOC の資料送付の設定は変わりません。", "保存する", async (w) => {
+    dialog("資料送付のひな形（MOCHICA）", "差し込み：{担当者} {会社名} {名乗り}（例：株式会社ネオキャリアの福井） {名字} {差出人} {資料名} {URL} {署名}。{署名} を書かなければ最後に自動で付きます（署名は送る人が「自分の署名・名乗り」で入れたもの）。DOC の資料送付の設定は変わりません。", "保存する", async (w) => {
       const v = (id) => w.querySelector(id).value;
       await api("/api/mccall/doc-settings", { method: "PUT", body: JSON.stringify({ subject: v("#mccTSub"), body: v("#mccTBody"), defaultDocId: v("#mccTDoc"), cc: v("#mccTCc") }) });
       toast("資料送付のひな形を保存しました");
@@ -1835,8 +1881,8 @@
   // 問い合わせフォームのひな形（MOCHICA 共通の差出人の情報と本文）（2026-11-20）。名前とメールは送る本人のものが入る
   async function formTplDialog() {
     let c; try { c = await api("/api/mccall/form-settings"); } catch (e) { toast(e.message); return; }
-    const F = [["company", "差出人の会社名（必須）"], ["companyKana", "会社名のフリガナ"], ["dept", "部署"], ["tel", "電話番号（必須）"], ["zip", "郵便番号"], ["addr", "住所（都道府県から）"], ["site", "Web ページ"], ["subject", "件名"]];
-    dialog("問い合わせフォームのひな形（MOCHICA）", "差し込み：{会社名} {担当者} {差出人} {差出人の会社名} {電話} {メール}。名前とメールアドレスは送る人のものが入ります。", "保存する", async (w) => {
+    const F = [["company", "差出人の会社名（空なら署名から・それも無ければ株式会社ネオキャリア）"], ["companyKana", "会社名のフリガナ"], ["dept", "部署（空なら署名から）"], ["tel", "電話番号（空なら送る人の署名の携帯・電話）"], ["zip", "郵便番号（空なら署名から）"], ["addr", "住所（都道府県から。空なら署名から）"], ["site", "Web ページ（空なら署名から）"], ["subject", "件名"]];
+    dialog("問い合わせフォームのひな形（MOCHICA）", "差し込み：{会社名} {担当者} {名乗り}（例：株式会社ネオキャリアの福井） {名字} {差出人} {差出人の会社名} {電話} {メール}。名前・メール・署名は送る人のものが入ります。", "保存する", async (w) => {
       const b = { body: w.querySelector("#mccFTBody").value }; for (const [k] of F) b[k] = w.querySelector(`[data-ft="${k}"]`).value;
       await api("/api/mccall/form-settings", { method: "PUT", body: JSON.stringify(b) });
       toast("問い合わせフォームのひな形を保存しました");

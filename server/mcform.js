@@ -80,12 +80,20 @@ async function scanFrames(page) {
       const seed = areas[0] || mails[0]; if (!seed) return null;
       const root = seed.closest("form") || document.body;
       const txt = (el) => (el ? (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 80) : "");
-      // 見出し：label[for] → 囲む label → 同じ行の th/dt → 直前の要素の文字
+      // 入力欄の箱をたどるときは「この欄だけが入っている箱」までにする（2026-11-25）。
+      //   前は近くの div をそのまま見ていたので、フォーム全体の箱に当たると、別の欄の見出しを拾っていた
+      const ctrls = (a) => new Set([...a.querySelectorAll("input,textarea,select")].filter((x) => !["hidden", "submit", "button", "image", "reset"].includes((x.getAttribute("type") || "").toLowerCase())).map((x) => x.name || x)).size;
+      const HEAD = "th,dt,label,legend,.label,.title,[class*='head'],[class*='title'],[class*='label']";
+      // 見出し：label[for]（id でも name でも）→ 囲む label → この欄だけの箱の中の見出し → 直前の要素の文字
+      //   Contact Form 7 は label for="your-kana" で、入力欄に id が無いことが多い（nsk-net などで見出しが取れず「your-kana」と出ていた）
       const labelOf = (el) => {
-        if (el.id) { const l = root.querySelector(`label[for="${CSS.escape(el.id)}"]`); if (l && txt(l)) return txt(l); }
+        for (const k of [el.id, el.name]) if (k) { const l = root.querySelector(`label[for="${CSS.escape(k)}"]`); if (l && txt(l)) return txt(l); }
         const wrap = el.closest("label"); if (wrap && txt(wrap)) return txt(wrap);
-        const row = el.closest("tr,dl,li,.form-group,.form-item,.row,p,div");
-        if (row) { const h = row.querySelector("th,dt,label,.label,.title,legend"); if (h && txt(h)) return txt(h); }
+        for (let a = el.parentElement, d = 0; a && a !== root && d < 6; a = a.parentElement, d++) {
+          if (ctrls(a) > 1) break;
+          const h = [...a.querySelectorAll(HEAD)].find((x) => !x.contains(el) && !x.querySelector("input,textarea,select") && txt(x));
+          if (h) return txt(h);
+        }
         let p = el.previousElementSibling; for (let i = 0; i < 2 && p; i++, p = p.previousElementSibling) if (txt(p)) return txt(p);
         return el.getAttribute("aria-label") || el.getAttribute("title") || "";
       };
@@ -100,7 +108,11 @@ async function scanFrames(page) {
         grp.forEach((r, j) => r.setAttribute("data-kbf-o", `${idx}-${j}`));
         const box = el.closest("tr,dl,li,.form-group,.form-item,fieldset") || el.parentElement;
         const label = type === "radio" ? (txt((el.closest("fieldset") || {}).querySelector ? el.closest("fieldset").querySelector("legend") : null) || txt(box && box.querySelector("th,dt,legend,.label")) || el.name) : labelOf(el);
-        out.push({ i: idx, tag: el.tagName.toLowerCase(), type, name: el.name || "", id: el.id || "", placeholder: el.getAttribute("placeholder") || "", label,
+        // 欄のそばの説明（「日本で一番高い山を漢字3文字で」のようなクイズや入力例）。何を入れるか人に聞くときに一緒に見せる
+        let hint = "";
+        for (let a = el.parentElement, d = 0; a && a !== root && d < 6; a = a.parentElement, d++) { if (ctrls(a) > 1) break; hint = (a.innerText || "").replace(/\s+/g, " ").trim(); }
+        hint = hint.replace(label, "").replace(/^\s*(必須|任意)\s*/, "").trim().slice(0, 160);
+        out.push({ i: idx, tag: el.tagName.toLowerCase(), type, name: el.name || "", id: el.id || "", placeholder: el.getAttribute("placeholder") || "", label, hint,
           // 「必須」の印は見出しの文字だけで見る（囲みの箱で見ると、フォーム全体が1つの箱のときに全部の欄が必須に見えてしまう）
           required: el.required || el.getAttribute("aria-required") === "true" || /必須|\*/.test(label),
           maxlength: el.maxLength > 0 ? el.maxLength : 0,
@@ -139,15 +151,19 @@ async function findContact(page, web, say) {
 }
 
 // 欄ごとに入れる値を決める。決められない必須の欄は missing に入れる（その場合は送らない）
+// 欄の呼び名（調べるときと送るときでブラウザが別なので、番号ではなく name などで同じ欄を指す）
+const keyOf = (f) => f.name || f.id || f.label || `#${f.i}`;
 function planOf(scan, P) {
-  const plan = [], missing = [];
+  const plan = [], missing = [], ask = [];
   const fields = scan.fields.map((f) => ({ ...f, role: roleOf(f) }));
   // いちばん大きい本文の欄だけを本文にする（2つ目の textarea は「その他」などのことが多い）
   let msgDone = false;
   const telN = fields.filter((f) => f.role === "tel").length, zipN = fields.filter((f) => f.role === "zip").length;
   const telParts = String(P.tel || "").split(/[-－ー‐]/), zipParts = String(P.zip || "").replace(/[〒\s]/g, "").split(/[-－ー‐]/);
   let telI = 0, zipI = 0;
-  const [sei, ...meiA] = String(P.name || "").trim().split(/[\s　]+/); const mei = meiA.join(" ");
+  const nm = String(P.name || "").trim(); let [sei, ...meiA] = nm.split(/[\s　]+/); let mei = meiA.join(" ");
+  // 空白の無い名前（「福井聖」）は、本人が入れた名字（P.sei）で姓と名に分ける
+  if (!mei && P.sei && nm.startsWith(P.sei) && nm.length > P.sei.length) { sei = P.sei; mei = nm.slice(P.sei.length); }
   const [ksei, ...kmeiA] = String(P.kana || "").trim().split(/[\s　]+/); const kmei = kmeiA.join(" ");
   for (const f of fields) {
     let v = null, show = "";
@@ -173,13 +189,28 @@ function planOf(scan, P) {
       case "pref": { const o = (f.opts || []).find((x) => P.addr && x.t && String(P.addr).startsWith(x.t)); if (o) { v = o.v; show = o.t; } break; }
       case "choice": if (f.required || /種別|種類|項目|内容|区分|カテゴリ|件名|用件|type|category/i.test(f.label + f.name)) { const o = pickOption(f.opts || []); if (o) { v = o.v; show = o.t; } } break;
     }
+    // 画面で人が入れた答え（クイズ・決められなかった欄）。選ぶ欄は、答えの文字に合う選択肢を選ぶ
+    const key = keyOf(f), ans = P.answers && P.answers[key];
+    if (ans != null && String(ans).trim() && f.type !== "checkbox") {
+      if (f.opts && f.opts.length) { const o = f.opts.find((x) => x.t === ans || x.v === ans) || f.opts.find((x) => x.t && x.t.includes(ans)); if (o) { v = o.v; show = o.t; } }
+      else { v = String(ans).trim(); show = ""; }
+    }
     if (typeof v === "string" && f.maxlength && v.length > f.maxlength) v = v.slice(0, f.maxlength);
-    if ((v == null || v === "") && f.required) { missing.push(f.label || f.name || "（見出しの無い欄）"); continue; }
+    if ((v == null || v === "") && f.required) {
+      const label = f.label || f.name || "（見出しの無い欄）";
+      missing.push(label);
+      // ふりがなは画面の「フリガナ」の欄で答える。それ以外は、その欄の答えを画面で聞く
+      ask.push({ key, label: label.replace(/\s*(必須|\*)\s*/g, " ").trim(), hint: f.hint || f.placeholder || "", kana: /^(kana|kana_sei|kana_mei)$/.test(f.role),
+        opts: (f.opts || []).filter((o) => o.v !== "").map((o) => o.t).slice(0, 30) });
+      continue;
+    }
     if (v == null || v === "") continue;
     plan.push({ i: f.i, tag: f.tag, type: f.type, label: f.label || f.name, role: f.role, value: v, show: show || String(v).slice(0, 60) });
   }
-  if (!msgDone) missing.push("お問い合わせ内容（本文の欄が見つかりません）");
-  return { plan, missing };
+  // 本文の欄が無いフォームは、人が答えても送れない（hard）
+  let hard = false;
+  if (!msgDone) { missing.push("お問い合わせ内容（本文の欄が見つかりません）"); hard = true; }
+  return { plan, missing, ask, hard };
 }
 
 async function fillPlan(frame, plan) {
@@ -250,10 +281,12 @@ export function formRun({ web, url, mode, P }) {
       const { scan } = found;
       say(`フォームを見つけました：${scan.title || found.url}（欄 ${scan.fields.length}）`);
       if (scan.captcha === "block") return { ok: false, url: found.url, error: "このフォームにはロボット確認（「私はロボットではありません」など）があるので、自動では送れません。開いて手で送ってください", log };
-      const { plan, missing } = planOf(scan, P);
-      const view = plan.map((p) => ({ label: p.label, value: p.show }));
-      const warn = scan.captcha === "v3" ? "このフォームには見えないロボット確認（reCAPTCHA v3）があります。送れても相手に届かないことがあります" : "";
-      if (missing.length) return { ok: false, url: found.url, plan: view, missing, warn, error: `何を入れればよいか分からない必須の欄があるので、送れません：${missing.slice(0, 5).join("・")}`, log };
+      const { plan, missing, ask, hard } = planOf(scan, P);
+      const view = plan.map((p) => ({ label: String(p.label || "").replace(/\s*(必須|任意|\*)\s*$/, ""), value: p.show }));
+      const warn = scan.captcha === "v3" ? "このフォームには見えないロボット確認（reCAPTCHA v3）があります。たいていは送れますが、相手に届かないこともあるので、送ったあと相手のページの表示を確かめてください" : "";
+      // 答えれば送れる欄だけなら、画面で答えを聞く（askable）。本文の欄が無いなど、答えても送れないときは止める
+      if (missing.length) return { ok: false, askable: !hard && ask.length > 0, url: found.url, plan: view, missing, ask, warn,
+        error: hard ? `このフォームには送れません：${missing.slice(0, 5).join("・")}` : `次の必須の欄は、何を入れればよいか自動では決められません。下で答えを入れてください：${ask.map((a) => a.label).slice(0, 5).join("・")}`, log };
       if (mode !== "send") return { ok: true, url: found.url, plan: view, warn, log };
       await fillPlan(scan.frame, plan);
       say("入力しました");
