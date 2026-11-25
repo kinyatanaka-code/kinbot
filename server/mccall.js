@@ -28,6 +28,7 @@ import { pickLeadStages, stageOf, stageCode, normCode, autoStage, LEAD_STAGES } 
 import { segOf, SEG_V, SF_LEAD_FIELDS, sfLeadRow, balesCarry, sfLeadWhere } from "./mcseg.js";
 import { ensurePlay, talkForLead, activeTalks, saveTalks, listsWithTalk, measures, researchGate, researchSoon, researchState, inboundFor, inboundAllows, startPlayPumps, TALK_LABELS } from "./mcplay.js";
 import { CADENCE, BENCH, WHY_HUMAN, jstDayStart, jstAt, nextMissAt, hourRates, slotNow, rankQueue } from "./mccadence.js";
+import { planFromBales, MAX_AGE_H } from "./mcbalessync.js";   // BALES でかけた結果で「かける」の順番を変える（2026-11-25）
 import { FILL_APIS, FILL_SOQL_FIELDS, readMemo, readInputs, planFills, pickedFields, hiresBucket } from "./mcsffill.js";
 import { formRun } from "./mcform.js";   // 問い合わせフォームの自動送信（2026-11-20）
 import { MCDASH_ROSTER } from "./mcdash.js";   // インサイド8名の名簿（「かける」の状態を管理者に見せるため）
@@ -182,6 +183,8 @@ async function ensure() {
     //   today_day＝そのリードがだれかの今日かけるリストに入った日（日本時間の YYYY-MM-DD）
     await q(`ALTER TABLE mc_call_lists ADD COLUMN IF NOT EXISTS today_src BOOLEAN NOT NULL DEFAULT false`);
     await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS today_day TEXT`);
+    // BALES でかけた結果をどこまで順番に入れたか（at＝BALES の最終架電日時・result・kind・why・prev＝入れる前の値）（2026-11-25 福井さん）
+    await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS bales_seen JSONB`);
     await backfillLeadKeys();
     await q(`CREATE TABLE IF NOT EXISTS mc_cross_moves (
       id SERIAL PRIMARY KEY, from_biz TEXT, to_biz TEXT, from_ref TEXT, from_name TEXT, to_list_id INT,
@@ -387,6 +390,48 @@ export async function mynaviEnqueue(companies) {
   const fresh = new Set(have.filter((r) => Date.now() - new Date(r.at).getTime() < (MYNAVI_TTL[r.st] || 0)).map((r) => r.ckey));
   let n = 0; for (const [k, c] of m) if (!fresh.has(k) && !_mnQueue.has(k)) { _mnQueue.set(k, c); n++; }
   mynaviPump(); return n;
+}
+// ---- BALES でかけた結果を「かける」の順番に入れる（2026-11-25 福井さん「BALES架電履歴の更新を追跡してリストの優先度に反映」） ----
+//   見張りで届いた架電は db.js の mcFeedApply が取り込んだリスト（mochica_bales_rows）に写す。ここでは、その行の最終架電が
+//   まだ入れていないもので、24時間以内なら、MOCHICALL のリードの「終わり・次にかける時刻」を mcbalessync.js の決まりで変える。
+//   新しい定期処理は足さず、見張りの行が届いたとき・リストを取り込み直したときだけ動く（自動で回る処理を増やさないため）。
+//   今だれかが開いているリードは動かさない（その人がかけているところなので）。次に見張りの行が届いたときに入れ直す
+let _balesRates = null, _balesRun = null;
+export function applyBalesCalls() {
+  if (_balesRun) return _balesRun;
+  _balesRun = (async () => {
+    await ensure();
+    const now = new Date();
+    const since = new Date(now.getTime() + 9 * 3600e3 - MAX_AGE_H * 3600e3).toISOString().slice(0, 19);   // BALES の日時は「…+09:00」の日本時間の文字なので、同じ形で比べる
+    const rows = (await P().query(`SELECT c.id, c.last_at, c.miss_streak, c.gate, c.done, c.next_at, c.next_why, c.parked_at,
+        (c.locked_by IS NOT NULL AND c.locked_at >= now() - interval '10 minutes') AS busy, b.data->>'lastCalledAt' AS bat,
+        (SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(b.data) e WHERE e.key IN ('lastCalledAt','callResult') OR e.key ~ '^nextActions\\.[0-9]+\\.(reservedAt|isDone|id)$') AS d
+      FROM mc_call_leads c JOIN mochica_bales_rows b ON c.src = 'bales' AND b.list_key = split_part(c.src_key, '|', 1) AND b.row_key = substr(c.src_key, length(split_part(c.src_key, '|', 1)) + 2)
+        JOIN mochica_bales_lists l ON l.list_key = b.list_key AND l.run_at = b.run_at
+      WHERE c.biz = $1 AND NOT c.done AND c.dup_of IS NULL AND COALESCE(b.data->>'lastCalledAt', '') >= $2
+        AND COALESCE(b.data->>'lastCalledAt', '') > COALESCE(c.bales_seen->>'at', '') LIMIT 2000`, [BIZ, since])).rows;
+    const rates = _balesRates ? await _balesRates().catch(() => null) : null;
+    const out = { seen: rows.length, final: 0, promise: 0, miss: 0, other: 0, skip: 0, busy: 0 };
+    for (const r of rows) {
+      if (r.busy) { out.busy++; continue; }
+      const p = planFromBales(r.d || {}, r, { now, rates });
+      if (!p) {   // MOCHICALL の記録のほうが新しいなど：見たことだけ残して、次から見ない
+        await P().query(`UPDATE mc_call_leads SET bales_seen = jsonb_build_object('at', $2::text, 'kind', 'skip', 'seen_at', now()) WHERE id = $1`, [r.id, r.bat]);
+        out.skip++; continue;
+      }
+      const seen = { at: r.bat, result: String((r.d || {}).callResult || "").slice(0, 60), kind: p.kind, why: String(p.note || p.why || "").slice(0, 200), seen_at: now.toISOString(),
+        prev: { done: r.done, next_at: r.next_at, next_why: r.next_why, miss_streak: r.miss_streak || 0, last_at: r.last_at } };
+      // 終わったリード・ほかの人が開いたばかりのリードは、入れる直前にもう一度確かめて動かさない
+      await P().query(`UPDATE mc_call_leads SET done = $2, next_at = $3, next_why = $4, miss_streak = $5, parked_at = CASE WHEN $6 THEN now() ELSE parked_at END,
+          attempts = attempts + 1, last_at = GREATEST(COALESCE(last_at, $7::timestamptz), $7::timestamptz), bales_seen = $8
+        WHERE id = $1 AND NOT done AND (locked_by IS NULL OR locked_at < now() - interval '10 minutes')`,
+        [r.id, !!p.done, p.nextAt, p.nextAt ? p.why : null, Math.max(0, p.streak | 0), !!p.parked, new Date(Date.parse(r.bat)), seen]);
+      out[p.kind]++;
+    }
+    if (out.seen) console.log(`[mccall] BALES の架電を順番に入れました：${JSON.stringify(out)}`);
+    return out;
+  })().finally(() => { _balesRun = null; });
+  return _balesRun;
 }
 async function mynaviOf(company) {
   const k = companyKey(company); if (!k) return null;
@@ -596,6 +641,7 @@ export async function withBans(filters, listIds) {
 export function registerMcCall(app, deps) {
   const { isAdmin, sfActor, mochicaSet } = deps;
   startPlayPumps();
+  _balesRates = () => ratesNow();   // BALES の不在の掛け直しも、MOCHICA の時間帯ごとのつながりやすさで選ぶ
   startZoomSync();   // Zoom Phone の通話を DB に写して、番号で過去の通話を引けるようにする
   const isMcIntern = deps.isMcIntern || (async () => false);
   const me = (req) => String(req.user || "").toLowerCase();

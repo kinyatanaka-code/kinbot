@@ -29461,6 +29461,14 @@ app.post("/api/mochica/bales/ext/rows", express.json({ limit: "30mb" }), async (
       const rows = []; const seen = new Set(); for (const r0 of (Array.isArray(b.rows) ? b.rows : []).slice(0, 2000)) { if (!r0 || typeof r0 !== "object") continue; const d = mcBalesFlat(r0); const k = feedKey(d); if (seen.has(k)) continue; seen.add(k); rows.push({ k, d }); }
       if (b.done && (b.sort === "ok" || b.sort === "none")) { const st0 = await getSettings().catch(() => ({})); await saveSettings({ mcBalesFeedSort: { ...(st0.mcBalesFeedSort || {}), [feed]: b.sort } }).catch(() => {}); }
       const r = await mcFeedUpsert(feed, { name: b.name ? String(b.name).slice(0, 60) : null, src: b.src ? String(b.src).slice(0, 300) : null, view: view && view.length ? view : null, by: await mcExtUser(req) }, rows);
+      // 新しい架電を取り込んだリストの同じリードに写し、続けて MOCHICALL の「かける」の順番に入れる（mccall.js の applyBalesCalls）（2026-11-25 福井さん）。
+      //   写せなくても見張りの取り込みは止めない。ただし黙って失敗しないよう、最後の結果を残してログで分かるようにする（MOCHICA ルール5）
+      //   読み込みは MOCHICA の場所（ここ）で行う（すでに読み込んだものを使うだけなので、遅くならない）
+      const { mcFeedApply } = await import("./db.js"), { applyBalesCalls } = await import("./mccall.js");
+      if (r.nw) await mcFeedApply(rows).then(async (a) => { if (a.in && !a.n) console.log(`[Bales] 見張り ${feed}：新しい架電 ${a.in}件は、取り込んだリストにまだ無いリードでした（写した 0件）`);
+        await saveSettings({ mcBalesFeedApply: { at: Date.now(), feed, in: a.in, n: a.n } });
+        if (a.n) applyBalesCalls().catch((e) => console.warn("[mccall] BALES の架電を順番に入れられませんでした:", e.message)); })
+        .catch((e) => { console.warn(`[Bales] 見張り ${feed} の架電をリストに写せませんでした:`, e.message); return saveSettings({ mcBalesFeedApply: { at: Date.now(), feed, err: String(e.message).slice(0, 300) } }).catch(() => {}); });
       if (b.done) await mcFeedSynced(feed, Number(b.newTotal) || 0);
       return res.json({ ok: true, ...r }); }
     const listKey = mcBalesKeyOk(b.listKey); if (!listKey) return res.status(400).json({ error: "リストの印がありません" });
@@ -29486,7 +29494,9 @@ app.post("/api/mochica/bales/ext/rows", express.json({ limit: "30mb" }), async (
     let count = null; if (b.done) { count = await mcBalesFinish(listKey, b.error || "");
       // 重複をまとめているリストは、取り込み直したらまとめも作り直す
       getSettings().then((st) => { if (st && st.mcBalesDedupe && st.mcBalesDedupe[listKey]) return mcBalesDedupeApply(listKey).then((n) => console.log(`[Bales] ${listKey} 重複をまとめた：${n}件`)); }).catch((e) => console.warn("[Bales] 重複のまとめに失敗:", e.message));
-      mcNgApply(listKey).then((n) => console.log(`[Bales] ${listKey} アプローチ禁止に当たった：${n}件`)).catch((e) => console.warn("[Bales] アプローチ禁止の照合に失敗:", e.message)); }
+      mcNgApply(listKey).then((n) => console.log(`[Bales] ${listKey} アプローチ禁止に当たった：${n}件`)).catch((e) => console.warn("[Bales] アプローチ禁止の照合に失敗:", e.message));
+      // 取り込み直すと最終架電も新しくなるので、BALES でかけた結果を MOCHICALL の順番に入れる（2026-11-25 福井さん）
+      import("./mccall.js").then((m) => m.applyBalesCalls()).catch((e) => console.warn("[mccall] BALES の架電を順番に入れられませんでした:", e.message)); }
     res.json({ ok: true, n, count });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -35060,8 +35070,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-25dup MOCHICALL：情報を直すで重複して保存できないとき、その画面で「SF のつなぎ先を変えて、元のリードを消して保存」できるように（元のリードの SF のつなぎ先・架電の記録などをこちらへ移し、元のリードは SHOBO から消す。SF のリードは消さない）（福井さん）。／2026-11-25help MOCHICALL に開発期間だけの「困った」ボタン：押すと画面のエラー・失敗した通信・知らせの記録を開発メモへ送る";
+const BUILD_TAG = "2026-11-25bs MOCHICALL：BALES でかけた結果（見張りで10分ごとに届く最終架電）で「かける」の順番を変える（アポ・お断りは終わり、不在は同じ日の2時間後、BALES の次回アクションの予約はその日時、話せた会社は今日はもうかけない）";
 const BUILD_FEATURES = [
+  "MOCHICALL：BALES でかけた結果を「かける」の順番に入れる（アポ・お断りは外す・不在は同じ日に掛け直し・BALES の次回アクションの予約を約束の掛け直しに）",
   "MOCHICALL：開発期間だけの「困った」ボタン（右下）。押すと画面のエラー・失敗した通信・画面の知らせの記録を開発メモへ送る",
   "スマホから kinXs を開ける（kinbot のメニューから・kinXs のメニューはたたんで右上で開く）",
   "kinXs の担当企業とホームで、今月納品待ち・来月納品待ちの会社がわかる",

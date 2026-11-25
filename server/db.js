@@ -13659,6 +13659,27 @@ export async function mcFeedRange(feed, key, from, to) {
   if (!pool) return []; await ensureMcFeed();
   return (await pool.query(`SELECT data, first_at FROM mochica_bales_feed_rows WHERE feed=$1 AND ((data->>$2) BETWEEN $3 AND $4 OR ($2 = '' AND first_at BETWEEN $3::timestamptz AND $4::timestamptz)) LIMIT 20000`, [feed, key || "", from, to])).rows;
 }
+// 見張りで届いた新しい架電を、取り込んだリストの同じリードに写す（2026-11-25 福井さん「BALES架電履歴の更新を追跡してリストの優先度に反映」）
+//   リストは丸ごと取り込んだ時点の中身のままなので、そのあと BALES でかけた結果が今日かけるリスト・MOCHICALL の順番に出てこなかった。
+//   写すのは架電で変わる項目だけ（mcbalessync.js の pickCallFields）。BALES の日時は「…+09:00」の同じ形なので文字のまま比べる（日時に直すと、形の違う値が1つで全部止まるため）
+export async function mcFeedApply(rows = []) {
+  if (!pool || !rows.length) return { in: 0, n: 0 }; await ensureMcBales();
+  const { pickCallFields } = await import("./mcbalessync.js");   // MOCHICA の決まりは mcbalessync.js に1つだけ置く（読み込みはここだけで使うので、ここで）
+  const by = new Map();
+  for (const { d } of rows) {
+    const id = String((d && (d.callTargetId || d.call_target_id)) || "").slice(0, 120), t = String((d && (d.lastCalledAt || d.last_called_at)) || "");
+    if (!id || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(t)) continue;
+    const prev = by.get(id); if (prev && prev.t >= t) continue;
+    const f = pickCallFields({ ...d, lastCalledAt: t }); by.set(id, { id, t, s: f.set, nx: f.hasNext });
+  }
+  if (!by.size) return { in: rows.length, n: 0 };
+  const r = await pool.query(`UPDATE mochica_bales_rows r
+      SET data = (CASE WHEN x.nx THEN COALESCE((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(r.data) e WHERE e.key !~ '^nextActions\\.'), '{}'::jsonb) ELSE r.data END) || x.s
+    FROM mochica_bales_lists l, jsonb_to_recordset($1::jsonb) AS x(id text, t text, s jsonb, nx boolean)
+    WHERE l.list_key = r.list_key AND l.run_at = r.run_at AND (r.row_key = x.id OR r.data->>'callTargetId' = x.id)
+      AND COALESCE(r.data->>'lastCalledAt', '') < x.t`, [JSON.stringify([...by.values()])]);
+  return { in: by.size, n: r.rowCount };
+}
 export async function mcFeedDelete(feed) {
   if (!pool) return; await ensureMcFeed();
   await pool.query(`DELETE FROM mochica_bales_feed_rows WHERE feed=$1`, [feed]); await pool.query(`DELETE FROM mochica_bales_feeds WHERE feed=$1`, [feed]);
