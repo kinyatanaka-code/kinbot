@@ -2768,7 +2768,10 @@ async function renderMine(boxArg, opts = {}) {
       ${st.k === "tk" ? `<div class="mi-h">タスク（ホームと同じもの・期日の近い順）</div><div data-mtk><div class="kx-note">読み込み中…</div></div>`
         : `<div class="mi-h">${esc(cur ? cur[1] : "")}<span class="kx-note">${list.length}社</span></div><div class="mi-list">${list.length ? list.map((x) => `<div class="mi-co" role="button" tabindex="0" data-mopen="${esc(x.id)}">${kxLogoMini(x)}<span class="t"><b>${esc(x.name)}</b><small>${esc(cur[4](x) || "")}</small></span><span class="lb">${esc(x.label)}</span></div>`).join("") : '<div class="kx-empty" style="grid-column:1/-1">ありません</div>'}</div>`}`;
     const wsel = box.querySelector("[data-mwho]"); if (wsel) wsel.addEventListener("change", (e) => { st.who = e.target.value; draw(); });
-    box.querySelectorAll("[data-mk]").forEach((b) => b.addEventListener("click", () => { st.k = home && st.k === b.dataset.mk ? "all" : b.dataset.mk; draw(); }));
+    // ホームでは、段や納品待ちを押すと、その会社の一覧をモーダルで出す（2026-11-25 田中さん「それぞれクリックしたらモーダルで企業一覧が出てくるように」）
+    box.querySelectorAll("[data-mk]").forEach((b) => b.addEventListener("click", (e) => {
+      if (home) { e.stopPropagation(); const k0 = KS.find((x) => x[0] === b.dataset.mk); if (k0) kxCoListPopup(`${k0[1]}${st.who ? `（${st.who}）` : ""}`, mine.filter(k0[3]).sort(k0[5] || ((a, c) => String(c.booked || "").localeCompare(String(a.booked || ""))))); return; }
+      st.k = b.dataset.mk; draw(); }));
     box.querySelectorAll("[data-mopen]").forEach((el) => { const go = () => openDetail(el.dataset.mopen); el.addEventListener("click", go); el.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); }); });
     if (!home) loadTasks();
   };
