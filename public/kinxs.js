@@ -746,7 +746,9 @@ document.addEventListener("pointerover", (e) => {
 //   企業ID は AI（候補者画面）の URL の最後（brainverse-ai.com/<企業ID>）。無ければ CS連携のポータルの企業ID
 function kxDocCompanyId(d) {
   const ai = (d.info && d.info.aiUrl) || "";
-  return (/brainverse-ai\.com\/([A-Za-z0-9_-]+)/.exec(ai) || [])[1] || (d.info && d.info.portal && d.info.portal.id) || "";
+  // VR だけの会社は、VR の URL の「.aticoti」の前（polus.aticoti.com → polus）（2026-11-25 田中さん）
+  const vr = (d.info && d.info.vrUrl) || "";
+  return (/brainverse-ai\.com\/([A-Za-z0-9_-]+)/.exec(ai) || [])[1] || (/(?:^|\/\/|\.)([A-Za-z0-9_-]+)\.aticoti\./i.exec(vr) || [])[1] || (d.info && d.info.portal && d.info.portal.id) || "";
 }
 function kxHeadExtra(d) {
   const x = d.item, st = d.status || {};
