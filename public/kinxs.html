@@ -11,7 +11,7 @@
     <link rel="manifest" href="/kinxs.webmanifest" />
     <meta name="theme-color" content="#0B3B2E" />
     <meta name="apple-mobile-web-app-title" content="kinXs" />
-    <link rel="stylesheet" href="style.css?v=20261125v" />
+    <link rel="stylesheet" href="style.css?v=20261125w" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1492,6 +1492,8 @@
   .mi-chip{display:inline-flex;align-items:baseline;gap:3px;margin-left:8px;border:1px solid #D5E2DB;background:#fff;color:#33463E;border-radius:999px;padding:3px 10px;font:inherit;font-size:12px;cursor:pointer;}
   .mi-chip b{font-size:15px;color:var(--c);} .mi-chip small{font-size:10.5px;} .mi-chip:hover{border-color:var(--c);} .mi-chip.on{background:color-mix(in srgb,var(--c) 14%,#fff);border-color:var(--c);}
   #kh2 .h2-mine .mi-kpis[hidden]{display:none !important;}
+  /* ホームの担当企業は流れの下の会社の一覧を出さない（段を押すとモーダルで出るため）（2026-11-25 田中さん「ここはいらない」） */
+  #kh2 .h2-mine .mi-h,#kh2 .h2-mine .mi-list{display:none !important;}
 </style>
 </head>
   <body>
@@ -1652,8 +1654,8 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261125v" defer></script>
-    <script src="kinxs.js?v=20261125v"></script>
+    <script src="kbchat.js?v=20261125w" defer></script>
+    <script src="kinxs.js?v=20261125w"></script>
   <script>
   // スマホのメニューの開け閉め。項目を押したら閉じる（2026-11-24）
   (function () {
