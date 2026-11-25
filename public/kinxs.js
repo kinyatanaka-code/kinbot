@@ -2616,7 +2616,9 @@ function kxStageInfo(x) {
   const koNotDone = (x.actions || []).some((a) => a.kind === "キックオフ未実施") || (x.label === "フォローMTG設定済" && !x.followDone);
   const koAct = (x.actions || []).find((a) => a.kind === "キックオフ未実施");
   const koSet = !koNotDone || !!x.kickoffClear || (koAct && koAct.ko && koAct.ko !== "未設定");
-  const ken = !!x.delivered || String(x.kenshuSt || x.kenshu || "").startsWith("回収済み") || x.kenshuSt === "対象外" || !!x.kenshuNa;
+  // 初期費用なし（アチコチパースだけなど）は検収書が要らないので、検収書回収は飛ばして済みにする（2026-11-25 田中さん）
+  const kenSkip = x.initFee === false;
+  const ken = kenSkip || !!x.delivered || String(x.kenshuSt || x.kenshu || "").startsWith("回収済み") || x.kenshuSt === "対象外" || !!x.kenshuNa;
   // 納品メール：送付済みのほか、2026年10月より前に受注して納品済みとみなす会社（delivered で ksMonth が空）は対象外＝済み（担当企業の前の数え方と同じ）
   const mail = String(x.mail || "").startsWith("送付済み") || (!!x.delivered && !x.ksMonth);
   const done = [!!(x.booked || x.docBooked), koSet, !koNotDone, ken, mail];
@@ -2626,7 +2628,7 @@ function kxStageInfo(x) {
   const mOn = x.mailOn || (mail ? x.deliveredOn : "");   // 送った日が分からないときは納品日をめやすに
   const mailDays = mOn ? Math.floor((Date.now() - Date.parse(String(mOn).slice(0, 10) + "T00:00:00+09:00")) / 86400000) : null;
   if (i < 0) i = pub ? 7 : mailDays != null && mailDays >= 60 ? 6 : 5;
-  return { i, done, pub, mailDays };
+  return { i, done, pub, mailDays, kenSkip };
 }
 const kxStageOf = (x) => kxStageInfo(x).i;
 // 一覧の会社の下に出す一言（その段で何を待っているか）
@@ -2635,6 +2637,7 @@ function kxStageNote(x, gi) {
   if (gi === 0) return "受注日がまだ入っていません";
   if (gi === 1) return "キックオフ未設定（カレンダーのキックオフの予定も CS 連携もありません）";
   if (gi === 2) { const a = (x.actions || []).find((a0) => a0.kind === "キックオフ未実施"); return (a && a.detail) || "キックオフ（確認MTG）の予定はあるが、まだ実施していません"; }
+  if (gi === 3 && x.initFee === false) return "初期費用なし（検収書は不要）";
   if (gi === 3) return `検収書：${x.kenshuSt || x.kenshu || "未回収"}${x.ksMonth ? `・回収予定 ${Number(x.ksMonth.slice(5))}月` : ""}`;
   if (gi === 4) return `納品メール：${x.mail || "未送付"}`;
   if (gi === 5) return `納品メールから${si.mailDays != null ? `${si.mailDays}日` : "—"}・掲載・利用はまだ確認できていません`;
@@ -3738,7 +3741,7 @@ function kxNowCard(d) {
   const daysTo = (ymd) => Math.round((Date.parse(String(ymd).slice(0, 10) + "T00:00:00Z") - Date.parse(new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10) + "T00:00:00Z")) / 86400000);
   const md = (iso) => { const t = String(iso || "").slice(0, 10); return t ? `${Number(t.slice(5, 7))}/${Number(t.slice(8, 10))}` : ""; };
   const usage = st.usage || x.usage || "";
-  const kenOk = x.kenshuNa || x.kenshuDone === true || String(x.kenshu || "").startsWith("回収済み");
+  const kenOk = x.initFee === false || x.kenshuNa || x.kenshuDone === true || String(x.kenshu || "").startsWith("回収済み");   // 初期なしは検収書が要らない
   const mailOk = x.mailDone === true || String(x.mail || "").startsWith("送付済み");
   const pubOk = x.published === true || x.published === "true";
   const useOk = /^活用：(公開掲載|限定公開)/.test(usage);
@@ -3751,7 +3754,7 @@ function kxNowCard(d) {
     { k: "受注", ok: si.done[0], sub: info.booked ? `${md(info.booked)} ✓` : "—" },
     { k: "キックオフ設定", ed: "キックオフ", ok: si.done[1], sub: si.done[1] ? (koAt ? `${koAt}${koOk ? "" : "予定"}` : "✓") : "まだ" },
     { k: "キックオフ実施", ed: "キックオフ", ok: si.done[2], sub: si.done[2] ? (koOk && koAt ? `${koAt} ✓` : "✓") : "まだ" },
-    { k: "検収書回収", ed: "検収書", ok: si.done[3], sub: x.kenshuNa ? "対象外" : si.done[3] ? "✓" : String(x.kenshu || "").startsWith("依頼済み") ? "依頼済み" : "まだ" },
+    { k: "検収書回収", ed: "検収書", ok: si.done[3], skipNote: si.kenSkip ? "不要（初期なし）" : "", sub: si.kenSkip ? "不要（初期なし）" : x.kenshuNa ? "対象外" : si.done[3] ? "✓" : String(x.kenshu || "").startsWith("依頼済み") ? "依頼済み" : "まだ" },
     { k: "納品メール回収", ed: "納品メール", ok: si.done[4], sub: si.done[4] ? (x.mailOn ? `${md(x.mailOn)} ✓` : "✓") : "まだ" },
     { k: "オンボーディング中", ed: "活用", ok: si.i > 5, sub: si.i === 5 && si.mailDays != null ? `${si.mailDays}日目` : si.i > 5 ? "✓" : "—" },
     { k: "要確認", ed: "活用", ok: si.i === 7, sub: si.i === 6 ? `${si.mailDays}日たった` : si.i === 7 ? "—" : "2か月で" },
@@ -3789,7 +3792,7 @@ function kxNowCard(d) {
   const touchTxt = x.lastTouch ? `${x.sinceTouch}日前` : "—";
   return `<section class="kx-a-where">
       <div class="kx-a-row"><span class="kx-a-q">いまどこ？</span><b class="kx-a-head">${esc(head)}</b>${since != null ? `<span class="kx-a-since">受注から ${since}日</span>` : ""}</div>
-      <div class="kx-a-steps">${steps.map((s0, i) => { const key = { 検収書: "kenshu_done", 納品メール: "mail_done", 掲載: "published" }[s0.k]; const cls = `kx-a-st ${s0.ok ? "ok" : i === cur ? "now" : ""}`; const inner = `<i></i><b>${esc(s0.k)}</b><small>${i === cur ? "いまここ" : esc(s0.sub)}</small>`;
+      <div class="kx-a-steps">${steps.map((s0, i) => { const key = { 検収書: "kenshu_done", 納品メール: "mail_done", 掲載: "published" }[s0.k]; const cls = `kx-a-st ${s0.skipNote ? "na" : s0.ok ? "ok" : i === cur ? "now" : ""}`; const inner = `<i></i><b>${esc(s0.k)}</b><small>${i === cur ? "いまここ" : esc(s0.sub)}</small>`;
         const skip = !s0.ok && i < cur && i < 5;   // 先の段は済んでいるのに、記録がない段
         const cls2 = skip ? `${cls} skip` : cls; const inner2 = skip ? `<i></i><b>${esc(s0.k)}</b><small>未記録</small>` : inner;
         // どの段も押すと、下に直す欄が開く（日付・済み／戻す）。受注は SF から入るので直さない（2026-11-20 田中さん「手で直しにくい」）
