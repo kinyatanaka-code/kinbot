@@ -1872,6 +1872,10 @@ function renderHomeV2() {
   </div>`;
   kxFitHome2();
   if ($("kh2Mine")) renderMine($("kh2Mine"), { home: true, items: lsData.items || [], who: kxCsF });
+  // 担当企業の枠の余白を押したら、担当企業の画面を大きくモーダルで出す（2026-11-25 田中さん「担当企業も余白クリックしたら大きくモーダルで」）。
+  //   会社のカード・行・ボタン・切りかえを押したときは、これまでどおりそれぞれの動き
+  { const mb = $("kh2Mine"); if (mb && !mb.dataset.bigWired) { mb.dataset.bigWired = "1"; mb.style.cursor = "zoom-in";
+    mb.addEventListener("click", (e) => { if (e.target.closest("button, a, select, input, label, [data-open], [data-mk], [data-mwho], .kx-uc, .h2-li, [role=button]")) return; kxMineBig(); }); } }
   // 動きは1回だけ：月を開いた（変えた）ときに全体を1回。情報不足は、あとから読めたときにその枠だけ1回（2026-11-04 「2回読み込まれるのやめてほしい」）
   if (kh2.animKey !== ym) { kh2.animKey = ym; kh2.missAnim = !!ms; kxCountUp(box); }
   else if (ms && !kh2.missAnim) { kh2.missAnim = true; kxCountUp(box.querySelector(".h2-miss")); }
@@ -2591,10 +2595,21 @@ if (VIEW === "mine") renderMine();
 // ===== 担当企業（2026-11-20 久野さん「自分のもってる企業って何社か、どのような状況か、ぱっとみれるようにしたい」）=====
 //   CS 担当で絞った会社を、キックオフ・検収書・納品メール・掲載の状況で数えて、押すとその会社を並べる。タスクはホームのタスクと同じもの
 //   ホームでは要アクションの下にも同じものを出す（opts.home。会社の一覧はホームがもう読んでいるものを使う）（2026-11-24 田中さん）
+function kxMineBig() {
+  const bg = document.createElement("div"); bg.className = "kx-drawer-bg";
+  bg.innerHTML = `<aside class="kx-drawer kx-mine-big" role="dialog" aria-label="担当企業"><div class="kx-mine-big-h"><h2>担当企業</h2><button type="button" class="kx-btn" data-x style="margin-left:auto">閉じる</button></div><div data-mine-big></div></aside>`;
+  const close = () => { bg.remove(); document.removeEventListener("keydown", onKey); };
+  const onKey = (e) => { if (e.key === "Escape" && !document.querySelector(".kx-drawer-bg ~ .kx-drawer-bg")) close(); };
+  bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
+  bg.querySelector("[data-x]").addEventListener("click", close);
+  document.addEventListener("keydown", onKey);
+  document.body.appendChild(bg);
+  renderMine(bg.querySelector("[data-mine-big]"), { big: true, items: (lsData && lsData.items) || [] });
+}
 async function renderMine(boxArg, opts = {}) {
   const box = boxArg || $("vMineBody"); if (!box) return;
   const home = !!opts.home;
-  if (!home && $("kxPageName")) $("kxPageName").textContent = "担当企業";
+  if (!home && !opts.big && $("kxPageName")) $("kxPageName").textContent = "担当企業";
   let d;
   if (opts.items) d = { items: opts.items };
   else { box.innerHTML = '<div class="kx-empty">読み込み中…</div>'; try { d = await api(kxUsersUrl()); } catch (e) { box.innerHTML = `<div class="kx-empty">読めませんでした：${esc(e.message)}</div>`; return; } }
