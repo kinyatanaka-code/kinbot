@@ -7511,3 +7511,22 @@ a.pre-chip:hover { background: #1d9e75; border-color: #1d9e75; color: #fff; }
   .pre-layout > .pre-note .live-note { min-height: 200px; }
 }
 .pre-chip.ats { background: #E9F0FB; border-color: #C9D9F2; color: #2B5A9A; }
+
+/* メンバーの「箱」（2026-11-25）：メンバーのカードの下に置く */
+.nm-col { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.nm-col > .nm-card { flex:1; }
+.nm-box { display:flex; flex-direction:column; align-items:flex-start; gap:2px; text-align:left; border:1.5px solid #5DCAA5; background:#F2FAF6; color:#0d5b47; border-radius:12px; padding:8px 12px; font:inherit; cursor:pointer; position:relative; }
+.nm-box b { font-size:13px; } .nm-box small { font-size:11px; color:#4F6158; } .nm-box-n { font-size:12px; } .nm-box-n em { font-style:normal; font-weight:800; font-size:18px; color:#0d5b47; }
+.nm-box-ic { position:absolute; right:10px; top:8px; color:#1d9e75; }
+.nm-box.empty { border-style:dashed; border-color:#B9D6CA; background:#fff; color:#6b857b; align-items:center; text-align:center; padding:12px; }
+.nm-box.empty .nm-box-ic { position:static; } .nm-box:hover { border-color:#1d9e75; background:#E1F5EE; }
+.nm-box-bg { position:fixed; inset:0; background:rgba(15,30,25,.35); z-index:1000; display:flex; align-items:center; justify-content:center; padding:20px; }
+.nm-box-modal { width:min(620px,100%); max-height:86vh; display:flex; flex-direction:column; gap:10px; background:#fff; border-radius:16px; padding:16px 18px; box-shadow:0 18px 48px rgba(0,0,0,.2); }
+.nm-box-mh { display:flex; align-items:center; gap:10px; } .nm-box-mh b { font-size:16px; color:#0d5b47; }
+.nm-box-help { font-size:12px; color:#4F6158; line-height:1.6; background:#F6FAF8; border-radius:10px; padding:8px 10px; }
+.nm-box-q input { width:100%; box-sizing:border-box; border:1px solid #D5E2DB; border-radius:10px; padding:7px 10px; font:inherit; font-size:13px; }
+.nm-box-list { overflow:auto; min-height:0; border:1px solid #E4ECE8; border-radius:10px; }
+.nm-box-it { display:flex; align-items:center; gap:10px; padding:8px 10px; border-top:1px solid #F0F4F2; font-size:13px; cursor:pointer; } .nm-box-it:first-child { border-top:0; }
+.nm-box-it .nm { flex:1; min-width:0; } .nm-box-it .z { color:#4F6158; font-size:12px; } .nm-box-it .hid { font-style:normal; font-size:10.5px; color:#8A4B00; background:#FFF4E5; border-radius:6px; padding:1px 6px; margin-left:6px; }
+.nm-box-it:has(input:checked) { background:#F2FAF6; }
+.nm-box-foot { display:flex; gap:8px; }
