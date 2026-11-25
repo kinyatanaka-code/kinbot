@@ -9641,9 +9641,16 @@ async function orgLoadEdit(listIds) {
   tbl.innerHTML = '<div class="note">読み込んでいます…</div>';
   const st = $("edSt"); if (st) st.textContent = "";
   try {
+    // リストを1本ずつ順番に取りに行くと、たくさん選んだとき（すべてのリスト 251本など）に何分も待つので、6本ずつ同時に取りに行く（2026-11-25 田中さん「なんでこんな読み込みに時間かかる？」）
+    //   並び順は選んだ順のまま。何本目まで読めたかを出す
+    const got = new Array(listIds.length); let done0 = 0, next0 = 0;
+    const one = async () => { while (next0 < listIds.length) { const i = next0++; const id = listIds[i];
+      got[i] = await (await fetch(`/api/calls/targets?list=${encodeURIComponent(id)}&limit=20000&edit=1${_edVirtMember ? "&member=" + encodeURIComponent(_edVirtMember) : ""}`)).json();
+      done0++; if (listIds.length > 3) { const nt = tbl.querySelector(".note"); if (nt) nt.textContent = `読み込んでいます… ${done0} / ${listIds.length} リスト`; } } };
+    await Promise.all(Array.from({ length: Math.min(6, listIds.length) }, one));
     const all = [];
-    for (const id of listIds) {
-      const d = await (await fetch(`/api/calls/targets?list=${encodeURIComponent(id)}&limit=20000&edit=1${_edVirtMember ? "&member=" + encodeURIComponent(_edVirtMember) : ""}`)).json();
+    for (let i0 = 0; i0 < listIds.length; i0++) {
+      const id = listIds[i0], d = got[i0] || {};
       const meta = _edLists[id] || {};
       for (const r of (d.items || [])) { r._listId = r.listId || id; r._listName = meta.name || ""; r._owner = meta.owner || r.listOwner || ""; r._group = meta.group_name || r.listGroupName || ""; r._groupId = (meta.group_id != null && meta.group_id !== "") ? meta.group_id : (r.listGroupId || ""); all.push(r); }
     }
