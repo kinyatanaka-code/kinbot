@@ -1096,6 +1096,9 @@ function apiTokenUser(req) {
   return null;
 }
 
+// kinXs の会社の中身（detail）は、1分覚えた一覧（kinxsBuildMemo）から引く（2026-11-25 重さの直し）。
+//   kinXs で何かを変えたら（GET 以外が終わったら）、覚えた一覧を捨てて、次に開いたときに新しい中身が出るようにする
+app.use((req, res, next) => { if (req.method !== "GET" && req.path.startsWith("/api/kinxs")) res.on("finish", () => { _kxBuildMemo = { at: 0, p: null }; }); next(); });
 app.use(async (req, res, next) => {
   if (!authEnabled()) {
     req.user = "admin";
@@ -18612,7 +18615,8 @@ async function kxSfMemo(key, fn) {
 app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
   try {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
-    const { items, testItems, mtBy, kickBy } = await kinxsBuild();
+    // 毎回作り直すと1秒ほどかかるので、1分覚えた一覧から引く。保存のあとの描き直し（?fresh=1）は作り直す
+    const { items, testItems, mtBy, kickBy } = req.query.fresh ? await kinxsBuild() : await kinxsBuildMemo();
     const x = items.find((i) => i.id === req.params.id) || (testItems || []).find((i) => i.id === req.params.id);
     if (!x) return res.status(404).json({ error: "見つかりません" });
     const key = csCoKey(x.name);
@@ -35119,7 +35123,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-25d kinXs：会社を押したらすぐモーダルの枠を出す（中身は届いてから）。カーソルを乗せた時点で先に読み始め、一度開いた会社は2分覚えてすぐ出す。SF の取引先・担当者は10分覚える。／2026-11-25mg 合流：2026-11-25nx BALES：取り込み・同期・引き継ぎで次回アクションのコメントも反映／2026-11-25ad SHOBO リスト管理：表で選んだ会社（どのリストでも）を、その人のかけるリストに追加できる（件数・表・今日かけるリストにも入る・優先度も一緒に付けられる）／2026-11-25tk MOCHICALL：管理者は架電画面からトークスクリプトを直せるように／2026-11-25td MOCHICALL：リストを選ぶ欄に今日かけるリストが2つ出ていたのを1つに（全員分の入れ物のリストは出さない）";
+const BUILD_TAG = "2026-11-25e kinXs：会社の中身は1分覚えた一覧から引く（変えたらすぐ捨てる）。／2026-11-25d kinXs：会社を押したらすぐモーダルの枠を出す（中身は届いてから）。カーソルを乗せた時点で先に読み始め、一度開いた会社は2分覚えてすぐ出す。SF の取引先・担当者は10分覚える。／2026-11-25mg 合流：2026-11-25nx BALES：取り込み・同期・引き継ぎで次回アクションのコメントも反映／2026-11-25ad SHOBO リスト管理：表で選んだ会社（どのリストでも）を、その人のかけるリストに追加できる（件数・表・今日かけるリストにも入る・優先度も一緒に付けられる）／2026-11-25tk MOCHICALL：管理者は架電画面からトークスクリプトを直せるように／2026-11-25td MOCHICALL：リストを選ぶ欄に今日かけるリストが2つ出ていたのを1つに（全員分の入れ物のリストは出さない）";
 const BUILD_FEATURES = [
   "MOCHICALL：リスト管理で「過去の履歴：見せる／伏せる」を選べる（伏せたリストは架電画面で過去の架電・メール・フォームの記録を出さない）",
   "MOCHICALL：リストを選ぶ欄から「今日かけるリスト（リスト管理）」（全員の今日の分の入れ物）を外し、本人の今日の分だけ出す",

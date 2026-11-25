@@ -730,7 +730,7 @@ const _kxDetail = new Map();   // id -> { at, p（読み込み中の Promise）,
 function kxDetailGet(id, fresh) {
   const c = _kxDetail.get(id);
   if (!fresh && c && (c.p || Date.now() - c.at < 120000)) return c.p || Promise.resolve(c.d);
-  const p = api(`/api/kinxs/accounts/${encodeURIComponent(id)}/detail`).then((d) => { _kxDetail.set(id, { at: Date.now(), d }); return d; }).catch((e) => { _kxDetail.delete(id); throw e; });
+  const p = api(`/api/kinxs/accounts/${encodeURIComponent(id)}/detail${fresh === "save" ? "?fresh=1" : ""}`).then((d) => { _kxDetail.set(id, { at: Date.now(), d }); return d; }).catch((e) => { _kxDetail.delete(id); throw e; });
   _kxDetail.set(id, { at: Date.now(), p, d: c && c.d });
   return p;
 }
@@ -752,7 +752,7 @@ async function openDetail(id, reuse) {
   }
   let d;
   const cached = !reuse && _kxDetail.get(id) && _kxDetail.get(id).d;
-  try { d = reuse ? await kxDetailGet(id, true) : (cached || await kxDetailGet(id)); } catch (e) { if (!reuse) bg0.remove(); alert(e.message); return; }
+  try { d = reuse ? await kxDetailGet(id, "save") : (cached || await kxDetailGet(id)); } catch (e) { if (!reuse) bg0.remove(); alert(e.message); return; }
   if (!bg0.isConnected) return;   // 読み込み中に閉じた
   // 覚えていたものを出したときは、裏で新しいものを読み、変わっていたら描き直す（開いているタブ・スクロールはそのまま）
   if (cached) kxDetailGet(id, true).then((d2) => { if (bg0.isConnected && JSON.stringify(d2) !== JSON.stringify(cached)) { const on = bg0.querySelector("[data-tab].on"); const dr = bg0.querySelector(".kx-drawer"); openDetail(id, { bg: bg0, tab: on && on.dataset.tab, scroll: dr && dr.scrollTop }); } }).catch(() => {});
