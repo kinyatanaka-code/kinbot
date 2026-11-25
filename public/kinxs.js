@@ -816,7 +816,7 @@ async function openDetail(id, reuse) {
       <span class="kx-renew-ed" data-renew-box hidden><input type="month" class="kx-in" data-renew-in value="${esc(x.renew || "")}" style="width:150px;height:30px" /><button type="button" class="hp-b" data-renew-save>保存</button>${x.renewLocked ? '<button type="button" class="hp-b" data-renew-auto title="手で決めた更新月をやめて、契約終了日の前月に戻す">自動に戻す</button>' : ""}<button type="button" class="hp-b" data-renew-cancel>やめる</button></span>${kxHeadExtra(d)}</div>
     <div class="kx-rank-pop" data-rank-pop hidden></div>
     ${x.alerts.length ? `<div class="kx-sec" style="background:#FFF7EA;border-color:#F0D5B0;color:#6B3700;font-size:12.5px"><b>要注意：</b>${x.alerts.map((a) => `${esc(a.rule)}（${esc(a.detail)}）`).join("／")}</div>` : ""}
-    <div class="kx-tabs"><button type="button" class="on" data-tab="task">タスク</button><button type="button" data-tab="info">活動記録</button><button type="button" data-tab="tl">議事録（${d.timeline.filter((t) => t.kind === "mtg").length}）</button><button type="button" data-tab="hire">採用状況</button><button type="button" data-tab="docai">候補者の質問</button><button type="button" data-tab="co">企業情報</button></div>
+    <div class="kx-tabs"><button type="button" class="on" data-tab="task">タスク</button><button type="button" data-tab="info">活動記録</button><button type="button" data-tab="hire">採用状況</button><button type="button" data-tab="docai">候補者の質問</button><button type="button" data-tab="co">企業情報</button></div>
     <div data-pane="hire" hidden style="display:flex;flex-direction:column;gap:12px"><div class="kx-sec" data-hire-box><div class="kx-note">「採用状況」を押すと、議事録から読み取ります…</div></div></div>
     <div data-pane="docai" hidden style="display:flex;flex-direction:column;gap:12px"><div class="kx-sec" data-docai-box><div class="kx-note">読み込んでいます…</div></div></div>
     <div data-pane="task" style="display:flex;flex-direction:column;gap:12px">
@@ -889,6 +889,12 @@ async function openDetail(id, reuse) {
     const pop = bg.querySelector("[data-rank-pop]"); if (rk && pop) { pop.appendChild(rk); }
     if (dl) dl.style.display = "none";
   })();
+  // 議事録のタブは活動記録にまとめる（2026-11-25 田中さん「議事録は活動記録にまとめてほしい」）。
+  //   「いまどこ？」のすぐ下に、要望・問い合わせ・議事録のまとめ・接触の記録・議事録の一覧・変更の履歴を並べる
+  { const tl = bg.querySelector('[data-pane="tl"]'), info = bg.querySelector('[data-pane="info"]');
+    if (tl && info) { const w = document.createElement("div"); w.className = "kx-tl-in"; w.style.cssText = "display:flex;flex-direction:column;gap:12px";
+      while (tl.firstChild) w.appendChild(tl.firstChild); const now = info.querySelector(".kx-now") || info.firstElementChild; if (now) now.after(w); else info.prepend(w); tl.remove(); } }
+  if (reuse && reuse.tab === "tl") reuse.tab = "info";
   if (!bg.isConnected) document.body.appendChild(bg);
   kxCircusMount(bg, x); kxKenshuMount(bg, x); kxNowMount(bg); kxSalesMount(bg, x); kxCTaskMount(bg, x); kxGuideMount(bg, x, d);
   { const cs = bg.querySelector("[data-hx-cs]"); if (cs) cs.addEventListener("change", () => put({ cs_name: cs.value }));
