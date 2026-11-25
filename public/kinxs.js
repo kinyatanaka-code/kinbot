@@ -752,11 +752,22 @@ function kxHeadExtra(d) {
   const sur = (n) => String(n || "").normalize("NFKC").trim().split(/[\s　]+/)[0];
   let cur = x.cs || "";
   if (cur && !opts.includes(cur)) { const hit = opts.find((o) => sur(o) === sur(cur) || o.startsWith(sur(cur)) || sur(cur).startsWith(sur(o))); if (hit) cur = hit; else opts.push(cur); }
-  const cid = kxDocCompanyId(d);
+  return `<span class="kx-hx"><span class="kx-note">CS担当</span><select class="kx-hx-cs" data-hx-cs title="CS担当を変える（すぐ保存）"><option value="">（未定）</option>${opts.map((o) => `<option ${o === cur ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></span>`;
+}
+// 社名のとなりの企業ID（押すとコピー）（2026-11-25 田中さん「会社名のとなりに企業IDをおいて」）
+function kxHeadId(d) {
+  const cid = kxDocCompanyId(d); if (!cid) return "";
   const ico = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="3"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>';
-  return `<span class="kx-hx"><span class="kx-note">CS担当</span><select class="kx-hx-cs" data-hx-cs title="CS担当を変える（すぐ保存）"><option value="">（未定）</option>${opts.map((o) => `<option ${o === cur ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></span>`
-    + (cid ? `<button type="button" class="kx-hx-id" data-hx-copy="${esc(cid)}" title="押すと企業IDをコピーします"><span class="kx-note">企業ID</span><b>${esc(cid)}</b>${ico}</button>`
-           : `<span class="kx-hx"><span class="kx-note">企業ID</span><span class="kx-note">—（企業情報に AI の URL がありません）</span></span>`);
+  return `<button type="button" class="kx-hx-id" data-hx-copy="${esc(cid)}" title="押すと DOC の企業IDをコピーします"><span class="kx-note">企業ID</span><b>${esc(cid)}</b>${ico}</button>`;
+}
+// 社名の下：NeoSTAGE と Salesforce の小さなマーク。押すとその会社のページを開く（2026-11-25 田中さん「社名の下のプラン名はいらない。ネオステ・SF のマークを小さく入れて、それぞれ企業のページへ」）。
+//   NeoSTAGE は企業検索をこの会社で開く（拡張機能 kinbot-ext が入っていれば、そのまま検索まで進む）。SF は取引先のページ
+function kxGoLinks(d) {
+  const x = d.item;
+  const sfId = /^001[0-9A-Za-z]{12,15}$/.test(x.id) ? x.id : ((d.info && d.info.sfAccountId) || "");
+  const neo = `https://neo-crm.net/corp_search#kbsf=${encodeURIComponent(sfId || "")}&kbq=${encodeURIComponent(x.name || "")}&kbname=${encodeURIComponent(x.name || "")}`;
+  return `<a class="kx-go" href="${esc(neo)}" target="_blank" rel="noopener" title="NeoSTAGE でこの会社を開く"><img src="/logo-neostage.png" alt="NeoSTAGE" class="neo" /></a>`
+    + (sfId ? `<a class="kx-go" href="https://neo-media.lightning.force.com/lightning/r/Account/${esc(sfId)}/view" target="_blank" rel="noopener" title="Salesforce でこの会社（取引先）を開く"><img src="/logo-salesforce.png" alt="Salesforce" class="sf" /></a>` : "");
 }
 async function openDetail(id, reuse) {
   // 押したらすぐ枠を出す（中身は届いてから）。保存のあとの描き直し（reuse）は今の画面のまま
@@ -781,7 +792,8 @@ async function openDetail(id, reuse) {
   bg.innerHTML = `<aside class="kx-drawer" role="dialog" aria-label="${esc(x.name)}" style="width:min(560px,100%)">
     <div style="display:flex;align-items:center;gap:14px">
       <div class="kx-dlogo" data-logo-btn role="button" tabindex="0" title="押すと、ロゴを取り直す・手で入れる">${x.logo ? `<img src="${esc(x.logo)}" alt="" data-logo-img" />` : `<span class="mono">${esc((x.name || "？").replace(/^(株式会社|有限会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|公益財団法人|学校法人)\s*/, "").slice(0, 1))}</span>`}<span class="ed">ロゴ</span></div>
-      <div style="min-width:0"><h2>${esc(x.name)}${(x.formerNames || []).length ? `<span class="kx-former-h">（旧：${esc(x.formerNames.slice().reverse().join("・旧："))}）</span>` : ""} <button type="button" class="kx-ren" data-ren-open title="社名が変わったとき">社名を変える</button> <a class="kx-ren" style="text-decoration:none" href="https://neo-crm.net/corp_search#kbsf=${encodeURIComponent(x.id)}&kbname=${encodeURIComponent(x.name || "")}" target="_blank" rel="noopener" title="NeoSTAGE の企業検索を開いて、この会社の値を入れます（拡張機能 kinbot-ext が要ります）">NeoSTAGEに入れる ↗</a></h2><div class="kx-prods" data-prods><div class="t">${esc(x.products.join("・"))}</div><button type="button" class="ar" data-prods-tog hidden aria-label="商品をすべて見る">▼ すべて見る</button></div></div><button type="button" class="kx-btn" data-archive style="margin-left:auto" title="${x.archived ? "ユーザー一覧・フェーズ別に戻す" : "動いていない会社を、ユーザー一覧・フェーズ別から見えなくする（あとで戻せる）"}">${x.archived ? "アーカイブから戻す" : "アーカイブする"}</button><button type="button" class="kx-btn" data-x>閉じる</button></div>
+      <div style="min-width:0"><h2>${esc(x.name)}${(x.formerNames || []).length ? `<span class="kx-former-h">（旧：${esc(x.formerNames.slice().reverse().join("・旧："))}）</span>` : ""} <button type="button" class="kx-ren kx-pen" data-ren-open title="社名を変える（社名が変わったとき）" aria-label="社名を変える"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg></button>${kxHeadId(d)}</h2>
+        <div class="kx-golinks">${kxGoLinks(d)}</div></div><button type="button" class="kx-btn" data-archive style="margin-left:auto" title="${x.archived ? "ユーザー一覧・フェーズ別に戻す" : "動いていない会社を、ユーザー一覧・フェーズ別から見えなくする（あとで戻せる）"}">${x.archived ? "アーカイブから戻す" : "アーカイブする"}</button><button type="button" class="kx-btn" data-x>閉じる</button></div>
     ${x.archived ? '<div class="kh-warn" style="margin:0">この会社はアーカイブしています（ユーザー一覧・フェーズ別には出ません）</div>' : ""}
     <div class="kx-logo-menu" data-ren-box hidden>
       <div class="h" style="width:100%"><b>社名を変える</b><span class="kx-note">今の名前は「旧社名」として残り、「新しい社名（旧：今の社名）」と出ます</span><button type="button" class="hp-b" data-ren-close style="margin-left:auto">しまう ▲</button></div>
