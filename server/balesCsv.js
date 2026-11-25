@@ -41,6 +41,25 @@ export async function* readBalesCsv(bytes) {
       }
       const data = Object.fromEntries(header.map((key, i) => [key, cells[i]]));
       for (const [key, label] of Object.entries(aliases)) data[key] = data[label] || "";
+      // CSV に次回アクション列が含まれている場合も MOCHICALL/リスト管理で同じ形式として読めるように写す
+      const seenNx = new Set();
+      for (const key of header) {
+        const m = /^(?:次回|次の|ネクスト)アクション\s*(\d*)\s*[：:]?\s*(.+)$/.exec(key);
+        if (!m) continue;
+        const val = String(data[key] || "").trim();
+        if (!val) continue;
+        const idx = m[1] ? Math.max(0, parseInt(m[1], 10) - 1) : 0;
+        const sub = m[2].trim();
+        if (/コメント|内容|メモ|備考/.test(sub)) data[`nextActions.${idx}.content`] = val;
+        else if (/日時|予定|予約|期限/.test(sub)) data[`nextActions.${idx}.reservedAt`] = val;
+        else if (/種別|アクション名|名前|タイプ|タイトル/.test(sub)) data[`nextActions.${idx}.name`] = val;
+        else if (/担当|所有/.test(sub)) data[`nextActions.${idx}.owner.name`] = val;
+        else if (/完了|ステータス|状態/.test(sub)) data[`nextActions.${idx}.isDone`] = /^(1|true|済|完了)$/i.test(val) ? "true" : "false";
+        seenNx.add(idx);
+      }
+      for (const idx of seenNx) {
+        if (data[`nextActions.${idx}.isDone`] == null) data[`nextActions.${idx}.isDone`] = "false";
+      }
       tags.filter(key => data[key] === "1").forEach((key, i) => { data[`freeTags.${i}.text`] = key.slice(3); });
       sources.filter(key => data[key] === "1").forEach((key, i) => { data[`leadSources.${i}.name`] = key.slice("リードソース：".length); });
       data.targetName = [data["担当者情報：姓"], data["担当者情報：名"]].filter(Boolean).join(" ");

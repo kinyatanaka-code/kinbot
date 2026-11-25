@@ -376,7 +376,9 @@
   function histNote(d) {
     const h = d.hist || {}; const NAME = { sf: "SF", zoom: "Zoom Phone", bales: "BALES", doc: "DOC", kinbot: "MOCHICA の別リスト" };
     const ng = Object.entries(h).filter(([, v]) => v && (!v.ok || v.err)).map(([k, v]) => `${NAME[k] || k}：${v.err || "読めませんでした"}`);
-    return ng.length ? `<div class="mcc-gl-warn">${ng.map(esc).join("<br>")}</div>` : "";
+    // 過去の履歴を伏せるリストは、ほかの人の記録が無いのではなく伏せていると分かるように出す
+    const bl = d.blind ? '<p class="mcc-note">このリストは過去の架電履歴を伏せています。出ているのはあなたの記録だけです。</p>' : "";
+    return bl + (ng.length ? `<div class="mcc-gl-warn">${ng.map(esc).join("<br>")}</div>` : "");
   }
   // マイナビ（新卒）の掲載（2026-11-18 福井さん）。取込時に Web 検索で調べた結果。
   //   「見つからない」は掲載なしと言い切らない（検索で漏れることがある）。調べられなかったときは理由を出す（黙らない）
@@ -390,14 +392,50 @@
     return head("ok", `<div><small>掲載あり${m.checkedAt ? `（${esc(day(m.checkedAt))} に確認）` : ""}${m.url ? ` <a href="${esc(m.url)}" target="_blank" rel="noopener">ページを開く</a>` : ""}</small>${kv.map(([k, v]) => `<span class="mcc-mn"><em>${esc(k)}</em>${esc(v)}</span>`).join("")}</div>`);
   }
   function hotBadge(h) { const n = Number(h || 0); return n >= 3 ? '<span class="mcc-badge hot">ホット</span>' : n === 2 ? '<span class="mcc-badge warm">ウォーム</span>' : '<span class="mcc-badge cold">コールド</span>'; }
+  // BALES の未完了次回アクションのうち最も早い予約（予約日時がなければコメント付き先頭）を返す
+  function balesNext(data = {}) {
+    const byIdx = new Map();
+    for (const [k, v] of Object.entries(data || {})) {
+      const m = /^nextActions\.(\d+)\.(.+)$/.exec(k);
+      if (!m) continue;
+      const i = Number(m[1]);
+      if (!byIdx.has(i)) byIdx.set(i, { i });
+      byIdx.get(i)[m[2]] = v;
+    }
+    const open = [...byIdx.values()].filter((x) => String(x.isDone) !== "true");
+    if (!open.length) return null;
+    const s = (v) => (v == null ? "" : String(v).trim());
+    const items = open.sort((a, b) => a.i - b.i).map((x) => {
+      const reservedAt = s(x.reservedAt), parsed = reservedAt ? Date.parse(reservedAt) : NaN;
+      return {
+        reservedAt,
+        t: Number.isFinite(parsed) ? parsed : null,
+        name: s(x.name) || s(x["actionType.name"]) || s(x.actionTypeName),
+        comment: s(x.content) || s(x.comment) || s(x.memo) || s(x.note) || s(x.body) || s(x.text),
+        owner: s(x["owner.name"]) || s(x.ownerName) || s(x["user.name"]) || s(x.userName)
+      };
+    });
+    const timed = items.filter((x) => x.t != null).sort((a, b) => a.t - b.t);
+    return timed[0] || items.find((x) => x.comment || x.name) || null;
+  }
+  function nxSummaryHtml(d) {
+    if (!d || d.blind) return "";
+    const L = d.lead || {}, nx = balesNext(L.data || {});
+    const text = nx && (nx.reservedAt || nx.comment)
+      ? [nx.reservedAt ? tm(nx.reservedAt) : "", nx.name, nx.comment].filter(Boolean).join("　")
+      : (L.next_why && L.next_why !== "記録した人が決めた時刻" && L.next_why !== "BALES で入れていた次のコールの予定" ? L.next_why : "");
+    return text ? `<div class="mcc-sum-nx"><small>次回</small>${esc(text)}</div>` : "";
+  }
   function drawLeft() {
     const d = S.d; if (!d) return; const L = d.lead; const g = L.gate || {};
     const sf = d.sf && d.sf.lead ? d.sf.lead : null; const sum = d.sf && d.sf.sum;
     const sfRows = sf ? Object.entries(sf).filter(([k, v]) => v && !["id", "name", "company", "created", "converted"].includes(k) && /status|owner|失注|課題|検討|更新|利用|現状/i.test(k)).slice(0, 8) : [];
     const kv = (o) => o.length ? `<dl class="mcc-kv">${o.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` : "";
     const nk = { status: "リードの状態", owner: "SF の所有者" };
-    const data = L.data || {};
-    const bales = [["最終活動", data.lastActivityAt ? tm(data.lastActivityAt) : ""], ["活動の種類", data.lastActivityTypeText], ["所有者", data.operatorName], ["DOC のリスト", data.list_name], ["DOC の担当", data.assigned_to], ["業種", data.industry]].filter(([, v]) => v);
+    const data = L.data || {}, nx = !d.blind ? balesNext(data) : null;
+    const nxLabel = nx ? [nx.reservedAt ? tm(nx.reservedAt) : "", nx.name, nx.owner ? `(${nx.owner})` : ""].filter(Boolean).join(" ") : "";
+    const lastCmt = !d.blind ? (data.lastActivityComment || data.lastCalledComment || "") : "";
+    const bales = [["最終活動", data.lastActivityAt ? tm(data.lastActivityAt) : ""], ["活動の種類", data.lastActivityTypeText], ["最終コメント", lastCmt], ["次回アクション", nxLabel], ["次回アクションコメント", nx ? nx.comment : ""], ["所有者", data.operatorName], ["DOC のリスト", data.list_name], ["DOC の担当", data.assigned_to], ["業種", data.industry]].filter(([, v]) => v);
     // 電話番号は1本だけなら中央の発信ボタンと同じなので出さない（使えない番号のときは、それが分かるよう出す）。
     //   受付で聞けたこと（担当者名・いる時間・直通）は、担当者名の行にまとめる（下に同じ名前をもう一度出して1段使っていた。2026-11-23 福井さん「左と真ん中のスクロールをなくしたい」）
     $("mccLeft").innerHTML = `
@@ -672,7 +710,7 @@
     const act = document.activeElement; const memoFocus = memoEl && act && memoEl.contains(act) ? act : null;
     const caret = memoFocus && memoFocus.selectionStart != null ? [memoFocus.selectionStart, memoFocus.selectionEnd] : null;
     $("mccCenter").innerHTML = `
-      ${P === "person" ? "" : `<div class="mcc-sum"><small>前回</small>${d.summary ? esc(d.summary) : "この会社に kinbot から架電した記録はまだありません"}</div>`}
+      ${P === "person" ? "" : `<div class="mcc-sum"><small>前回</small>${d.summary ? esc(d.summary) : d.blind ? "このリストは過去の履歴を伏せています（あなたの記録はまだありません）" : "この会社に kinbot から架電した記録はまだありません"}${nxSummaryHtml(d)}</div>`}
       ${P === "person" ? "" : planHtml(d)}
       <div class="mcc-callrow">
         ${f.dialed ? `<a class="mcc-dialed" href="${callHref(ph)}" title="切れたときは、押すともう一度かけます">${ICO.phone}${esc(ph)} に発信しました</a>` : ph ? `<a class="mcc-btn primary big" href="${callHref(ph)}" id="mccDial" aria-keyshortcuts="C">${ICO.phone}${esc(ph)} にかける<span class="mcc-key" style="background:rgba(255,255,255,.18);color:#fff;border-color:transparent">C</span></a>` : `<span class="mcc-note">電話番号がありません</span>`}
@@ -1489,12 +1527,24 @@
     box.innerHTML = scriptHtml(d);
     const sc = $("mccScript"); if (sc) sc.addEventListener("toggle", () => ls.set("mcc_script_open", sc.open ? "1" : "0"));
     box.querySelectorAll("[data-tst]").forEach((b) => b.addEventListener("click", () => setTalkStage(Number(b.dataset.tst))));
+    box.querySelector("[data-tkedit]")?.addEventListener("click", () => editTalkHere(d.lead));
     const book = $("mccTalkText"); if (!book) return;
     book.dataset.page = previous?.textContent === book.textContent ? previous.dataset.page : "0";
     $("mccTalkPrev").addEventListener("click", () => pageTalk(Number(book.dataset.page) - 1));
     $("mccTalkNext").addEventListener("click", () => pageTalk(Number(book.dataset.page) + 1));
     scriptObserver ??= new ResizeObserver(() => pageTalk(Number($("mccTalkText")?.dataset.page || 0)));
     scriptObserver.observe(book);
+  }
+  // 架電画面からトークを直す。保存したら、いま開いている会社をすぐ新しいトークで出し直す（次の会社を待たずに確かめられるように）
+  function editTalkHere(L) {
+    const l = S.lists.find((x) => x.id === L.list_id) || { id: L.list_id, name: L.list || "このリスト" };
+    talkDialog(l, async () => {
+      try {
+        const d = await api(`/api/mccall/leads/${L.id}`);
+        if (S.d && S.d.lead.id === L.id) { S.d = d; drawTalk(); }
+        toast("トークを保存しました（この会社から新しいトークで出しています）");
+      } catch (e) { toast(`トークは保存しましたが、表示を読み直せませんでした：${e.message}（次に開く会社から使います）`); }
+    });
   }
   // ブラウザーの段組みで文章を行ごとに分け、矢印ボタンで表示するページを変える。
   function pageTalk(page) {
@@ -1512,8 +1562,11 @@
   function drawTl(box = $("mccTl"), closeHistory) {
     const d = S.d; if (!d || !box) return;
     // 「メモのあるものだけ」で、メモの無い記録（応答なしなど）をたためる（選んだ状態は覚えておく）
+    //   メール配信（SF の B2BMA 連携・BALES のメール活動、本文がメールの形のもの）は本文があってもメモではないので外す
+    //   （2026-11-25 福井さん「メモのあるものだけにしたときにメール配信は除く」。見分け方はサーバーの mchist.js の spokenText と同じ）
     const memoOnly = ls.get("mcc_tl_memo") === "1";
-    const gs = tlGroups(memoOnly ? d.timeline.filter((t) => t.text) : d.timeline);
+    const isMail = (t) => (t.src !== "kinbot" && /メール|mail|配信|B2BMA|Integration/i.test(`${t.title || ""} ${t.who || ""}`)) || /配信停止|%%unsubscribe%%|^\s*(件名|本文|TO|FROM)\s*[:：]/mi.test(t.text || "");
+    const gs = tlGroups(memoOnly ? d.timeline.filter((t) => t.text && !isMail(t)) : d.timeline);
     const when = (t) => (t.src === "SF" ? "" : hhmm(t.at));
     let lastDay = "";
     const rows = gs.map(({ t, n, last }, i) => {
@@ -1548,8 +1601,11 @@
   //   開いた・閉じたは覚えておく（毎回開き直さなくてよいように）
   function scriptHtml(d) {
     const connected = phase() === "person";
-    if (!d.script) return connected ? '<p class="mcc-note">このリストにはスクリプトが設定されていません。</p>' : "";
-    const L = d.lead; const person = (L.gate && L.gate.name) || L.person || "ご担当者";
+    const L = d.lead;
+    // 管理者は架電画面からそのままトークを直せる（2026-11-25 福井さん「トークスクリプトを架電画面から編集できるように」）。
+    //   書き込みは「リストの管理」と同じ API（管理者だけ）なので、版・A/B の仕組みもそのまま
+    const edit = S.admin && L.list_id ? '<button type="button" class="mcc-btn mcc-tkedit" data-tkedit>トークを直す</button>' : "";
+    if (!d.script) return connected || edit ? `<p class="mcc-note">このリストにはスクリプトが設定されていません。${edit}</p>` : ""; const person = (L.gate && L.gate.name) || L.person || "ご担当者";
     const txt = d.script.replace(/\{会社名\}/g, L.company || "御社").replace(/\{担当者\}/g, person);
     const t = d.talk; const head = t ? `トーク ${esc(t.label)}（第${t.ver}版${t.n > 1 ? "・A/B で比べています" : ""}）` : "トークスクリプト";
     // 段階に分けて書いてあれば、いまの段階の分だけ出す（2026-11-23 福井さん「各段階で必要なトークスクリプトのみ表示」）。
@@ -1557,13 +1613,13 @@
     const sp = splitTalk(txt); const st = talkStage();
     const body = !sp.has ? txt : [st === 0 ? sp.common : "", sp.parts[st]].filter((x) => x.trim()).join("\n\n") || "（この段階のトークはまだ書かれていません）";
     const tabs = sp.has ? `<div class="mcc-stg" role="tablist" aria-label="トークの段階">${TALK_STAGES.map((x, i) => `<button role="tab" data-tst="${i}" aria-selected="${i === st}"${sp.parts[i].trim() || (i === 0 && sp.common.trim()) ? "" : ' class="empty"'}>${esc(x)}</button>`).join("")}</div>` : "";
-    if (connected) return `<div class="mcc-script-reader"><h3>${head}</h3>${tabs}<div id="mccTalkText" class="mcc-script-text">${esc(body)}</div>
+    if (connected) return `<div class="mcc-script-reader"><h3>${head}${edit}</h3>${tabs}<div id="mccTalkText" class="mcc-script-text">${esc(body)}</div>
       <div class="mcc-script-pages" id="mccTalkPages">
         <button type="button" class="mcc-btn" id="mccTalkPrev">前のページ</button>
         <span id="mccTalkPage" aria-live="polite"></span>
         <button type="button" class="mcc-btn" id="mccTalkNext">次のページ</button>
       </div></div>`;
-    return `<details class="mcc-script" id="mccScript" ${ls.get("mcc_script_open") === "0" ? "" : "open"}><summary>${head}</summary>${tabs}<div class="body">${esc(body)}</div></details>`;
+    return `<details class="mcc-script" id="mccScript" ${ls.get("mcc_script_open") === "0" ? "" : "open"}><summary>${head}</summary>${edit ? `<div class="mcc-tkedit-row">${edit}</div>` : ""}${tabs}<div class="body">${esc(body)}</div></details>`;
   }
   // トークの段階（2026-11-23 福井さん）。管理者は「リストの管理」のトークで段階ごとの欄に書く。
   //   保存するときは「■架電→受付」のような見出しの行でつないだ1本の文にする（A/B・版の仕組みはそのまま使えるように）
@@ -1729,7 +1785,7 @@
           <p class="mcc-note">リストを管理できる人：${esc(((S.meta && S.meta.admins) || []).join("・") || "（田中さん・kinbot の管理者だけ）")}</p>
           <div style="margin:12px 0"><button class="mcc-btn primary" id="mccNew">新しいリストを作る</button> <button class="mcc-btn" id="mccTpl">資料送付のひな形</button> <button class="mcc-btn" id="mccFTpl">問い合わせフォームのひな形</button></div>
           ${S.lists.length ? `<table class="mcc-tbl"><thead><tr><th>リスト</th><th>メンバー</th><th class="num">残り</th><th class="num">今かける</th><th class="num">DOC から</th><th></th></tr></thead><tbody>
-            ${S.lists.map((l) => `<tr><td><b>${esc(l.name)}</b><br><button class="mcc-btn" data-prod="${l.id}" title="押すと商材を切り替えます">商材：${isCm(l) ? "キャリミキ" : "MOCHICA"}</button></td><td>${l.members && l.members.length ? `${l.members.length}人` : "MOCHICA 全員"}</td><td class="num">${l.open} / ${l.total}</td><td class="num">${l.now}</td><td class="num">${l.cross || ""}</td>
+            ${S.lists.map((l) => `<tr><td><b>${esc(l.name)}</b><br><button class="mcc-btn" data-prod="${l.id}" title="押すと商材を切り替えます">商材：${isCm(l) ? "キャリミキ" : "MOCHICA"}</button> <button class="mcc-btn" data-blind="${l.id}" aria-pressed="${!!l.hide_history}" title="押すと切り替えます。伏せると、架電画面の「これまで」にはかける本人の記録だけが出ます（前回の結果・日時はそのまま）">過去の履歴：${l.hide_history ? "伏せる" : "見せる"}</button></td><td>${l.members && l.members.length ? `${l.members.length}人` : "MOCHICA 全員"}</td><td class="num">${l.open} / ${l.total}</td><td class="num">${l.now}</td><td class="num">${l.cross || ""}</td>
               <td style="white-space:nowrap"><button class="mcc-btn primary" data-add="${l.id}">リードを足す</button> <button class="mcc-btn" data-mem="${l.id}">メンバー</button> <button class="mcc-btn ${l.talks ? "" : "danger"}" data-scr="${l.id}" title="${l.talks ? `トーク ${l.talks}本` : "トークが無いのでかけられません"}">${l.talks ? `トーク（${l.talks}本）` : "トークを書く"}</button> <button class="mcc-btn primary" data-leads="${l.id}">割り振る・移す</button> <button class="mcc-btn danger" data-close="${l.id}">閉じる</button></td></tr>`).join("")}</tbody></table>` : '<p class="mcc-note">まだリストがありません。</p>'}
         </div>
         <div class="mcc-card" id="mccStock"></div>
@@ -1744,6 +1800,11 @@
         const l = S.lists.find((x) => x.id === +b.dataset.prod); if (!l) return;
         try { await api(`/api/mccall/lists/${l.id}`, { method: "PATCH", body: JSON.stringify({ product: isCm(l) ? "mochica" : "careermixer" }) }); drawLists(); }
         catch (e) { toast(`商材を切り替えられませんでした：${e.message}`); }
+      }));
+      box.querySelectorAll("[data-blind]").forEach((b) => b.addEventListener("click", async () => {
+        const l = S.lists.find((x) => x.id === +b.dataset.blind); if (!l) return;
+        try { await api(`/api/mccall/lists/${l.id}`, { method: "PATCH", body: JSON.stringify({ hide_history: !l.hide_history }) }); toast(l.hide_history ? "過去の履歴を見せるようにしました" : "過去の履歴を伏せるようにしました"); drawLists(); }
+        catch (e) { toast(`切り替えられませんでした：${e.message}`); }
       }));
       box.querySelectorAll("[data-mem]").forEach((b) => b.addEventListener("click", () => listDialog(S.lists.find((l) => l.id === +b.dataset.mem))));
       box.querySelectorAll("[data-add]").forEach((b) => b.addEventListener("click", () => addDialog(+b.dataset.add)));
@@ -1792,7 +1853,8 @@
   }
   // トーク（売り方）。リスト（売り先）とセットで1つの施策（2026-11-20 福井さん）。
   //   A/B/C の3本まで書ける。2本以上あると会社ごとに1本を決めて比べる。直すと新しい版になり、前の版の数字は「施策」に残る
-  async function talkDialog(l) {
+  //   onSaved：架電画面から開いたときは、リストの管理を描き直すかわりに、いま開いている会社のトークを読み直す
+  async function talkDialog(l, onSaved) {
     let j; try { j = await api(`/api/mccall/lists/${l.id}/talks`); } catch (e) { toast(e.message); return; }
     const cur = new Map(j.talks.map((t) => [t.label, t]));
     const hist = (lb) => j.history.filter((h) => h.label === lb).map((h) => `第${h.ver}版${h.active ? "（使用中）" : ""} ${h.calls}コール`).join("・");
@@ -1808,7 +1870,8 @@
       const talks = j.labels.map((lb) => ({ label: lb, body: bodyOf(w, lb) }));
       if (!talks.some((t) => t.body.trim())) throw new Error("トークを1本は書いてください（トークが無いとこのリストはかけられません）");
       await api(`/api/mccall/lists/${l.id}/talks`, { method: "PUT", body: JSON.stringify({ talks }) });
-      S.cache.clear(); toast("トークを保存しました（次に開く会社から使います）"); drawLists();
+      S.cache.clear();
+      if (onSaved) await onSaved(); else { toast("トークを保存しました（次に開く会社から使います）"); drawLists(); }
       // 「かける」でトークが無くて止まっていたなら、書いたらすぐかけられるよう読み直す（2026-11-25）
       if (S.tab === "call" && !S.d) loadLists().then(() => loadQueue(true)).catch(() => {});
     }, `<div class="mcc-chips" style="margin-top:12px" role="tablist">${j.labels.map((lb, i) => `<button class="mcc-chip" data-tkt="${lb}" aria-pressed="${i === 0}">トーク ${lb}${cur.has(lb) ? "" : "（なし）"}</button>`).join("")}</div>

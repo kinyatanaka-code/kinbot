@@ -23,6 +23,9 @@ import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord, sfUpdateMa
 import { judgeHot } from "./mchot.js";
 import { lookupMynaviFree } from "./mcresearch.js";   // マイナビの調べも AI・有料の検索を使わない（2026-11-20 福井さん）
 import { showableResearch, CHECK_V, STALE_DAYS } from "./mcfresh.js";   // 企業調査は今の募集と確かめた採用情報だけを画面に出す（2026-11-23）   // マイナビの調べも AI・有料の検索を使わない（2026-11-20 福井さん）
+
+// BALES の次回アクション（予約とコメント）を mc_call_leads.next_why 用の短い理由文にまとめる
+const balesNextWhy = (c, fb = "BALES で入れていた次のコールの予定") => (c?.next_comment ? `BALES 次回アクション：${c.next_comment}`.slice(0, 300) : c?.next_at ? fb : null);
 import { fetchPageText } from "./companyenrich.js";
 import { pickLeadStages, stageOf, stageCode, normCode, autoStage, LEAD_STAGES } from "./mcstage.js";   // リードの状況は基本の7つだけ出す（2026-11-24）
 import { segOf, SEG_V, SF_LEAD_FIELDS, sfLeadRow, balesCarry, sfLeadWhere } from "./mcseg.js";
@@ -185,7 +188,12 @@ async function ensure() {
     // リスト管理の「今日かけるリスト」から「かける」を出す（2026-11-23 福井さん）。today_src＝その入れ先のリスト（1本だけ。閉じると今までの出し方に戻る）、
     //   today_day＝そのリードがだれかの今日かけるリストに入った日（日本時間の YYYY-MM-DD）
     await q(`ALTER TABLE mc_call_lists ADD COLUMN IF NOT EXISTS today_src BOOLEAN NOT NULL DEFAULT false`);
+    // 過去の架電履歴を伏せるリスト（リスト管理で切り替え。kincall の「履歴を見せないリスト」と同じ考え方）（2026-11-25 福井さん）。
+    //   前の人の記録に引っぱられずにかけるため、架電画面の「これまで」は自分の記録だけにする。kincall の設定とは別に持つ
+    await q(`ALTER TABLE mc_call_lists ADD COLUMN IF NOT EXISTS hide_history BOOLEAN NOT NULL DEFAULT false`);
     await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS today_day TEXT`);
+    // 企業の優先度（リスト管理で付けたもの。3＝高・2＝中・1＝低・空＝未設定）（2026-11-25 福井さん）。かける順番で高を先に・低を後ろに
+    await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS prio SMALLINT`);
     // BALES でかけた結果をどこまで順番に入れたか（at＝BALES の最終架電日時・result・kind・why・prev＝入れる前の値）（2026-11-25 福井さん）
     await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS bales_seen JSONB`);
     await backfillLeadKeys();
@@ -408,7 +416,7 @@ export function applyBalesCalls() {
     const since = new Date(now.getTime() + 9 * 3600e3 - MAX_AGE_H * 3600e3).toISOString().slice(0, 19);   // BALES の日時は「…+09:00」の日本時間の文字なので、同じ形で比べる
     const rows = (await P().query(`SELECT c.id, c.last_at, c.miss_streak, c.gate, c.done, c.next_at, c.next_why, c.parked_at,
         (c.locked_by IS NOT NULL AND c.locked_at >= now() - interval '10 minutes') AS busy, b.data->>'lastCalledAt' AS bat,
-        (SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(b.data) e WHERE e.key IN ('lastCalledAt','callResult') OR e.key ~ '^nextActions\\.[0-9]+\\.(reservedAt|isDone|id)$') AS d
+        (SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(b.data) e WHERE e.key IN ('lastCalledAt','lastCalledComment','callResult','lastActivityComment') OR e.key ~ '^nextActions\\.[0-9]+\\.') AS d
       FROM mc_call_leads c JOIN mochica_bales_rows b ON c.src = 'bales' AND b.list_key = split_part(c.src_key, '|', 1) AND b.row_key = substr(c.src_key, length(split_part(c.src_key, '|', 1)) + 2)
         JOIN mochica_bales_lists l ON l.list_key = b.list_key AND l.run_at = b.run_at
       WHERE c.biz = $1 AND NOT c.done AND c.dup_of IS NULL AND COALESCE(b.data->>'lastCalledAt', '') >= $2
@@ -821,10 +829,21 @@ export function registerMcCall(app, deps) {
     return rows.filter((r) => (r.members && r.members.length ? r.members.map((x) => String(x).toLowerCase()).includes(u) : all)).map((r) => r.id);
   }
 
+  // 過去の履歴を伏せるリストのリードは、かけた回数を自分がかけた回数にする（kincall の「履歴を見せないリスト」と同じ。前回の結果・日時はそのまま）
+  async function blindAttempts(rows, u) {
+    const lids = [...new Set(rows.map((r) => r.list_id).filter(Boolean))];
+    if (!lids.length) return;
+    const hid = new Set((await P().query(`SELECT id FROM mc_call_lists WHERE id = ANY($1) AND hide_history`, [lids])).rows.map((r) => r.id));
+    const hit = rows.filter((r) => hid.has(r.list_id));
+    if (!hit.length) return;
+    const n = new Map((await P().query(`SELECT lead_id, count(*) AS n FROM mc_call_logs WHERE lead_id = ANY($1) AND caller=$2 AND NOT undone GROUP BY lead_id`, [hit.map((r) => r.id), u])).rows.map((r) => [r.lead_id, +r.n]));
+    for (const r of hit) r.attempts = n.get(r.id) || 0;
+  }
+
   // ---- リスト ----
   app.get("/api/mccall/lists", guard(async (req, res) => {
     const ids = await myListIds(req, req.query.stock === "1");
-    const rows = ids.length ? (await P().query(`SELECT l.id, l.name, l.note, l.members, l.created_at, l.stock, l.bales_key, l.product, COALESCE(l.today_src, false) AS today_src,
+    const rows = ids.length ? (await P().query(`SELECT l.id, l.name, l.note, l.members, l.created_at, l.stock, l.bales_key, l.product, COALESCE(l.today_src, false) AS today_src, l.hide_history,
         count(c.id) AS total, count(c.id) FILTER (WHERE NOT c.done) AS open,
         count(c.id) FILTER (WHERE NOT c.done AND (c.next_at IS NULL OR c.next_at <= now())) AS now,
         count(c.id) FILTER (WHERE c.cross_from IS NOT NULL) AS cross,
@@ -845,6 +864,7 @@ export function registerMcCall(app, deps) {
     if (b.closed != null) await P().query(`UPDATE mc_call_lists SET closed=$2 WHERE id=$1`, [id, !!b.closed]);
     if (b.stock != null) await P().query(`UPDATE mc_call_lists SET stock=$2 WHERE id=$1`, [id, !!b.stock]);
     if (b.product != null) await P().query(`UPDATE mc_call_lists SET product=$2 WHERE id=$1`, [id, productOf(b.product)]);
+    if (b.hide_history != null) { await P().query(`UPDATE mc_call_lists SET hide_history=$2 WHERE id=$1`, [id, !!b.hide_history]); console.log(`[mccall] リスト${id}の過去の履歴を${b.hide_history ? "伏せる" : "見せる"}ようにしました by ${me(req)}`); }
     if (b.script != null) await P().query(`UPDATE mc_call_lists SET script=$2 WHERE id=$1`, [id, String(b.script).slice(0, 20000) || null]);
     // 保管から「かける」へ出したリストにトークが無ければ、いま使っているトークを写す（2026-11-25 福井さん「困った」：
     //   BALES から移したリストを出したら「トークが決まっていないリストはかけられません」で止まった。今日かけるリストを作るときと同じ考え方）
@@ -940,6 +960,7 @@ export function registerMcCall(app, deps) {
         c.gate->>'name' AS gate_name, (c.locked_by IS NOT NULL AND c.locked_by <> $${p.length + 1} AND c.locked_at > now() - interval '10 minutes') AS busy
       FROM mc_call_leads c JOIN mc_call_lists l ON l.id=c.list_id WHERE ${where} ORDER BY ${BROWSE_SORT[req.query.sort] || BROWSE_SORT.hot} LIMIT 100 OFFSET ${page * 100}`, [...p, me(req)])).rows;
     const names = await nameMap();
+    await blindAttempts(rows, me(req));
     res.json({ ok: true, total, page, items: rows.map((r) => ({ ...r, outcome: outcomeLabel(r.last_outcome), assigned: r.assigned_to ? names.get(r.assigned_to) || r.assigned_to : "" })) });
   }));
 
@@ -1365,7 +1386,8 @@ export function registerMcCall(app, deps) {
     for (const r of rows) {
       const f = fromBales(r.data || {});
       if (approachBanHitSync({ company: f.company, phone: f.phone, leadId: r.lid })) { banned++; continue; }
-      const x = await addLeadUnique({ list_id: id, src: "bales", src_key: `${key}|${r.row_key}`, company: f.company, phone: f.phone, person: f.person, sf_lead_id: r.lid || null, hot: r.hot }, { data: r.data });
+      const c = balesCarry(r.data || {});
+      const x = await addLeadUnique({ list_id: id, src: "bales", src_key: `${key}|${r.row_key}`, company: f.company, phone: f.phone, person: f.person, sf_lead_id: r.lid || null, hot: r.hot, next_at: c.next_at, next_why: balesNextWhy(c), attempts: c.attempts }, { data: r.data });
       if (x.added) { added++; if (x.nokey) nokey++; } else if (x.banned) banned++; else if (x.bad) bad++; else { dup++; ex.push(f.company, x.dup); }
     }
     mynaviEnqueue(rows.map((r) => fromBales(r.data || {}).company)).catch((e) => console.error("[mccall] マイナビの調べを始められませんでした", e.message));
@@ -1403,7 +1425,8 @@ export function registerMcCall(app, deps) {
       const up = await P().query(`UPDATE mc_call_leads c SET assigned_to=$2 FROM mc_call_lists x WHERE x.id=c.list_id AND NOT x.closed AND c.src='bales' AND c.src_key=$1 AND NOT c.done AND c.dup_of IS NULL
         AND (c.locked_by IS NULL OR c.locked_at < now() - interval '10 minutes')`, [sk, who]);
       if (up.rowCount) { moved++; per.set(who, per.get(who) + 1); done.push({ k: r.row_key, who }); i++; continue; }
-      const x = await addLeadUnique({ list_id: id, src: "bales", src_key: sk, company: f.company, phone: f.phone, person: f.person, sf_lead_id: r.lid || null, hot: r.hot, assigned_to: who }, { data: r.data });
+      const c = balesCarry(r.data || {});
+      const x = await addLeadUnique({ list_id: id, src: "bales", src_key: sk, company: f.company, phone: f.phone, person: f.person, sf_lead_id: r.lid || null, hot: r.hot, assigned_to: who, next_at: c.next_at, next_why: balesNextWhy(c), attempts: c.attempts }, { data: r.data });
       if (x.added) { added++; per.set(who, per.get(who) + 1); done.push({ k: r.row_key, who }); i++; } else if (x.banned) banned++; else if (x.bad) bad++; else dup++;
     }
     console.log(`[mccall] SHOWIN から割り振り：${added + moved}件（新しく入れた ${added}・付け替え ${moved}・禁止 ${banned}・重複 ${dup}）→「${lst.name}」`);
@@ -1571,7 +1594,7 @@ export function registerMcCall(app, deps) {
           if (approachBanHitSync({ company: f.company, phone: f.phone, leadId: r.lid })) { banned++; continue; }
           const c = balesCarry(d);
           const x = await addLeadUnique({ list_id: dst.id, src: "bales", src_key: `${bl.list_key}|${r.row_key}`, company: f.company, phone: f.phone, person: f.person,
-            sf_lead_id: r.lid || null, hot: r.hot, next_at: c.next_at, next_why: c.next_at ? "BALES で入れていた次のコールの予定" : null, attempts: c.attempts }, { data: d });
+            sf_lead_id: r.lid || null, hot: r.hot, next_at: c.next_at, next_why: balesNextWhy(c), attempts: c.attempts }, { data: d });
           if (x.added) { added++; if (x.nokey) nokey++; } else if (x.banned) banned++; else if (x.bad) bad++; else dup++;
         }
       }
@@ -1714,24 +1737,28 @@ export function registerMcCall(app, deps) {
     const t = await mcBalesToday(bm.listKey, { col: bm.col, val: owner }); if (!t) return null;
     const ck = `${day}|${bm.listKey}|${owner}|${tid}|${t.made_at ? new Date(t.made_at).getTime() : ""}`, prev = _todaySync.get(u);
     if (prev && prev.ck === ck && Date.now() - prev.at < 10 * 60 * 1000) return prev.res;
+    //   主のリストの分（keys）と、人に足したリストの分（ext＝[[list_key, row_key]]・2026-11-25）を同じ形（[list_key, row_key]）にそろえて入れる
+    const pairs = [...(t.keys || []).map((k) => [bm.listKey, k]), ...(Array.isArray(t.ext) ? t.ext : []).map((x) => [String(x[0]), String(x[1])])];
+    const sks = pairs.map(([l, k]) => `${l}|${k}`);
     // 今日の分が0件で作られたときは、今日かけるリストの出し方をやめて今までの出し方（担当のリストすべて）に戻す（2026-11-25 福井さん「今かける企業はありません」で架電が止まった）。
     //   0件のまま今日かけるリストの出し方を続けると「かける」が空になり、インターンが1社もかけられず止まる。
-    //   このとき今日の印も消さない（主のリストの判定が一時的にずれただけなら、直ったときにそのまま戻れるように）
-    if (!(t.keys || []).length) {
+    //   このとき今日の印も消さない（主のリストの判定が一時的にずれただけなら、直ったときにそのまま戻れるように）。人に足したリストの分があれば0件ではない
+    if (!pairs.length) {
       console.warn(`[mccall] 今日かけるリスト ${u}（${owner}）が0件で作られました（リスト ${bm.listKey}）。今までの出し方で出します`);
       _todaySync.set(u, { ck, at: Date.now(), res: null }); return null;
     }
-    const sks = (t.keys || []).map((k) => `${bm.listKey}|${k}`);
     const ex = sks.length ? (await P().query(`SELECT id, src_key, dup_of FROM mc_call_leads WHERE src='bales' AND src_key = ANY($1) ORDER BY (dup_of IS NULL) DESC, id`, [sks])).rows : [];
     const found = new Map(); for (const r of ex) if (!found.has(r.src_key)) found.set(r.src_key, r.dup_of || r.id);
     const ids = [...found.values()]; let added = 0, banned = 0;
-    const miss = (t.keys || []).filter((k) => !found.has(`${bm.listKey}|${k}`));
+    const miss = pairs.filter(([l, k]) => !found.has(`${l}|${k}`));
     if (miss.length) {
       await banListOrStop();
-      const rows = (await P().query(`SELECT row_key, data, hot, sf->'lead'->>'id' AS lid FROM mochica_bales_rows WHERE list_key=$1 AND row_key = ANY($2::text[])`, [bm.listKey, miss])).rows;
+      const rows = (await P().query(`SELECT list_key, row_key, data, hot, sf->'lead'->>'id' AS lid FROM mochica_bales_rows
+        WHERE (list_key, row_key) IN (SELECT u.a, u.b FROM unnest($1::text[], $2::text[]) AS u(a, b))`, [miss.map((x) => x[0]), miss.map((x) => x[1])])).rows;
       for (const r of rows) {
         const f = fromBales(r.data || {});
-        const x = await addLeadUnique({ list_id: tid, src: "bales", src_key: `${bm.listKey}|${r.row_key}`, company: f.company, phone: f.phone, person: f.person, sf_lead_id: r.lid || null, hot: r.hot, assigned_to: u }, { data: r.data });
+        const c = balesCarry(r.data || {}), due = c.next_at && Date.parse(c.next_at) <= Date.now() ? c.next_at : null;
+        const x = await addLeadUnique({ list_id: tid, src: "bales", src_key: `${r.list_key}|${r.row_key}`, company: f.company, phone: f.phone, person: f.person, sf_lead_id: r.lid || null, hot: r.hot, assigned_to: u, next_at: due, next_why: c.next_comment || due ? balesNextWhy(c) : null, attempts: c.attempts }, { data: r.data });
         if (x.added) { added++; ids.push(x.id); } else if (x.banned) banned++;
         else if (x.dup && x.dup.lead_id) { const d = (await P().query(`SELECT COALESCE(dup_of, id) AS id FROM mc_call_leads WHERE id=$1`, [x.dup.lead_id])).rows[0]; if (d) ids.push(d.id); }   // 別の取り込みで入っている同じ会社
       }
@@ -1745,7 +1772,11 @@ export function registerMcCall(app, deps) {
     // 終わったリード（アポ・NG など）と、ほかの人が今開いているリードは動かさない。トークはリストごとなので、移したリードは選び直す
     const mv = ids.length ? await P().query(`UPDATE mc_call_leads SET talk_label = CASE WHEN list_id = $2 THEN talk_label ELSE NULL END, list_id=$2, assigned_to=$3, today_day=$4
       WHERE id = ANY($1::int[]) AND NOT done AND dup_of IS NULL AND (locked_by IS NULL OR locked_by=$3 OR locked_at < now() - interval '10 minutes') AND ${NOT_IN_CM()}`, [[...new Set(ids)], tid, u, day]) : { rowCount: 0 };
-    const res = { owner, n: (t.keys || []).length, ready: mv.rowCount, added, banned, exp: t.exp || 0, due_nurture: t.due_nurture || 0, due_other: t.due_other || 0, pastlost: t.pastlost || 0, newlist: t.newlist || 0, made_at: t.made_at };
+    // リスト管理で付けた企業の優先度を写す（かける順番で高を先に）（2026-11-25）。src_key は「リストの印|行の印」（リストの印に「|」は入らない）
+    if (ids.length) await P().query(`UPDATE mc_call_leads c SET prio = b.prio FROM mochica_bales_rows b
+      WHERE c.id = ANY($1::int[]) AND c.src = 'bales' AND b.list_key = split_part(c.src_key, '|', 1) AND b.row_key = substr(c.src_key, length(split_part(c.src_key, '|', 1)) + 2)
+        AND c.prio IS DISTINCT FROM b.prio`, [[...new Set(ids)]]).catch((e) => console.warn("[mccall] 今日かけるリストの優先度を写せませんでした", e.message));
+    const res = { owner, n: pairs.length, ready: mv.rowCount, added, banned, exp: t.exp || 0, due_nurture: t.due_nurture || 0, due_other: t.due_other || 0, pastlost: t.pastlost || 0, newlist: t.newlist || 0, prio_hi: t.prio_hi || 0, ext_n: t.ext_n || 0, made_at: t.made_at };
     if (added || mv.rowCount < res.n) console.log(`[mccall] 今日かけるリスト ${u}（${owner}）：${res.n}件中 ${mv.rowCount}件を「かける」へ（新しく入れた ${added}・禁止 ${banned}）`);
     _todaySync.set(u, { ck, at: Date.now(), res }); return res;
   }
@@ -1805,26 +1836,26 @@ export function registerMcCall(app, deps) {
     const names = await nameMap();
     for (const [k, m] of mailCnt) for (const e of m.keys()) if (!names.has(e)) names.set(e, `${mailWho.get(k) || k}（未ログイン）`);
     const now = Date.now();
-    const nextOf = (d) => { let t = null; for (let i = 0; i < 50; i++) { if (d[`nextActions.${i}.id`] == null && d[`nextActions.${i}.reservedAt`] == null) break;
-      if (String(d[`nextActions.${i}.isDone`]) === "true") continue; const x = Date.parse(d[`nextActions.${i}.reservedAt`]); if (Number.isFinite(x) && (t == null || x < t)) t = x; }
-      return t != null && t > now ? new Date(t) : new Date(now); };
+
+
+
     if (run) await banListOrStop();
     const per = new Map(), skip = { noOwner: [], notIntern: new Map(), twoPeople: new Map(), banned: [], done: [], busy: [] }, items = [];
     let added = 0, moved = 0;
     for (const r of rows) {
       const d = r.data || {}, f = fromBales(d), o = String(r.owner || "").trim();
-      const it = { company: f.company, owner: o, stage: d.lastLeadStageName || "", lastCalled: String(d.lastCalledAt || "").slice(0, 10), comment: String(d.lastCalledComment || d.lastActivityComment || "").slice(0, 80) };
+      const c = balesCarry(d), it = { company: f.company, owner: o, stage: d.lastLeadStageName || "", lastCalled: String(d.lastCalledAt || "").slice(0, 10), comment: String(d.lastCalledComment || d.lastActivityComment || "").slice(0, 80), nextComment: c.next_comment.slice(0, 120) };
       if (!o) { skip.noOwner.push(it.company); continue; }
       const who = byOwner.get(foldPersonName(o)) || [];
       if (!who.length) { skip.notIntern.set(o, (skip.notIntern.get(o) || 0) + 1); continue; }
       if (who.length > 1) { skip.twoPeople.set(o, who); continue; }
-      const u = who[0], next = nextOf(d), sk = `${bm.listKey}|${r.row_key}`;
+      const nt = c.next_at ? Date.parse(c.next_at) : NaN, u = who[0], next = Number.isFinite(nt) && nt > now ? new Date(nt) : new Date(now), nextWhy = balesNextWhy(c, "BALES の営業フォローの予定"), sk = `${bm.listKey}|${r.row_key}`;
       it.to = names.get(u) || u; it.next = next.toISOString();
       if (approachBanHitSync({ company: f.company, phone: f.phone, leadId: r.lid })) { skip.banned.push(it.company); continue; }
       // すでに MOCHICALL にある（同じ行から入れた・同じ会社の別の取り込み）なら、それを本人の掛け直しにする
       let id = ((await P().query(`SELECT COALESCE(dup_of, id) AS id FROM mc_call_leads WHERE src='bales' AND src_key=$1 ORDER BY (dup_of IS NULL) DESC, id LIMIT 1`, [sk])).rows[0] || {}).id || null;
       if (!id && run) {
-        const x = await addLeadUnique({ list_id: tid, src: "bales", src_key: sk, company: f.company, phone: f.phone, person: f.person, sf_lead_id: r.lid || null, hot: r.hot, assigned_to: u, next_at: next }, { data: d });
+        const x = await addLeadUnique({ list_id: tid, src: "bales", src_key: sk, company: f.company, phone: f.phone, person: f.person, sf_lead_id: r.lid || null, hot: r.hot, assigned_to: u, next_at: next, next_why: nextWhy, attempts: c.attempts }, { data: d });
         if (x.added) { added++; per.set(u, (per.get(u) || 0) + 1); it.how = "新しく入れた"; items.push(it); continue; }
         if (x.banned) { skip.banned.push(it.company); continue; }
         if (x.dup && x.dup.lead_id) id = ((await P().query(`SELECT COALESCE(dup_of, id) AS id FROM mc_call_leads WHERE id=$1`, [x.dup.lead_id])).rows[0] || {}).id || null;
@@ -1836,8 +1867,8 @@ export function registerMcCall(app, deps) {
       if (cur.locked_by && cur.locked_by !== u && Date.parse(cur.locked_at) > now - 10 * 60e3) { skip.busy.push(it.company); continue; }
       // MOCHICALL でもう掛け直しの時刻が決まっていれば、そちらを使う（本人が決めた約束を上書きしない）
       if (cur.next_at) it.next = new Date(cur.next_at).toISOString();
-      if (run) await P().query(`UPDATE mc_call_leads SET talk_label = CASE WHEN list_id = $2 THEN talk_label ELSE NULL END, list_id=$2, assigned_to=$3, next_at=COALESCE(next_at, $4)
-        WHERE id=$1 AND NOT done AND ${NOT_IN_CM()}`, [id, tid, u, next]);
+      if (run) await P().query(`UPDATE mc_call_leads SET talk_label = CASE WHEN list_id = $2 THEN talk_label ELSE NULL END, list_id=$2, assigned_to=$3, next_at=COALESCE(next_at, $4), next_why=COALESCE(NULLIF(next_why,''), $5)
+        WHERE id=$1 AND NOT done AND ${NOT_IN_CM()}`, [id, tid, u, next, nextWhy]);
       moved++; per.set(u, (per.get(u) || 0) + 1); it.how = run ? "移して担当にした" : "移して担当にする"; items.push(it);
     }
     const out = { ok: true, run, list: { key: bm.listKey, name: lst.name, at: lst.run_at }, into: TODAY_LIST_NAME, target: rows.length, added, moved,
@@ -1890,8 +1921,9 @@ export function registerMcCall(app, deps) {
         AND (assigned_to IS NULL OR assigned_to=$2) AND (locked_by IS NULL OR locked_by=$2 OR locked_at < now() - interval '10 minutes')${todayW}`;
     const order = `(next_at IS NOT NULL) DESC, next_at, COALESCE(hot,0) DESC, attempts, id`;
     // 順番は mccadence.js の rankQueue で決める（約束の掛け直し → 時刻が来た掛け直し → ホット度・検討時期・在席時間の順）。SQL では候補を多め（300件）に絞るだけ
-    const rankOrder = `(next_at IS NOT NULL) DESC, COALESCE(next_why = $3, false) DESC, next_at, COALESCE(hot,0) DESC, attempts, id`;
-    const cols = `id, company, person, hot, attempts, next_at, next_why, last_outcome, cross_from, miss_streak, hearing, gate, phone, info, sf_lead_id, (research_at IS NOT NULL) AS researched`;
+    //   候補の300件には、リスト管理で優先度を高にした会社を先に入れる（低は後ろ）（2026-11-25 福井さん）
+    const rankOrder = `(next_at IS NOT NULL) DESC, COALESCE(next_why = $3, false) DESC, COALESCE(prio,2) DESC, next_at, COALESCE(hot,0) DESC, attempts, id`;
+    const cols = `id, list_id, company, person, hot, attempts, next_at, next_why, last_outcome, cross_from, miss_streak, hearing, gate, phone, info, sf_lead_id, prio, (research_at IS NOT NULL) AS researched`;
     // 企業調査が終わった会社を先に出す（架電者が調べなくてよいように）。
     //   調べ終わった会社が足りないときは、まだの会社も後ろに足して出す（「調査中」と出すだけで、かけてよい）。
     //   以前は調べ終わるまで出さなかったので、8人が同時にかけると調べが追いつかず「かける」が空になって待つことがあった（2026-11-23）
@@ -1910,7 +1942,9 @@ export function registerMcCall(app, deps) {
     // アプローチ禁止の会社は順番に出さない（取り込んだあとで禁止になった会社も、ここで毎回はじく）
     const cand = cand0.filter((r) => !approachBanHitLeadSync(r));
     // 掛け直しの約束・時刻が来た掛け直し（tier 0・1）と調べ終わった会社を前に、まだ調べていない会社を後ろに
-    const ranked = rankQueue(cand);
+    //   掛け直し（tier 0・1）より後ろは、優先度 高→中（未設定も中）→低 の順に並べ直す（同じ優先度の中は rankQueue の順のまま）（2026-11-25 福井さん）
+    const pv = (r) => (r.tier < 2 ? 9 : r.prio == null ? 2 : Number(r.prio));
+    const ranked = rankQueue(cand).map((r, i) => ({ r, i })).sort((a, b) => pv(b.r) - pv(a.r) || a.i - b.i).map((x) => x.r);
     const front = (r) => r.tier < 2 || r.researched;
     // 画面に渡すのは必要な項目だけ（受付で聞いた直通などを、順番の一覧に載せない）
     const items = [...ranked.filter(front), ...ranked.filter((r) => !front(r))].slice(0, 60).map(({ hearing, gate: _g, phone: _p, info: _i, sf_lead_id: _s, ...x }) => x);
@@ -1930,6 +1964,7 @@ export function registerMcCall(app, deps) {
     }
     // 今日かけるリストの人は、今日の分のうち残り（まだ終わっていない・今かけられる）も返す
     if (today) today.left = +(await P().query(`SELECT count(*) FROM mc_call_leads WHERE list_id=$1 AND assigned_to=$2 AND today_day=$3 AND NOT done AND dup_of IS NULL`, [tm.tid, u, tm.day])).rows[0].count;
+    await blindAttempts(items, u);
     res.json({ ok: true, items: items.map((x) => ({ ...x, outcome: outcomeLabel(x.last_outcome), streak: x.miss_streak || 0, why: x.reasons })), later: +later, noTalk, researching, why, today });
   }));
   // ---- 管理者：インサイドの「かける」の状態（2026-11-23 福井さん「初週を止めずに回す」）----
@@ -2068,7 +2103,9 @@ export function registerMcCall(app, deps) {
     }
     const sfMailP = sfMailOf(req, lead, sf);   // ほかを読むあいだに SF のメールを読んでおく
     const ban = await approachBanHitLead(lead).catch(() => ({ reason: "アプローチ禁止の名簿を確認できなかったため、念のため止めています" }));
-    const logs = (await P().query(`SELECT * FROM mc_call_logs WHERE lead_id=$1 AND NOT undone ORDER BY created_at DESC LIMIT 50`, [id])).rows;
+    // 過去の履歴を伏せるリスト：自分の記録だけを出し、ほかの人・ほかの元データの記録は読まない（前の記録に引っぱられずにかけるため）
+    const blind = !!((await P().query(`SELECT hide_history FROM mc_call_lists WHERE id=$1`, [lead.list_id])).rows[0] || {}).hide_history;
+    const logs = (await P().query(`SELECT * FROM mc_call_logs WHERE lead_id=$1 AND NOT undone${blind ? " AND caller=$2" : ""} ORDER BY created_at DESC LIMIT 50`, blind ? [id, u] : [id])).rows;
     // 番号ごとの「つながった実績」（MOCHICA の記録すべてから。リードが変わっても番号で数える）
     const phones = phonesOf(lead, data);
     if (phones.length) {
@@ -2091,23 +2128,23 @@ export function registerMcCall(app, deps) {
       text: [g.memo, g.gate && (g.gate.name || g.gate.hours || g.gate.direct) ? `受付で聞けたこと：${[g.gate.name && `担当 ${g.gate.name}`, g.gate.hours && `在席 ${g.gate.hours}`, g.gate.direct && `直通 ${g.gate.direct}`].filter(Boolean).join("・")}` : "", g.next_at ? `次回 ${jstText(g.next_at)}` : "", g.apo_at ? `アポ ${jstText(g.apo_at)}${g.apo_who ? `（空いていたクローザー：${g.apo_who}）` : ""}` : ""].filter(Boolean).join("\n"),
       memo: g.memo || "", reach: g.reach, cross: !!g.cross_from, logId: g.id, mine: String(g.caller || "").toLowerCase() === u && Date.now() - new Date(g.created_at).getTime() < 15 * 60e3 }));
     // このリード自身の BALES の行（BALES から入れたリードだけ）
-    tl.push(...balesItems(detail, data, sf));
+    if (!blind) tl.push(...balesItems(detail, data, sf));
     // 資料送付も同じ時系列に出す（SF に書いた活動は下の SF の読み込みで二重にならないよう外す）
-    const sends = (await P().query(`SELECT * FROM mc_doc_sends WHERE lead_id=$1 ORDER BY created_at DESC LIMIT 20`, [id]).catch(() => ({ rows: [] }))).rows;
+    const sends = (await P().query(`SELECT * FROM mc_doc_sends WHERE lead_id=$1${blind ? " AND sender=$2" : ""} ORDER BY created_at DESC LIMIT 20`, blind ? [id, u] : [id]).catch(() => ({ rows: [] }))).rows;
     for (const s of sends) tl.push({ at: s.created_at, src: "kinbot", who: names.get(String(s.sender || "").toLowerCase()) || s.sender, title: "資料送付",
       text: [`${s.to_addr} に送付${s.cc ? `（CC ${s.cc}）` : ""}`, s.doc_name ? `資料：${s.doc_name}` : "", s.sf_err ? "SF の活動には書けませんでした" : ""].filter(Boolean).join("\n") });
     // ヒアリングのメールも同じ時系列に（何を聞いたかが分かるように）
-    const hmails = (await P().query(`SELECT * FROM mc_hear_mails WHERE lead_id=$1 ORDER BY created_at DESC LIMIT 20`, [id]).catch(() => ({ rows: [] }))).rows;
+    const hmails = (await P().query(`SELECT * FROM mc_hear_mails WHERE lead_id=$1${blind ? " AND sender=$2" : ""} ORDER BY created_at DESC LIMIT 20`, blind ? [id, u] : [id]).catch(() => ({ rows: [] }))).rows;
     const hlabel = new Map(HEAR_ITEMS.map((x) => [x.k, x.label]));
     for (const s of hmails) tl.push({ at: s.created_at, src: "kinbot", who: names.get(String(s.sender || "").toLowerCase()) || s.sender, title: "ヒアリングのメール",
       text: [`${s.to_addr} に送付${s.cc ? `（CC ${s.cc}）` : ""}`, (s.keys || []).length ? `聞いたこと：${s.keys.map((k) => hlabel.get(k) || k).join("・")}` : "", s.sf_err ? "SF の活動には書けませんでした" : ""].filter(Boolean).join("\n") });
     // 問い合わせフォームの送信も同じ時系列に（送れなかったものも、なぜかが分かるように出す）
-    const forms = (await P().query(`SELECT * FROM mc_form_sends WHERE lead_id=$1 ORDER BY created_at DESC LIMIT 20`, [id]).catch(() => ({ rows: [] }))).rows;
+    const forms = (await P().query(`SELECT * FROM mc_form_sends WHERE lead_id=$1${blind ? " AND sender=$2" : ""} ORDER BY created_at DESC LIMIT 20`, blind ? [id, u] : [id]).catch(() => ({ rows: [] }))).rows;
     for (const s of forms) tl.push({ at: s.created_at, src: "kinbot", who: names.get(String(s.sender || "").toLowerCase()) || s.sender, title: "問い合わせフォーム",
       text: [FORM_ST[s.status] || s.status, s.url, s.note, s.sf_err ? "SF の活動には書けませんでした" : ""].filter(Boolean).join("\n") });
     // ほかの元データ（MOCHICA の別リスト・DOC・BALES の別の行・Zoom Phone・SF）を、由来に関係なく電話番号と会社名で集める（mchist.js）。
     //   SHOBO から書いた SF の活動は kinbot の記録と同じものなので、二重に出さないよう外す
-    const past = await pastApproach({ lead: { ...lead, sf_lead_id: lead.sf_lead_id || (sf && sf.lead && sf.lead.id) || null }, phones: phones.map((p) => p.digits), names,
+    const past = blind ? { items: [], status: {} } : await pastApproach({ lead: { ...lead, sf_lead_id: lead.sf_lead_id || (sf && sf.lead && sf.lead.id) || null }, phones: phones.map((p) => p.digits), names,
       sfOwner: () => sfActor(req), coKey: companyKey, outcomeLabel, ownBalesKey: lead.src === "bales" ? String(lead.src_key) : "",
       skipTaskIds: [...logs.map((g) => g.sf_task_id), ...sends.map((s) => s.sf_task_id), ...hmails.map((s) => s.sf_task_id), ...forms.map((s) => s.sf_task_id)].filter(Boolean) });
     tl.push(...past.items);
@@ -2122,7 +2159,7 @@ export function registerMcCall(app, deps) {
       const sfv = (labels) => labels.map((k) => [k, String(L[k] ?? "").trim()]).filter(([, v]) => v);
       const hit = (key) => {
         for (const t of tl) { const s = spokenText(t); if (!s) continue; const j = judgeHot({ comment: s }, null)[key]; if (j.st) return { st: j.st, why: j.why, at: t.at, src: t.src, who: t.who || "" }; }
-        const d0 = spokenData(lead.src, data); if (!d0) return null;
+        const d0 = blind ? null : spokenData(lead.src, data); if (!d0) return null;
         const j = judgeHot(d0, null)[key]; return j.st ? { st: j.st, why: j.why, at: null, src: lead.src === "doc" ? "DOC" : "Bales", who: "" } : null;
       };
       // 架電で聞いたヒアリングをいちばん上に（いちばん新しく、本人から聞いた値なので）
@@ -2141,7 +2178,7 @@ export function registerMcCall(app, deps) {
     const cadence = { streak, max: CADENCE.maxMiss, parked: !!lead.parked_at, next: nextMissAt({ streak: streak + 1, gateHours: (lead.gate || {}).hours, rates: await ratesNow() }) };
     // メールは左の欄・ヒアリング欄・資料送付で同じものを使う（mcmail.js）
     const sm = await sfMailP;
-    res.json({ ok: true, lead: { ...lead, research: showableResearch(lead.research), data }, script, talk, ban, phones, docAlso, glance, mynavi, cadence, timeline: tl.slice(0, 120), hist: past.status, summary: oneLine(logs[0], lead.gate, names),
+    res.json({ ok: true, lead: { ...lead, research: showableResearch(lead.research), data }, script, talk, ban, phones, docAlso, glance, mynavi, cadence, timeline: tl.slice(0, 120), hist: past.status, blind, summary: oneLine(logs[0], lead.gate, names),
       mails: leadMails({ lead, data, sf, sfEmail: sm.email }), mailErr: sm.err,
       sf: sf && sf.lead ? { lead: sf.lead, sum: sf.sum || null } : null, cross: lead.cross_id ? (await P().query(`SELECT from_name, reason, at FROM mc_cross_moves WHERE id=$1`, [lead.cross_id])).rows[0] || null : null });
   }));

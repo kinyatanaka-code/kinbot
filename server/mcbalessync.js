@@ -16,8 +16,8 @@
 import { CADENCE, WHY_HUMAN, jstAt, jstHour, nextWeekday, nextMissAt } from "./mccadence.js";
 
 // 見張りの行（BALES のリード一覧の1行）から MOCHICALL の行に写す項目（架電で変わるものだけ。所有者などは写さない）
-export const CALL_KEYS = ["lastCalledAt", "callResult", "lastActivityAt", "lastActivityTypeText", "lastActivityComment", "lastLeadStageName"];
-export const NEXT_RE = /^nextActions\.\d+\.(reservedAt|isDone|id|[A-Za-z]+)$/;
+export const CALL_KEYS = ["lastCalledAt", "lastCalledComment", "callResult", "lastActivityAt", "lastActivityTypeText", "lastActivityComment", "lastLeadStageName"];
+export const NEXT_RE = /^nextActions\.\d+\.(?:reservedAt|isDone|id|[A-Za-z]+(?:\.[A-Za-z]+)?)$/;
 // 古すぎる架電は写さない（初めて動いたときに、何か月も前の架電で並びを動かさないため）
 export const MAX_AGE_H = 24;
 // 不在のあと同じ日に掛け直すまでの時間
@@ -39,14 +39,53 @@ export function pickCallFields(d = {}) {
   return { set: out, hasNext: na.length > 0 || (d.companyName != null && d.companyName !== "") };
 }
 
+const str = (v) => (v == null ? "" : String(v).trim());
+
+/** BALES のフラットな行オブジェクトから次回アクション配列を取り出す */
+export function nextActionsOf(d = {}) {
+  if (!d || typeof d !== "object") return [];
+  const byIdx = new Map();
+  for (const [k, v] of Object.entries(d)) {
+    const m = /^nextActions\.(\d+)\.(.+)$/.exec(k);
+    if (!m) continue;
+    const idx = Number(m[1]);
+    if (!byIdx.has(idx)) byIdx.set(idx, { idx });
+    byIdx.get(idx)[m[2]] = v;
+  }
+  const items = [];
+  for (const [, raw] of [...byIdx.entries()].sort((a, b) => a[0] - b[0])) {
+    const reservedAt = str(raw.reservedAt);
+    const parsed = reservedAt ? Date.parse(reservedAt) : NaN;
+    items.push({
+      idx: raw.idx,
+      id: raw.id ?? null,
+      reservedAt,
+      t: Number.isFinite(parsed) ? parsed : null,
+      isDone: String(raw.isDone) === "true",
+      name: str(raw.name) || str(raw["actionType.name"]) || str(raw.actionTypeName),
+      comment: str(raw.content) || str(raw.comment) || str(raw.memo) || str(raw.note) || str(raw.body) || str(raw.text),
+      owner: str(raw["owner.name"]) || str(raw.ownerName) || str(raw["user.name"]) || str(raw.userName),
+      createdAt: str(raw.createdAt)
+    });
+  }
+  return items;
+}
+
+/** 終わっていない次回アクションのうち最も早い予約（予約日時がなければコメント付き先頭）を返す */
+export function pickNextAction(d = {}) {
+  const open = nextActionsOf(d).filter((x) => !x.isDone);
+  if (!open.length) return null;
+  const timed = open.filter((x) => x.t != null).sort((a, b) => a.t - b.t);
+  if (timed.length) return timed[0];
+  return open.find((x) => x.comment || x.name) || open[0];
+}
+
 // 次回アクションのうち、終わっていなくていちばん早い予約（ミリ秒）。無ければ null
 export function nextReserved(d = {}) {
   let t = null;
-  for (let i = 0; i < 50; i++) {
-    if (d[`nextActions.${i}.id`] == null && d[`nextActions.${i}.reservedAt`] == null) break;
-    if (String(d[`nextActions.${i}.isDone`]) === "true") continue;
-    const x = Date.parse(d[`nextActions.${i}.reservedAt`]);
-    if (Number.isFinite(x) && (t == null || x < t)) t = x;
+  for (const x of nextActionsOf(d)) {
+    if (x.isDone || x.t == null) continue;
+    if (t == null || x.t < t) t = x.t;
   }
   return t;
 }
@@ -67,7 +106,11 @@ export function planFromBales(d = {}, lead = {}, { now = new Date(), rates = nul
   const streak0 = Number(lead.miss_streak) || 0;
   if (FINAL_RE.test(result)) return { kind: "final", done: true, nextAt: null, why: `${tag}なので終わり`, streak: streak0 };
   const res = nextReserved(d);
-  if (res != null && res > at) return { kind: "promise", done: false, nextAt: new Date(res), why: WHY_HUMAN, note: `${tag}・BALES の次回アクションの予約`, streak: MISS_RE.test(result) ? streak0 + 1 : 0 };
+  if (res != null && res > at) {
+    const nx = pickNextAction(d);
+    const cmt = nx?.comment ? `（${nx.comment.slice(0, 120)}）` : "";
+    return { kind: "promise", done: false, nextAt: new Date(res), why: WHY_HUMAN, note: `${tag}・BALES の次回アクションの予約${cmt}`, streak: MISS_RE.test(result) ? streak0 + 1 : 0 };
+  }
   if (MISS_RE.test(result)) {
     const streak = streak0 + 1;
     const r = nextMissAt({ now: new Date(at), streak, gateHours: (lead.gate && lead.gate.hours) || "", rates });

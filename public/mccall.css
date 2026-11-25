@@ -154,6 +154,9 @@
 .mcc-script{border:1px solid #5DCAA5;background:#f2fbf7;border-radius:12px;margin-bottom:12px;}
 .mcc-script summary{cursor:pointer;padding:8px 12px;font-size:12px;font-weight:800;color:#0d5b47;}
 .mcc-script .body{padding:0 12px 12px;white-space:pre-wrap;font-size:13px;line-height:1.7;}
+.mcc-tkedit{margin-left:8px;padding:2px 10px;font-size:11px;vertical-align:middle;}
+.mcc-tkedit-row{padding:0 12px 6px;text-align:right;}
+.mcc-tkedit-row .mcc-tkedit{margin-left:0;}
 /* 右の列：トークは上に全部見せ（中でスクロールさせない）、これまでは残りの高さの中だけでスクロール（2026-11-23） */
 .mcc-col.right{display:flex;flex-direction:column;}
 .mcc-col.right .mcc-script{flex:none;}
@@ -582,3 +585,5 @@
 .mcc-find-row:hover,.mcc-find-row:focus{background:var(--c-soft);outline:0;}
 .mcc-find-row b{font-size:13px;color:var(--c-deep);}
 .mcc-find-row small{font-size:11px;color:var(--c-muted);}
+.mcc-sum-nx{margin-top:6px;padding-top:6px;border-top:1px dashed var(--c-line);font-weight:600;color:var(--c-ink);}
+.mcc-sum-nx small{display:inline-block;margin:0 6px 0 0;color:#0d5b47;}

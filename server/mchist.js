@@ -7,6 +7,7 @@
 import { dbPool } from "./db.js";
 import { zoomPhoneConfigured, zoomGet, normZoomCall } from "./zoomphone.js";
 import { sfQuery, sfSearch } from "./salesforce.js";
+import { nextActionsOf } from "./mcbalessync.js";
 
 const P = () => dbPool();
 const digits = (v) => String(v || "").normalize("NFKC").replace(/[^0-9]/g, "");
@@ -139,7 +140,25 @@ export function balesItems(detail, data = {}, sf = null) {
       out.push({ at, src: "Bales", who: clip(o.userName || (o.user && o.user.name) || o.operatorName || "", 40), title: clip(typeOf(o) || "活動", 60), text: clip(textOf(o), 600) });
     }
   }
-  if (!out.length && data && (data.lastActivityAt || data.last_activity_at)) out.push({ at: data.lastActivityAt || data.last_activity_at, src: "Bales", who: clip(data.operatorName || "", 40), title: clip(data.lastActivityTypeText || "最終活動", 60), text: clip(data.lastActivityComment || "", 600) });
+  const actAt = data && (data.lastActivityAt || data.last_activity_at || data.lastCalledAt);
+  if (!out.length && actAt) out.push({ at: actAt, src: "Bales", who: clip(data.operatorName || "", 40), title: clip(data.lastActivityTypeText || "最終活動", 60), text: clip(data.lastActivityComment || data.lastCalledComment || "", 600) });
+  // detail に次回アクションが含まれない一覧行でも、次回アクションの日時とコメントを時系列に残す
+  const seen = new Set(out.map((x) => `${String(x.at).slice(0, 16)}|${String(x.text || "").slice(0, 40)}`));
+  for (const nx of nextActionsOf(data || {})) {
+    if (!nx.comment && !nx.reservedAt && !nx.name) continue;
+    const at = nx.reservedAt || nx.createdAt || actAt;
+    if (!at) continue;
+    const key = `${String(at).slice(0, 16)}|${String(nx.comment || "").slice(0, 40)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      at,
+      src: "Bales",
+      who: clip(nx.owner || data?.operatorName || "", 40),
+      title: clip(`次回アクション${nx.name ? "：" + nx.name : ""}${nx.isDone ? "（完了）" : ""}`, 60),
+      text: clip(nx.comment || "", 600)
+    });
+  }
   if (sf && Array.isArray(sf.opps)) for (const o of sf.opps.slice(0, 10)) if (o.date) out.push({ at: o.date, src: "SF", who: o.owner || "", title: `商談：${o.stage || ""}`, text: clip(o.name, 200) });
   return out;
 }

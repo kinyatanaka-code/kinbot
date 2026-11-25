@@ -29567,7 +29567,7 @@ app.get("/api/mochica/bales/lists", async (req, res) => {
 });
 app.get("/api/mochica/bales/lists/:key/rows", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
-    res.json({ ok: true, ...(await mcBalesRows(String(req.params.key), { q: String(req.query.q || ""), col: String(req.query.col || ""), val: String(req.query.val ?? ""), offset: req.query.offset, limit: req.query.limit, hot: String(req.query.hot || ""), sort: String(req.query.sort || ""), cr: String(req.query.cr || ""), col2: String(req.query.col2 || ""), val2: String(req.query.val2 ?? ""), sf: String(req.query.sf || ""), src: String(req.query.src || ""), stg: String(req.query.stg || "") })) }); }
+    res.json({ ok: true, ...(await mcBalesRows(String(req.params.key), { q: String(req.query.q || ""), col: String(req.query.col || ""), val: String(req.query.val ?? ""), offset: req.query.offset, limit: req.query.limit, hot: String(req.query.hot || ""), sort: String(req.query.sort || ""), cr: String(req.query.cr || ""), col2: String(req.query.col2 || ""), val2: String(req.query.val2 ?? ""), sf: String(req.query.sf || ""), src: String(req.query.src || ""), stg: String(req.query.stg || ""), pr: String(req.query.pr || "") })) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/mochica/bales/lists/:key/rows/:rid", async (req, res) => {
@@ -29842,6 +29842,46 @@ app.post("/api/mochica/bales/lists/:key/assign-local", async (req, res) => {
     res.json({ ok: true, n: await mcBalesAssignSet(String(req.params.key), items) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
+// その人のかけるリストに会社を追加する（2026-11-25 福井さん「個人が持っているリストに特定の企業・リードを追加できるイメージ」）：一覧・追加・外す
+//   表で選んだ会社（どのリストでも）をその人の担当にし、その人のかけるリスト（件数・表）と今日かけるリストに入れる（db.js mcBalesRows・mcBalesStages・mcTodayBuild）
+const hoItems = (a) => (Array.isArray(a) ? a : []).slice(0, 5000).map((x) => ({ l: String((x && x.l) || "").slice(0, 200), k: String((x && x.k) || "").slice(0, 120) })).filter((x) => x.l && x.k);
+app.get("/api/mochica/bales/handoff", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    res.json({ ok: true, items: await (await import("./db.js")).mcBalesHandoffList(String(req.query.member || "").slice(0, 80)) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/mochica/bales/handoff", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const b = req.body || {}; const member = String(b.member || "").trim().slice(0, 80), items = hoItems(b.items);
+    if (!member || !items.length) return res.status(400).json({ error: "追加する会社と人を選んでください" });
+    if (b.prio != null && ![1, 2, 3].includes(Number(b.prio))) return res.status(400).json({ error: "優先度は 高・中・低 のどれかを選んでください" });
+    const r = await (await import("./db.js")).mcBalesHandoff(items, member, { email: String(b.email || "").toLowerCase().slice(0, 200), by: String(req.user.email || "").toLowerCase(), prio: b.prio });
+    console.log(`[mcBales] ${items.length}件を ${member} のかけるリストに追加しました（担当にした ${r.n}件・今日の分に足した ${r.today}件・${req.user.email}）`);
+    if (r.n < items.length) console.warn(`[mcBales] かけるリストに追加：${items.length}件のうち ${r.n}件だけ担当にできました（いまの取り込みに無い行）`);
+    res.json({ ok: true, ...r }); }
+  catch (e) { res.status(/取り込み中/.test(e.message) ? 400 : 500).json({ error: e.message }); }
+});
+app.post("/api/mochica/bales/handoff/remove", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const b = req.body || {}; const member = String(b.member || "").trim().slice(0, 80), listKey = String(b.listKey || "").slice(0, 200), items = hoItems(b.items);
+    if (!items.length && !(member && listKey)) return res.status(400).json({ error: "外す会社を選んでください" });
+    const n = await (await import("./db.js")).mcBalesHandoffRemove(member, { listKey, items });
+    console.log(`[mcBales] かけるリストに追加した会社を外しました（${member || "選んだ会社"}・担当を外した ${n}件・${req.user.email}）`);
+    res.json({ ok: true, n }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 企業の優先度（2026-11-25 福井さん）：items＝[{ l: list_key, k: row_key }]、prio＝3 高・2 中・1 低・null 未設定
+app.post("/api/mochica/bales/prio", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const b = req.body || {};
+    const items = (Array.isArray(b.items) ? b.items : []).slice(0, 5000).map((x) => ({ l: String((x && x.l) || "").slice(0, 200), k: String((x && x.k) || "").slice(0, 120) })).filter((x) => x.l && x.k);
+    if (!items.length) return res.status(400).json({ error: "優先度を付ける会社を選んでください" });
+    if (b.prio != null && ![1, 2, 3].includes(Number(b.prio))) return res.status(400).json({ error: "優先度は 高・中・低 のどれかを選んでください" });
+    const r = await (await import("./db.js")).mcBalesPrioSet(items, b.prio == null ? null : Number(b.prio));
+    if (r.n < items.length) console.warn(`[mcBales] 優先度：${items.length}件のうち ${r.n}件だけ付けられました`);
+    res.json({ ok: true, ...r }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 // 担当のいる過去失注リストを未割り振りへ（kinbot の中だけ・元に戻せる）（2026-11-23 田中さん）。dry=1 で件数だけ、undo=1 で戻す。MOCHICALL の管理者だけ
 app.post("/api/mochica/bales/lists/:key/unassign-pastlost", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
@@ -29959,7 +29999,7 @@ app.get("/api/mochica/bales/lists/:key/csv", async (req, res) => {
     // 先頭にホット度と3つの判定（担当者名・ニーズ・検討時期）を足す（2026-11-16）
     const HL = { 3: "ホット", 2: "ウォーム" }; const hv = (h) => (h ? [HL[h.n] || "コールド", (h.name || {}).st || "", (h.need || {}).st || "", (h.when || {}).st || ""] : ["", "", "", ""]);
     const lines = [["ホット度", "担当者名", "ニーズ", "検討時期", ...cols].map(q).join(",")];
-    for (let off = 0; ; off += 5000) { const r = await mcBalesRows(key, { q: String(req.query.q || ""), col: String(req.query.col || ""), val: String(req.query.val ?? ""), offset: off, limit: 5000, hot: String(req.query.hot || ""), sort: String(req.query.sort || ""), cr: String(req.query.cr || ""), col2: String(req.query.col2 || ""), val2: String(req.query.val2 ?? ""), sf: String(req.query.sf || ""), src: String(req.query.src || ""), stg: String(req.query.stg || "") }); for (const d of r.rows) lines.push([...hv(d.__hot), ...cols.map((c) => d[c])].map(q).join(",")); if (r.rows.length < 5000) break; }
+    for (let off = 0; ; off += 5000) { const r = await mcBalesRows(key, { q: String(req.query.q || ""), col: String(req.query.col || ""), val: String(req.query.val ?? ""), offset: off, limit: 5000, hot: String(req.query.hot || ""), sort: String(req.query.sort || ""), cr: String(req.query.cr || ""), col2: String(req.query.col2 || ""), val2: String(req.query.val2 ?? ""), sf: String(req.query.sf || ""), src: String(req.query.src || ""), stg: String(req.query.stg || ""), pr: String(req.query.pr || "") }); for (const d of r.rows) lines.push([...hv(d.__hot), ...cols.map((c) => d[c])].map(q).join(",")); if (r.rows.length < 5000) break; }
     res.setHeader("content-type", "text/csv; charset=utf-8"); res.setHeader("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(`Bales_${l.name || key}.csv`)}`);
     res.send("﻿" + lines.join("\r\n"));
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -35070,14 +35110,18 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-25td MOCHICALL：リストを選ぶ欄に今日かけるリストが2つ出ていたのを1つに（全員分の入れ物のリストは出さない）";
+const BUILD_TAG = "2026-11-25mg 合流：2026-11-25nx BALES：取り込み・同期・引き継ぎで次回アクションのコメントも反映／2026-11-25ad SHOBO リスト管理：表で選んだ会社（どのリストでも）を、その人のかけるリストに追加できる（件数・表・今日かけるリストにも入る・優先度も一緒に付けられる）／2026-11-25tk MOCHICALL：管理者は架電画面からトークスクリプトを直せるように／2026-11-25td MOCHICALL：リストを選ぶ欄に今日かけるリストが2つ出ていたのを1つに（全員分の入れ物のリストは出さない）";
 const BUILD_FEATURES = [
+  "MOCHICALL：リスト管理で「過去の履歴：見せる／伏せる」を選べる（伏せたリストは架電画面で過去の架電・メール・フォームの記録を出さない）",
   "MOCHICALL：リストを選ぶ欄から「今日かけるリスト（リスト管理）」（全員の今日の分の入れ物）を外し、本人の今日の分だけ出す",
   "MOCHICALL：今日かけるリストの本人の判定で、BALES の所有者が名字だけの人にも当てる（同じ名字の人がいないときだけ）。インサイドの「かける」の状態に、所有者と名前が合わない人を出す",
   "MOCHICALL：キャリミキのリストの会社は、MOCHICA の「探してかける」・今日かけるリスト・SHOBO から足す・配る・移すで MOCHICA 側へ入れない",
   "MOCHICALL：トークの無いリストは選ぶ欄に「トークなし」。止まったら管理者はその場でトークを写す・書ける。保管から出したリストはいま使っているトークを写す。ほかの人の今日かけるリストの分は付け直しを勧めない",
   "MOCHICALL：BALES でかけた結果を「かける」の順番に入れる（アポ・お断りは外す・不在は同じ日に掛け直し・BALES の次回アクションの予約を約束の掛け直しに）",
   "MOCHICALL：開発期間だけの「困った」ボタン（右下）。押すと画面のエラー・失敗した通信・画面の知らせの記録を開発メモへ送る",
+  "BALES：取り込み・同期・引き継ぎで次回アクションのコメントも反映（リスト管理・MOCHICALL の「これまで」・次回欄・引き継ぎ画面に表示）",
+  "MOCHICALL：トーク欄の「トークを直す」から、架電画面のままトークを直せる（管理者だけ。保存するといま開いている会社から新しいトークで出す）",
+  "SHOBO リスト管理：表で選んだ会社（どのリストでも）を、その人のかけるリストに追加できる（今日かけるリストにも入る）。会社ごとに優先度（高・中・低）を付けられ、高は今日かけるリスト・MOCHICALL で先に出る",
   "スマホから kinXs を開ける（kinbot のメニューから・kinXs のメニューはたたんで右上で開く）",
   "kinXs の担当企業とホームで、今月納品待ち・来月納品待ちの会社がわかる",
   "MOCHICALL：Bales で追いかけ中（コネクト情報獲得・ジャッジ×最終架電が営業フォロー）のリードを、Bales の所有者のインターンの掛け直しへ引き継ぐ",

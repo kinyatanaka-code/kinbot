@@ -5,6 +5,7 @@
 // 「リードソース・都道府県・業界・業種・Bales での最終架電・ホットの条件・SF の過去失注」を1つの形にそろえて
 // mc_call_leads.seg に持つ。毎回 JSON を全部読むと重いので、計算は1回だけ（SEG_V を上げると全部やり直す）。
 // DB も通信も使わない純粋な関数だけにして、node で直接試せるようにしている。
+import { pickNextAction } from "./mcbalessync.js";
 
 // 2：ステージと、SF から足したリードを足した（2026-11-19）
 // 3：ASUMO /teleapo と同じ絞り込み（2026-11-20）。社名の鍵（マイナビと結ぶ）・市区町村・検討時期・更新月・利用中の競合・SF の課題感・SF の最終活動日
@@ -190,16 +191,17 @@ export function sfLeadRow(l, judgeHot) {
 }
 
 // ---- BALES の行 → SHOBO に移すときの「次にかける日時」と「かけた回数」（2026-11-19 福井さん「BALES は解約するので全部移す」） ----
-//   次のアクション（nextActions.N）のうち終わっていない「コール」の予定で、いちばん早いもの。BALES で入れた掛け直しの予約を失わないため
+//   次のアクション（nextActions.N）のうち終わっていない予定のいちばん早いものとコメント。BALES で入れた掛け直しの予約・引き継ぎメモを失わないため
 export function balesCarry(d = {}) {
-  let next = null;
-  for (let i = 0; i < 50; i++) {
-    const at = d[`nextActions.${i}.reservedAt`]; if (at == null) { if (d[`nextActions.${i}.id`] == null) break; continue; }
-    if (String(d[`nextActions.${i}.isDone`]) === "true") continue;
-    const t = Date.parse(at); if (Number.isFinite(t) && (next == null || t < next)) next = t;
-  }
+  const nx = pickNextAction(d);
   const n = parseInt(d.callResultsCount, 10);
-  return { next_at: next != null ? new Date(next).toISOString() : null, attempts: Number.isFinite(n) && n > 0 ? Math.min(n, 999) : 0 };
+  return {
+    next_at: nx && nx.t != null ? new Date(nx.t).toISOString() : null,
+    next_comment: nx?.comment || "",
+    next_name: nx?.name || "",
+    next_owner: nx?.owner || "",
+    attempts: Number.isFinite(n) && n > 0 ? Math.min(n, 999) : 0
+  };
 }
 
 // ---- SF から足すときの条件 → SOQL の WHERE（2026-11-19） ----

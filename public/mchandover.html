@@ -27,7 +27,7 @@
   <div class="card"><div class="row" id="kpi">読み込み中…</div>
     <p><button id="go" disabled>引き継ぐ</button> <span id="msg" class="note" role="status"></span></p></div>
   <div class="card" id="skip"></div>
-  <div class="card"><table><thead><tr><th>渡す人</th><th>Bales の所有者</th><th>会社</th><th>ステージ</th><th>最終架電</th><th>掛け直し</th><th>どうするか</th></tr></thead><tbody id="tb"></tbody></table></div>
+  <div class="card"><table><thead><tr><th>渡す人</th><th>Bales の所有者</th><th>会社</th><th>ステージ</th><th>最終架電</th><th>掛け直し</th><th>次回コメント</th><th>どうするか</th></tr></thead><tbody id="tb"></tbody></table></div>
 </main>
 <script>
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -44,7 +44,7 @@ function draw(j) {
     <div class="note">インターンに当たらない所有者：${(s.notIntern || []).map((x) => `${esc(x.owner)} ${x.n}件`).join("、") || "なし"}</div>
     <div class="note">同じ名前のインターンが2人いて決められない：${(s.twoPeople || []).map((x) => `${esc(x.owner)}（${esc(x.emails.join("・"))}）`).join("、") || "なし"}</div>
     <div class="note">名前が当たったインターン：${(j.owners || []).map((x) => `${esc(x.owner)}→${esc(x.emails.join("・"))}`).join("、") || "なし"}</div>`;
-  document.getElementById("tb").innerHTML = (j.items || []).map((x) => `<tr><td>${esc(x.to)}</td><td>${esc(x.owner)}</td><td>${esc(x.company)}</td><td>${esc(x.stage)}</td><td>${esc(x.lastCalled)}</td><td>${esc(jst(x.next))}</td><td>${esc(x.how)}</td></tr>`).join("");
+  document.getElementById("tb").innerHTML = (j.items || []).map((x) => `<tr><td>${esc(x.to)}</td><td>${esc(x.owner)}</td><td>${esc(x.company)}</td><td>${esc(x.stage)}</td><td>${esc(x.lastCalled)}</td><td>${esc(jst(x.next))}</td><td>${esc(x.nextComment || x.comment || "")}</td><td>${esc(x.how)}</td></tr>`).join("");
 }
 async function call(run) {
   const r = await fetch(`/api/mccall/bales-handover${run ? "?run=1" : ""}`, { method: "POST" });
