@@ -122,11 +122,43 @@
     } catch {}
     return out;
   }
+  // 事業部・営業担当（グループ／担当者）を選ぶ（2026-11-25 田中さん「これも自動で選択させたい」）。
+  //   事業部は「事開」、グループは「事業開発本部 事業開発部 DOCグループ」、担当者は kinbot にログインしている人（田中 欽也（NC…）など）。
+  //   NeoSTAGE のプルダウンは検索つきの部品で、本物の select は隠れている。select の値を変えて change を出すと、表示も変わる。
+  //   前の選択で次の選択肢が入れ替わることがあるので、出てくるまで少し待ってから選ぶ
+  const UNIT_DIV = "事開", UNIT_GROUP = "事業開発本部 事業開発部 DOCグループ";
+  const norm = (t) => String(t || "").normalize("NFKC").replace(/[\s　]/g, "");
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  async function choose(getSel, pred, label) {
+    for (let i = 0; i < 25; i++) {   // 最大 7.5 秒待つ
+      const sel = getSel();
+      const o = sel && [...sel.options].find((x) => x.value !== "" && pred(norm(x.text)));
+      if (o) {
+        if (sel.value !== o.value) { sel.value = o.value; sel.dispatchEvent(new Event("change", { bubbles: true })); }
+        const shown = sel.nextElementSibling && /select2|chosen/.test(sel.nextElementSibling.className || "") ? sel.nextElementSibling : sel;
+        shown.style.outline = "2px solid #5DCAA5"; shown.style.outlineOffset = "1px";
+        return label;
+      }
+      await sleep(300);
+    }
+    return "";
+  }
+  async function pickStaff() {
+    const me = await api("me"); const myName = norm(me && me.ok ? me.name : "");
+    const sels = (lab) => [...document.querySelectorAll("select")].filter((s) => labelOf(s) === lab);
+    const out = [];
+    const a = await choose(() => sels("事業部")[0], (t) => t === norm(UNIT_DIV), "事業部"); if (a) out.push(a);
+    const b = await choose(() => sels("営業担当")[0], (t) => t === norm(UNIT_GROUP), "営業担当（グループ）"); if (b) out.push(b);
+    if (myName) { const c = await choose(() => sels("営業担当")[1], (t) => t.replace(/[（(].*$/, "") === myName, "営業担当（担当者）"); if (c) out.push(c); }
+    return out;
+  }
   // 事業部新規は SF を選ばなくても入れられる（値は部署の画面から写すため）
   async function fillUnit(extra) {
     $("kbNeoMsg").textContent = "部署の画面から、請求書送付先の担当者を読んでいます…";
     const u = await unitFromDetail();
     const res = fill({ ...(extra || {}), unit: u });
+    $("kbNeoMsg").textContent = "事業部・営業担当を選んでいます…";
+    try { (await pickStaff()).forEach((x) => res.done.push(x)); } catch {}
     $("kbNeoMsg").innerHTML = `部署の画面の請求書送付先から <b>${res.done.length}項目</b> 入れました（適用日は今日）。`
       + (u.name ? "" : `<br><span style="color:#8A4B00">請求書送付先の担当者が読めませんでした。手で入れてください</span>`)
       + (res.miss.length ? `<br><span style="color:#B4441F">まだ空の必須：${esc(res.miss.slice(0, 12).join("・"))}</span>` : "");
