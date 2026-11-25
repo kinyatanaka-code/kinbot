@@ -80,7 +80,28 @@
 
   // ===== ふだん：回答レビューを開いたら送る =====
   const sent = new Set(); let timer = null; let crawling = false;
+  // ===== ユーザー管理の「ユーザー一覧」（2026-11-25 田中さん「AI の管理者のログイン情報は、管理画面のユーザー管理にメールアドレスと企業IDで出ている」）=====
+  //   ユーザー管理を開いたら、一覧のメールアドレス・担当企業（企業ID）・権限・作成日を読んで kinXs に送る。パスワードは管理画面にも出ないので読まない
+  const usersSent = new Set();
+  async function passiveUsers() {
+    if (!/user_management/.test(location.pathname) && !/ユーザー一覧/.test(document.body.innerText || "")) return;
+    const t = String(document.body.innerText || ""); const i = t.indexOf("ユーザー一覧"); if (i < 0) return;
+    const lines = t.slice(i).split("\n").map((x) => x.trim()).filter(Boolean);
+    const rows = []; let cur = null;
+    for (const ln of lines.slice(1)) {
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ln)) { if (cur) rows.push(cur); cur = { email: ln.toLowerCase(), cells: [] }; continue; }
+      if (cur && cur.cells.length < 4) cur.cells.push(ln);
+    }
+    if (cur) rows.push(cur);
+    const users = rows.map((r) => ({ email: r.email, company: r.cells[0] || "", role: r.cells[1] || "", created: (r.cells.find((c) => /^\d{4}[-/]\d{1,2}/.test(c)) || "").slice(0, 19) }))
+      .filter((u) => u.company && u.company.length <= 60).slice(0, 2000);
+    if (!users.length) return;
+    const sig = JSON.stringify(users); if (usersSent.has(sig)) return; usersSent.add(sig);
+    const r = await kb("/api/kinxs/docai/users", "POST", { users });
+    if (r.ok) toast(`kinXs に AI のユーザー ${users.length} 人を保存しました`, true); else usersSent.delete(sig);
+  }
   async function passive() {
+    passiveUsers().catch(() => {});
     if (crawling) return;
     const body = document.body ? document.body.innerText || "" : "";
     if (!/回答レビュー/.test(body) || !/セッション\s*[:：]/.test(body)) return;

@@ -648,8 +648,10 @@ function kxCoPane(d) {
           <div class="kx-edact"><button type="button" class="hp-b" data-cancel>やめる</button><button type="button" class="kx-btn kx-pri" data-save-info>保存</button></div>
         </div>
         <div class="kx-sub2">AIの管理者のログイン情報</div>
+        ${(f.docAiUsers || []).length ? `<div class="kx-note" style="margin:2px 0 6px">管理画面のユーザー管理から（${esc(String(f.docAiUsersAt || "").slice(0, 10).replace(/-/g, "/"))} 時点）。パスワードは管理画面にも出ないため、ここには出ません</div>`
+          + f.docAiUsers.map((u) => `<div class="kx-acc"><div class="lb2">${esc(u.role || "ユーザー")}</div><div class="v"><span class="id">${esc(u.email)}</span><button type="button" class="hp-b" data-copy="${esc(u.email)}">コピー</button></div></div>`).join("") : ""}
         ${(f.ai || []).length ? f.ai.map((a) => `<div class="kx-acc" data-ai-i="${esc(a.id)}"><div class="lb2">${esc(a.label || "アカウント")}</div><div class="v"><span class="id">${esc(a.login || "—")}</span>${a.login ? `<button type="button" class="hp-b" data-copy="${esc(a.login)}">IDコピー</button>` : ""}</div>${a.has_pass ? `<div class="v"><span class="kx-pw" data-ai-pw>••••••••</span><button type="button" class="hp-b" data-ai-show>見る</button><button type="button" class="hp-b" data-ai-copy>コピー</button></div>` : ""}</div>`).join("")
-          : `<span class="kx-none">まだありません（CS連携の企業カードの「AIアカウント」で入れられます）</span>`}
+          : (f.docAiUsers || []).length ? "" : `<span class="kx-none">まだありません（拡張機能を入れたパソコンで AI の管理画面の「ユーザー管理」を開くと、ここにメールが入ります。CS連携の企業カードの「AIアカウント」でも入れられます）</span>`}
       </section>
     </div>
   </div>`;

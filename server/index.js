@@ -18551,6 +18551,22 @@ app.get("/api/kinxs/docai/companies", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // うまく回れなかったときに、拡張機能が画面の作り（部品の名前・大きさ）を送ってくる。直すときに見る（候補者の文は入れない）
+// DOC の AI の管理画面「ユーザー管理」の一覧（メール・担当企業＝企業ID・権限・作成日）を受け取って覚える（2026-11-25 田中さん）。
+//   拡張機能がユーザー管理を開いたときに送ってくる。パスワードは管理画面にも出ないので、ここには無い。
+//   一覧に出た会社の分は入れ替える（消えたユーザーも消える）。一覧の外の会社の分はそのまま
+app.post("/api/kinxs/docai/users", async (req, res) => {
+  try {
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
+    const list = (Array.isArray(req.body && req.body.users) ? req.body.users : []).slice(0, 2000)
+      .map((u) => ({ email: String(u.email || "").toLowerCase().slice(0, 120), company: String(u.company || "").trim().slice(0, 60), role: String(u.role || "").slice(0, 20), created: String(u.created || "").slice(0, 19) }))
+      .filter((u) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(u.email) && u.company);
+    const st = await getSettings().catch(() => ({})); const all = { ...(st.docAiUsers || {}) };
+    const by = new Map(); for (const u of list) { if (!by.has(u.company)) by.set(u.company, []); by.get(u.company).push({ email: u.email, role: u.role, created: u.created }); }
+    for (const [co, us] of by) all[co] = us;
+    await saveSettings({ docAiUsers: all, docAiUsersAt: new Date().toISOString() });
+    res.json({ ok: true, companies: by.size, users: list.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.post("/api/kinxs/docai/diag", async (req, res) => {
   try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); const st = await getSettings().catch(() => ({})); const list = Array.isArray(st.docAiDiag) ? st.docAiDiag : [];
     list.unshift({ at: new Date().toISOString(), by: req.user, ...(req.body && typeof req.body === "object" ? req.body : {}) }); await saveSettings({ docAiDiag: JSON.parse(JSON.stringify(list.slice(0, 5)).slice(0, 200000)) }).catch(async () => { await saveSettings({ docAiDiag: list.slice(0, 1) }); }); res.json({ ok: true }); }
@@ -18702,6 +18718,9 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
       if (!out.aiUrl && kk.doc_candidate_url) { out.aiUrl = kk.doc_candidate_url; out.source.aiUrl = "CS連携"; }
     }
     out.adminUrl = "https://casual-interview-api.brainverse-ai.com/";
+    // AI の管理画面のユーザー（拡張機能がユーザー管理から読んだもの）。企業ID は AI の候補者画面の URL の最後
+    { const co = (/brainverse-ai\.com\/([A-Za-z0-9_-]+)/.exec(out.aiUrl || "") || [])[1] || (out.portal && out.portal.id) || "";
+      const st1 = await getSettings().catch(() => ({})); out.docAiUsers = co ? ((st1.docAiUsers || {})[co] || []) : []; out.docAiUsersAt = st1.docAiUsersAt || ""; }
     if (!out.website) {
       const d = (out.contacts || []).map((c) => String(c.email || "").toLowerCase().split("@")[1]).find((d0) => d0 && !KX_FREE_MAIL.test(d0));
       if (d) { out.website = `https://${d.replace(/^mail\./, "")}`; out.source.website = "メールのドメイン"; }
@@ -35124,7 +35143,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-25talkmap MOCHICALL：リスト管理に「リストとトークの対応」を足し、リストごとのトーク A/B/C に、ほかのリストのトークを写して差し替え・外しができるように";
+const BUILD_TAG = "2026-11-25i 拡張機能 2.2.34：DOC の AI の管理画面「ユーザー管理」を開くと、一覧のメール・企業ID・権限を kinXs に送る。kinXs の企業情報「AIの管理者のログイン情報」に、その会社のユーザーのメールを出す（押すとコピー）。パスワードは管理画面にも出ないので出さない。／2026-11-25talkmap MOCHICALL：リスト管理に「リストとトークの対応」を足し、リストごとのトーク A/B/C に、ほかのリストのトークを写して差し替え・外しができるように";
 const BUILD_FEATURES = [
   "MOCHICALL：リスト管理で「過去の履歴：見せる／伏せる」を選べる（伏せたリストは架電画面で過去の架電・メール・フォームの記録を出さない）",
   "MOCHICALL：リストを選ぶ欄から「今日かけるリスト（リスト管理）」（全員の今日の分の入れ物）を外し、本人の今日の分だけ出す",
