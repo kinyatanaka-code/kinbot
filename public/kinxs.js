@@ -1752,7 +1752,7 @@ async function kh2LoadTasks(who0) {
       const canMove = (t0.kind === "次回アクション" && t0.accountId) || (t0.id && !String(t0.key || "").startsWith("auto:")) || (t0.id && /（自動）|Claude/.test(String(t0.src || "")));
       if (!canMove || !pp.length) return `<span class="who">${esc(nm)}</span>`;
       return `<label class="who h2-who" data-noopen title="押すとほかの人に移せます">${esc(nm || "担当")}<select data-tk-who="${i0}"><option value="">移す人を選ぶ</option>${pp.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === cur ? "selected" : ""}>${esc(p0.name)}</option>`).join("")}</select></label>`; })();
-    return `<div class="h2-li h2-tkrow" data-tk="${i0}" ${t0.accountId ? `data-tk-open="${esc(t0.accountId)}"` : ""} role="button" tabindex="0"><span class="${dcls}">${dl}${em}</span><span class="co">${x ? kxLogoMini(x) : ""}<b>${esc(t0.account || "（会社なし）")}</b></span><span class="what">${esc(t0.title)}<small class="h2-src">${esc(t0.kind === "次回アクション" ? "次回アクション" : lbl(t0.src))}</small></span>${who}<span class="h2-ops" data-noopen>${d.mine ? '<button type="button" class="h2-op done" data-tk-done title="済みにする">✓ 済み</button>' : ""}${(t0.kind === "次回アクション" && t0.accountId) || (t0.id && !String(t0.key || "").startsWith("auto:")) || (d.mine && t0.key) ? '<button type="button" class="h2-del" data-tk-del title="このタスクを消す" aria-label="消す"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9.5 7V5.2c0-.7.5-1.2 1.2-1.2h2.6c.7 0 1.2.5 1.2 1.2V7"/><path d="M6.5 7l.9 11.6c.1 1 .9 1.9 2 1.9h5.2c1 0 1.9-.8 2-1.9L17.5 7"/><path d="M10.3 11v5.5M13.7 11v5.5"/></svg></button>' : ""}</span></div>`; };
+    return `<div class="h2-li h2-tkrow" data-tk="${i0}" ${t0.accountId ? `data-tk-open="${esc(t0.accountId)}"` : ""} role="button" tabindex="0"><label class="${dcls} edit" data-noopen title="押すと期日を変えられます">${dl}${em}<input type="date" data-tk-due="${i0}" value="${esc(t0.due || "")}" aria-label="期日を変える"></label><span class="co">${x ? kxLogoMini(x) : ""}<b>${esc(t0.account || "（会社なし）")}</b></span><span class="what">${esc(t0.title)}<small class="h2-src">${esc(t0.kind === "次回アクション" ? "次回アクション" : lbl(t0.src))}</small></span>${who}<span class="h2-ops" data-noopen>${d.mine ? '<button type="button" class="h2-op done" data-tk-done title="済みにする">✓ 済み</button>' : ""}${(t0.kind === "次回アクション" && t0.accountId) || (t0.id && !String(t0.key || "").startsWith("auto:")) || (d.mine && t0.key) ? '<button type="button" class="h2-del" data-tk-del title="このタスクを消す" aria-label="消す"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9.5 7V5.2c0-.7.5-1.2 1.2-1.2h2.6c.7 0 1.2.5 1.2 1.2V7"/><path d="M6.5 7l.9 11.6c.1 1 .9 1.9 2 1.9h5.2c1 0 1.9-.8 2-1.9L17.5 7"/><path d="M10.3 11v5.5M13.7 11v5.5"/></svg></button>' : ""}</span></div>`; };
   box.innerHTML = `<div class="kx-note" style="padding:2px 4px 6px">${d.all ? "全員" : d.mine ? "自分" : esc(who)}のタスク（期限の近い順）</div><div class="h2-list">` + (items.length ? items.map((t0, i0) => row(t0, i0)).join("") : '<div class="kx-empty">タスクはありません 🎉</div>') + "</div>";
   box.querySelectorAll("[data-tk-open]").forEach((el) => el.addEventListener("click", (e) => { if (e.target.closest("[data-noopen], button, select, label")) return; openDetail(el.dataset.tkOpen); }));
   box.querySelectorAll("[data-tk-co]").forEach((b) => b.addEventListener("click", () => { if (b.dataset.tkCo) openDetail(b.dataset.tkCo); }));
@@ -1787,6 +1787,24 @@ async function kh2LoadTasks(who0) {
       if (typeof kxDoneToast === "function") kxDoneToast("済みにしました");
     } catch (err) { li.classList.remove("gone"); li.style.display = ""; b.classList.remove("on"); kh2.tkN += 1; if (nb) nb.textContent = kh2.tkN; alert(err.message); }
   }));
+  // 期日を変える（2026-11-25 田中さん「ここで日付ずらせるように」）：期日の札を押すとカレンダーが開き、選んだ日に変えて読み直す。
+  //   次回アクションは会社の次回アクションの日（時間があれば時間はそのまま）、ふつうのタスクはタスクの期日、自動のタスクは状態として残す
+  box.querySelectorAll("input[data-tk-due]").forEach((inp) => {
+    inp.addEventListener("click", (e) => { e.stopPropagation(); try { inp.showPicker(); } catch {} });
+    inp.addEventListener("change", async () => {
+      const t0 = items[Number(inp.dataset.tkDue)]; const dv = inp.value; if (!t0 || !dv) return;
+      try {
+        if (t0.kind === "次回アクション" && t0.accountId) {
+          const x0 = ((typeof lsData !== "undefined" && lsData && lsData.items) || []).find((y) => y.id === t0.accountId) || {};
+          const tm = x0.naAt ? new Date(new Date(x0.naAt).getTime() + 9 * 3600000).toISOString().slice(11, 16) : "";
+          await api(`/api/kinxs/accounts/${encodeURIComponent(t0.accountId)}`, { method: "PUT", body: JSON.stringify(tm ? { na_at: `${dv}T${tm}` } : { na_due: dv }) });
+        } else if (t0.id && !String(t0.key || "").startsWith("auto:")) await api(t0.accountId ? `/api/kinxs/accounts/${encodeURIComponent(t0.accountId)}/tasks/${t0.id}` : `/api/kinxs/tasks/${t0.id}`, { method: "PUT", body: JSON.stringify({ due: dv, dups: t0.dups }) });
+        else await api("/api/kinxs/tasks/state", { method: "POST", body: JSON.stringify({ dups: t0.dups, key: t0.key, title: t0.title, accountId: t0.accountId, account: t0.account, src: t0.src, status: t0.status || "未着手", due: dv }) });
+        if (typeof kxDoneToast === "function") kxDoneToast(`期日を ${Number(dv.slice(5, 7))}/${Number(dv.slice(8, 10))} にしました`);
+        kh2LoadTasks(who).catch(() => {});
+      } catch (err) { alert("期日を変えられませんでした：" + err.message); }
+    });
+  });
   kh2WireDel(box, items);
 }
 // 消す（2026-11-19 田中さん「タスクを削除できるようにして」）：済みと同じく、押したらすぐ行を消す。失敗したら戻す
