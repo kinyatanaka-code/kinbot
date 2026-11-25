@@ -2687,7 +2687,8 @@ async function renderMine(boxArg, opts = {}) {
     ["dw", "今月納品待ち", "#1d9e75", (x) => waitIng(x) && dlvYm(x) <= thisYm, dlvNote, (a, b) => dlvYm(a).localeCompare(dlvYm(b)) || String(a.name).localeCompare(String(b.name), "ja")],
     ["dn", "来月納品待ち", "#5DCAA5", (x) => waitIng(x) && dlvYm(x) === nextYm, dlvNote, (a, b) => String(a.name).localeCompare(String(b.name), "ja")],
     // 下の段：会社のステージ（kxStageOf）。いまその段にいる会社を数える（2026-11-25 田中さん「ステージをそろえたい」）
-    ...KX_STAGES.map((g, gi) => [g.k, g.l, g.c, (x) => kxStageOf(x) === gi, (x) => kxStageNote(x, gi)]),
+    //   流れの先頭は「受注」ではなく「キックオフ未設定」（2026-11-25 田中さん「受注ではなくキックオフ未設定」）。受注の段にいる会社（受注日も先の記録も無い）もここに数える
+    ...KX_STAGES.slice(1).map((g, j) => { const gi = j + 1; return [g.k, gi === 1 ? "キックオフ未設定" : g.l, g.c, (x) => (gi === 1 ? kxStageOf(x) <= 1 : kxStageOf(x) === gi), (x) => kxStageNote(x, kxStageOf(x) === 0 ? 0 : gi)]; }),
   ];
   // 担当企業の画面は1画面に固定して、会社の一覧だけを中で巻き取る（2026-11-24 田中さん「上に詰めて、会社一覧はスクロールできるように」）。スマホ（幅860px以下）は今まで通り
   const miFit = () => { if (home || !box.isConnected) return; const wide = window.innerWidth > 860; box.classList.toggle("mi-fixed", wide);
