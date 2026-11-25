@@ -24,7 +24,7 @@ export const HEAR_ITEMS = [
   { k: "priority", no: "③", group: "req", label: "提案の優先課題", type: "choice", opts: ["エントリー後の移行率を上げたい", "どちらも取り組みたい", PRIORITY_ENTRY], show: { k: "target", lt: 4 }, hint: "目標が4名未満のときだけ聞く", ask: "優先して取り組みたい課題（エントリー後の移行率を上げたい／どちらも取り組みたい／そもそものエントリー数を増やしたい）" },
   { k: "when", no: "④", group: "req", label: "次卒の選考開始予定時期", type: "month", hint: "未定でも「未定」を選ぶ", ask: "次の卒年の選考開始のご予定時期（未定でも構いません）" },
   { k: "budget3m", no: "⑤", group: "req", label: "3カ月以内の導入予算", type: "choice", opts: ["3カ月以内に検討できる予算がある", BUDGET_NONE], ask: "3カ月以内にご検討いただけるご予算の有無" },
-  { k: "need_who", no: "⑥", group: "req", label: "採用対象", type: "need", part: "who", hint: "どんな人を採りたいか", ask: "採用したい人材（新卒・中途・パート／アルバイト など）" },
+  { k: "need_who", no: "⑥", group: "req", label: "採用対象", type: "need", part: "who", hint: "どんな人を採りたいか", ask: "採用したい人材（新卒・高卒・中途・パート／アルバイト など）" },
   { k: "need_pains", no: "⑦", group: "req", label: "課題感", type: "need", part: "pains", hint: "いまの採用で困っていること", ask: "現在の採用活動でお困りのこと" },
   { k: "hired", no: "⑧", group: "more", label: "現卒の採用実績人数", type: "num", unit: "名", ask: "現在の卒年の採用実績（内定承諾）人数" },
   { k: "source", no: "⑨", group: "more", label: "現卒の母集団形成の方法", type: "text", hint: "例：マイナビ、リクナビ、学内説明会、紹介", ask: "現在の卒年の母集団形成の方法（例：マイナビ、リクナビ、学内説明会、紹介など）" },

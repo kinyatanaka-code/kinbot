@@ -921,6 +921,7 @@
       const opts = needOpts()[it.part] || [];
       const aliases = opts.map((option) => [option.normalize("NFKC"), option]);
       if (opts.includes("パート・アルバイト")) aliases.push(["パート", "パート・アルバイト"], ["アルバイト", "パート・アルバイト"]);
+      if (opts.includes("高卒")) aliases.push(["高校", "高卒"]);
       aliases.sort(([a], [b]) => b.length - a.length);
       const picked = new Set();
       let rest = v;
