@@ -2651,8 +2651,9 @@ if (VIEW === "mine") renderMine();
 //   前の5つは「済んだら次へ」。納品メールのあとは、掲載・利用が確認できたら「掲載・利用中」、できていなければ
 //   納品メールから2か月（60日）は「オンボーディング中」、2か月を過ぎたら「要確認」
 const KX_STAGES = [
-  { k: "s0", l: "受注", c: "#0d5b47" }, { k: "s1", l: "キックオフ設定", c: "#E0A100" }, { k: "s2", l: "キックオフ実施", c: "#D08A00" },
-  { k: "s3", l: "検収書回収", c: "#C43D3D" }, { k: "s4", l: "納品メール回収", c: "#3F72C9" }, { k: "s5", l: "オンボーディング中", c: "#6B4FB8" },
+  // 名前は「いまどこまで済んだか」で呼ぶ（2026-11-25 田中さん「キックオフ未設定／設定済／実施済／検収書回収済／納品メール回収済／要確認／掲載・利用中」「オンボーディングいらないか」）
+  { k: "s0", l: "受注", c: "#0d5b47" }, { k: "s1", l: "キックオフ未設定", c: "#E0A100" }, { k: "s2", l: "キックオフ設定済", c: "#D08A00" },
+  { k: "s3", l: "キックオフ実施済", c: "#C43D3D" }, { k: "s4", l: "検収書回収済", c: "#3F72C9" }, { k: "s5", l: "納品メール回収済", c: "#6B4FB8" },
   { k: "s6", l: "要確認", c: "#B4441F" }, { k: "s7", l: "掲載・利用中", c: "#1d9e75" },
 ];
 function kxStageInfo(x) {
@@ -3810,12 +3811,12 @@ function kxNowCard(d) {
     { k: "キックオフ実施", ed: "キックオフ", ok: si.done[2], sub: si.done[2] ? (koOk && koAt ? `${koAt} ✓` : "✓") : "まだ" },
     { k: "検収書回収", ed: "検収書", ok: si.done[3], skipNote: si.kenSkip ? "不要（初期なし）" : "", sub: si.kenSkip ? "不要（初期なし）" : x.kenshuNa ? "対象外" : si.done[3] ? "✓" : String(x.kenshu || "").startsWith("依頼済み") ? "依頼済み" : "まだ" },
     { k: "納品メール回収", ed: "納品メール", ok: si.done[4], sub: si.done[4] ? (x.mailOn ? `${md(x.mailOn)} ✓` : "✓") : "まだ" },
-    { k: "オンボーディング中", ed: "活用", ok: si.i > 5, sub: si.i === 5 && si.mailDays != null ? `${si.mailDays}日目` : si.i > 5 ? "✓" : "—" },
-    { k: "要確認", ed: "活用", ok: si.i === 7, sub: si.i === 6 ? `${si.mailDays}日たった` : si.i === 7 ? "—" : "2か月で" },
+    { k: "要確認", ed: "活用", ok: si.i === 7, sub: si.i === 6 ? `${si.mailDays}日たった` : si.i === 7 ? "—" : si.i === 5 && si.mailDays != null ? `あと${Math.max(0, 60 - si.mailDays)}日` : "2か月で" },
     { k: "掲載・利用中", ed: "掲載", ok: si.i === 7, sub: si.i === 7 ? (x.publishedOn ? md(x.publishedOn) : "✓") : (x.renew ? `更新 ${x.renew.replace("-", "/")}` : "まだ") },
   ];
-  const cur = si.i;
-  const head = { 0: "受注の手続き中", 1: "キックオフの設定待ち", 2: "キックオフの実施待ち", 3: "納品の手前（検収書の回収待ち）", 4: "納品メールを送る段階", 5: "オンボーディング中", 6: "要確認（納品メールから2か月、掲載・利用が未確認）", 7: "掲載・利用中" }[cur];
+  // 道のりの「いまここ」：納品メールのあとは、2か月までは掲載・利用中を待つ、過ぎたら要確認（オンボーディング中の段はなくした）
+  const cur = si.i <= 4 ? si.i : si.i === 5 ? 6 : si.i === 6 ? 5 : 7;
+  const head = { 0: "受注の手続き中", 1: "キックオフの設定待ち", 2: "キックオフの実施待ち", 3: "納品の手前（検収書の回収待ち）", 4: "納品メールを送る段階", 5: "納品メール回収済（掲載・利用の確認待ち）", 6: "要確認（納品メールから2か月、掲載・利用が未確認）", 7: "掲載・利用中" }[si.i];
   const since = info.booked ? Math.max(0, Math.floor((Date.now() - Date.parse(info.booked + "T00:00:00+09:00")) / 86400000)) : null;
   // 対応事項（急ぐ順）。act＝その場で片づけるボタンの種類
   const todo = [];
@@ -3851,7 +3852,7 @@ function kxNowCard(d) {
         const cls2 = skip ? `${cls} skip` : cls; const inner2 = skip ? `<i></i><b>${esc(s0.k)}</b><small>未記録</small>` : inner;
         // どの段も押すと、下に直す欄が開く（日付・済み／戻す）。受注は SF から入るので直さない（2026-11-20 田中さん「手で直しにくい」）
         if (s0.k === "受注") return `<div class="${cls2}" title="受注日は SF から入ります">${inner2}</div>`;
-        return `<button type="button" class="${cls2}${i === 6 && cur === 6 ? " warn" : ""} kx-a-stb" data-step-ed="${esc(s0.ed || s0.k)}" aria-expanded="false" title="押すと、${esc(s0.ed || s0.k)}を直す欄が開きます">${inner2}</button>`; }).join("")}</div>
+        return `<button type="button" class="${cls2}${i === 5 && si.i === 6 ? " warn" : ""} kx-a-stb" data-step-ed="${esc(s0.ed || s0.k)}" aria-expanded="false" title="押すと、${esc(s0.ed || s0.k)}を直す欄が開きます">${inner2}</button>`; }).join("")}</div>
       <div class="kx-a-ed" data-step-box hidden></div>
       <div class="kx-note" style="margin-top:-6px">道のりの段を押すと、日付や済み／戻すを直せます</div>
     </section>
