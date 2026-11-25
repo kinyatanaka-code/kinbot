@@ -2658,7 +2658,7 @@ async function renderMine(boxArg, opts = {}) {
     const cur = KS.find((k) => k[0] === st.k);
     const list = cur ? mine.filter(cur[3]).sort(cur[5] || ((a, b) => String(b.booked || "").localeCompare(String(a.booked || "")))) : [];
     const whoSel = `<label class="kx-note" style="display:flex;align-items:center;gap:6px">CS 担当<select class="kx-in" data-mwho style="width:auto"><option value="">全員</option>${names.map((n) => `<option ${n === st.who ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label>`;
-    box.innerHTML = `${home ? `<div class="h2-h"><h2>担当企業</h2><span class="h2-big">${mine.length}<small>社</small></span><a class="h2-link" href="/kinxs?p=mine" style="margin-left:auto">担当企業へ ›</a></div>` : `<div class="mi-tools">${whoSel}</div>`}
+    box.innerHTML = `${home ? `<div class="h2-h"><h2>担当企業</h2><span class="h2-big">${mine.length}<small>社</small></span>${/* 「担当企業へ ›」は、余白を押すと大きなモーダルで出るようになったのでやめた（2026-11-25 田中さん「担当企業へ いらないかもな」） */ ""}</div>` : `<div class="mi-tools">${whoSel}</div>`}
       ${(() => {
         // 並び（2026-11-24 田中さん）：上の段＝担当ユーザー数・今月納品待ち・来月納品待ち（・タスク）、
         //   下の段＝キックオフ未実施 → 検収書 → 納品メール → 納品済み・未掲載 → 納品済み・掲載中（進む順なので矢印でつなぐ）
