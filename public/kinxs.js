@@ -1699,6 +1699,28 @@ async function kxHomeAct(el) {
     api(kxUsersUrl()).then((d) => { lsData = d; renderHomeV2(); }).catch(() => {});
   } catch (e) { alert(e.message); }
 }
+// ホームの並びを作りかえる（2026-11-25 田中さん「2枚目（案C）でホームを作りかえて。タスクは『タスク』という表記、一覧で出して」）。
+//   今までの要アクションの枠から、自分／全員の切りかえと要アクションの行を取り出し、タスクの枠に入れ直す（行の動き・ボタンはそのまま使う）
+function kh3Layout(box, o) {
+  const row = box.querySelector(".h2-row"), act = box.querySelector(".h2-act"), left = box.querySelector(".h2-left"), side = box.querySelector(".h2-side"), mine = box.querySelector("#kh2Mine");
+  if (!row || !act || !left || !side) return;
+  const scope = act.querySelector(".h2-scope"), list = act.querySelector(".h2-list");
+  const v = (n) => (n == null ? "…" : n);
+  const sec = document.createElement("section"); sec.className = "h2-box h3-task";
+  sec.innerHTML = `<div class="h2-h"><h2>タスク</h2></div>
+    <div class="h3-tiles"><div class="t all"><small>ぜんぶ</small><b data-tk-n>${v(kh2.tkN)}</b><span>件</span></div><div class="t over"><small>期限切れ</small><b data-tk-over2>${v(kh2.tkOver)}</b><span>件</span></div><div class="t today"><small>今日</small><b data-tk-today>${v(kh2.tkToday)}</b><span>件</span></div></div>
+    <div class="h3-alert${o.actCos ? "" : " calm"}" role="alert"><div class="h3-alert-h"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17h.01"/></svg><b>要アクション ${o.actCos}社</b>${o.ksTxt ? `<span class="s">${esc(o.ksTxt)}</span>` : ""}</div></div>
+    <div class="h2-tk" id="kh2Tasks"><div class="kx-note" style="padding:10px 4px">読み込み中…</div></div>`;
+  if (scope) sec.querySelector(".h2-h").appendChild(scope);
+  if (list) { list.hidden = false; sec.querySelector(".h3-alert").appendChild(list); }
+  if (mine) side.prepend(mine);
+  left.innerHTML = ""; left.appendChild(sec);
+  row.classList.add("h3");
+}
+function kh3PaintTiles() {
+  const a = document.querySelector("[data-tk-over2]"); if (a && kh2.tkOver != null) a.textContent = kh2.tkOver;
+  const b = document.querySelector("[data-tk-today]"); if (b && kh2.tkToday != null) b.textContent = kh2.tkToday;
+}
 // 託した次回アクションの担当の名前に使う（ホーム）
 if (!window.__kxPeople) { window.__kxPeople = []; api("/api/kinxs/people").then((d) => { window.__kxPeople = d.items || []; if (VIEW === "home" && typeof lsData !== "undefined" && lsData) try { renderHomeV2(); } catch {} }).catch(() => {}); }
 // ホームの要アクションの「タスク」（2026-11-12）：カードの数を入れ、タスクのカードを選んだら、会社の詳細のタスクと同じまとまりで出す
@@ -1713,7 +1735,7 @@ async function kh2LoadTasks(who0) {
   const hidden0 = Math.max(0, (Number(d.total) || items.length) - (d.items || []).length);
   kh2.tkN = items.length + hidden0; const nb = document.querySelector("[data-tk-n]"); if (nb) nb.textContent = kh2.tkN;
   // 期限を過ぎているタスクの数（2026-11-13 田中さん）
-  { const td0 = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); kh2.tkOver = items.filter((t0) => t0.due && t0.due < td0).length; kh2.tkOverSet = new Set(items.filter((t0) => t0.due && t0.due < td0)); kxTkOverPaint(); }
+  { const td0 = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); kh2.tkOver = items.filter((t0) => t0.due && t0.due < td0).length; kh2.tkOverSet = new Set(items.filter((t0) => t0.due && t0.due < td0)); kh2.tkToday = items.filter((t0) => t0.due === td0).length; kxTkOverPaint(); }
   const box = $("kh2Tasks"); if (!box) return;
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
   const wk = new Date(Date.now() + 9 * 3600000 + 7 * 86400000).toISOString().slice(0, 10);
@@ -1795,6 +1817,9 @@ function kh2FitTasks() {
 window.addEventListener("resize", () => kh2FitTasks());
 function renderHomeV2() {
   const box = $("kh2"); if (!box || !lsData) return;
+  // 新しいホーム（2026-11-25 田中さん「案C でホームを作りかえて」）：要アクションの切りかえ（キックオフ／検収書／タスク）と大きく表示はやめ、
+  //   左＝タスク（数字3つ・要アクションをアラートとして上に固定・タスクの一覧）、右＝担当企業・これからの更新・情報不足
+  kh2.kf = ""; window.__kxActBig = false;
   const items = (lsData.items || []).filter((x) => !x.archived);
   const allIt = lsData.items || [];   // 数字はアーカイブした会社も入れて数える
   // ホームはいつも今月（月の切りかえは出さない）（2026-11-13 田中さん「ホームには月選択いらない」）
@@ -1876,6 +1901,7 @@ function renderHomeV2() {
   <section class="h2-box h2-miss"><div class="h2-h"><h2>情報不足の企業</h2>${ms ? `<span class="h2-big" data-cu="${msItems.length}">${msItems.length}<small>社</small></span>` : ""}<a class="h2-link" href="/kinxs?p=missing">情報不足へ ›</a></div>
     ${ms ? `<div class="h2-bars">${reqN.filter(([, n]) => n).map(([r, n]) => `<button type="button" class="h2-bar" data-miss="${esc(r.key)}"><span class="k">${esc(r.short || r.name)}</span><span class="b" data-grow><i style="width:${(n / maxReq) * 100}%"></i></span><span class="n">${n}</span></button>`).join("") || '<div class="h2-note">足りない情報はありません</div>'}</div>` : '<div class="h2-note">SFを読んでいます…</div>'}</section></div>
   </div>`;
+  kh3Layout(box, { actCos, ksTxt: (() => { const n0 = actRows.filter((r) => r.a.kind === "検収書 未回収").length; const all0 = n0 + ksDoneRows.length; return all0 ? `${Number(kxThisYm.slice(5))}月の検収書 未回収 ${n0}／${all0}社` : ""; })() });
   kxFitHome2();
   if ($("kh2Mine")) renderMine($("kh2Mine"), { home: true, items: lsData.items || [], who: kxCsF });
   // 担当企業の枠の余白を押したら、担当企業の画面を大きくモーダルで出す（2026-11-25 田中さん「担当企業も余白クリックしたら大きくモーダルで」）。
@@ -4104,7 +4130,7 @@ async function kxDocAiLoad(bg, d) {
 }
 
 // タスクのカードの「期限切れ ○」の札を描く（2026-11-13）
-function kxTkOverPaint() { const el = document.querySelector("[data-tk-over]"); if (!el) return; const n = (typeof kh2 !== "undefined" && kh2.tkOver) || 0; el.textContent = `期限切れ ${n}`; el.hidden = !n; }
+function kxTkOverPaint() { if (typeof kh3PaintTiles === "function") kh3PaintTiles(); const el = document.querySelector("[data-tk-over]"); if (!el) return; const n = (typeof kh2 !== "undefined" && kh2.tkOver) || 0; el.textContent = `期限切れ ${n}`; el.hidden = !n; }
 
 // アクセス分析ダッシュボードからの取り込みの窓：最後に入れた結果・入れ直すボタン・当たらなかった会社
 async function bvDraw(el) {
