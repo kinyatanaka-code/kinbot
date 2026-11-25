@@ -487,10 +487,40 @@
     const w = dialog(`情報を直す：${L.company || ""}`, "kinbot の架電リストの情報を直します（Bales・SF の元のデータは変わりません）。直した番号はすぐ左の「電話番号」に出ます。", "保存する", async (w) => {
       const v = (id) => w.querySelector(id).value.trim();
       const rows = (k) => [...w.querySelectorAll(`[data-row="${k}"]`)].map((r) => Object.fromEntries([...r.querySelectorAll("[data-k]")].map((i) => [i.dataset.k, i.value.trim()])));
-      await api(`/api/mccall/leads/${L.id}`, { method: "PATCH", body: JSON.stringify({ company: v("#mccECo"), person: v("#mccEPe"), phone: v("#mccEPh"), email: v("#mccEMa"), web: v("#mccEWeb"), corp: v("#mccECorp"), phones: rows("ph"), contacts: rows("ct") }) });
-      S.cache.delete(L.id); const d = await api(`/api/mccall/leads/${L.id}`);
-      if (S.d && S.d.lead.id === L.id) { S.d = d; drawLeft(); drawNotices(); }
-      toast("情報を直しました");
+      const save = async (extra = {}) => {
+        await api(`/api/mccall/leads/${L.id}`, { method: "PATCH", body: JSON.stringify({ company: v("#mccECo"), person: v("#mccEPe"), phone: v("#mccEPh"), email: v("#mccEMa"), web: v("#mccEWeb"), corp: v("#mccECorp"), phones: rows("ph"), contacts: rows("ct"), ...extra }) });
+        S.cache.delete(L.id); const d = await api(`/api/mccall/leads/${L.id}`);
+        if (S.d && S.d.lead.id === L.id) { S.d = d; drawLeft(); drawNotices(); }
+      };
+      w.querySelector(".mcc-dupfix")?.remove();
+      const pend = []; // 消すと決めた元のリード（ほかにも重複があったときに、まとめて送る）
+      try { await save(); toast("情報を直しました"); }
+      catch (e) {
+        const dup = e.data && e.data.dup; if (!dup) throw e;
+        w.querySelector("[data-ok]").disabled = false;   // 窓を開いたままにするので、保存ボタンを押せる状態に戻す
+        showDup(e, dup);
+        return false;
+      }
+      function showDup(e, dup) {
+        w.querySelector(".mcc-dupfix")?.remove();
+        // 重複したとき（2026-11-25 福井さん）：同じ会社なら、SF のつなぎ先を元のリードのものに変えて、元のリードを SHOBO から消して保存できるようにする
+        const sfNote = dup.sf ? (dup.mySf && dup.mySf !== dup.sf ? `SF のつなぎ先を ${dup.mySf} から、元のリードの ${dup.sf} に変えます。` : `SF のつなぎ先を、元のリードの ${dup.sf} にします。`) : "元のリードは SF とつながっていないので、SF のつなぎ先はこのままです。";
+        const box = Object.assign(document.createElement("div"), { className: "mcc-note mcc-dupfix" });
+        box.style.cssText = "margin-top:10px;padding:10px;border:1px solid #B4441F;border-radius:10px;color:#B4441F";
+        box.innerHTML = `<b>${esc(e.message)}</b><br><span style="color:var(--c-text,#222)">${pend.length ? `選んだ ${pend.length} 件のほかにも重複がありました。` : ""}同じ会社なら、元のリード「${esc(dup.company)}」${dup.list ? `（リスト「${esc(dup.list)}」）` : ""}をこちらにまとめて保存できます。${esc(sfNote)}元のリードの架電の記録はこちらへ移し、元のリードは SHOBO から消します（SF のリードは消えません。元に戻せません）。</span>
+          <div style="margin-top:8px"><button class="mcc-btn" data-dupfix>SF のつなぎ先を変えて、元のリードを消して保存</button></div>`;
+        w.querySelector(".row").before(box);
+        const fb = box.querySelector("[data-dupfix]");
+        fb.addEventListener("click", async () => {
+          fb.disabled = true;
+          try { await save({ replaceDup: [...pend, dup.id] }); w.remove(); S.dlg = null; toast("元のリードをまとめて消し、情報を直しました"); }
+          catch (e2) {
+            fb.disabled = false;
+            if (e2.data && e2.data.dup && e2.data.dup.id !== dup.id && pend.length < 4) { pend.push(dup.id); showDup(e2, e2.data.dup); }
+            else toast(`保存できませんでした：${e2.message}`);
+          }
+        });
+      }
     }, `<div style="display:grid;gap:8px;margin-top:12px">
       <label class="mcc-field">会社名<input id="mccECo" value="${esc(L.company || "")}" /></label>
       <label class="mcc-field">担当者名（リスト上の）<input id="mccEPe" value="${esc(L.person || "")}" /></label>

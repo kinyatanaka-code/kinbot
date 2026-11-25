@@ -2301,12 +2301,45 @@ export function registerMcCall(app, deps) {
   app.post("/api/mccall/leads/:id/clear-next", guard(async (req, res) => {
     await P().query(`UPDATE mc_call_leads SET next_at=NULL, next_why=NULL WHERE id=$1`, [parseInt(req.params.id, 10)]); res.json({ ok: true });
   }));
+  // 重複していた元のリード（from）を、いま直しているリード（to）へまとめて、SHOBO から消す（2026-11-25 福井さん
+  //   「保存できません：会社名と電話番号が〜と同じ」のとき、SF のつなぎ先を変えて元リードを消すのを直す画面でできるように）。
+  //   ・SF のつなぎ先は元のリードのものに変える（元のリードが SF とつながっていないときは、こちらのつなぎ先のまま）
+  //   ・架電の記録・資料送付・ヒアリングのメール・フォーム送信・着信の記録はこちらへ移す（消すのは SHOBO のリードの行だけ。SF のリードは消さない）
+  //   ・本当に同じ会社の鍵でぶつかっているリードだけ消せる（ID を書きかえてほかのリードを消されないように）。いまだれかがかけているリードは消さない
+  //   PATCH のトランザクションの中で呼ぶので、途中で失敗したら何も変わらない
+  const isSfLead = (v) => /^00Q[0-9A-Za-z]{12,15}$/.test(String(v || ""));
+  async function mergeDupInto(c, toId, fromId, keys, user) {
+    if (!fromId || fromId === toId) return { error: "消すリードが正しくありません。画面を開き直してください" };
+    const f = (await c.query(`SELECT id, company, sf_lead_id, locked_by, locked_at, attempts, last_at, last_outcome, gate, hearing FROM mc_call_leads WHERE id=$1 FOR UPDATE`, [fromId])).rows[0];
+    if (!f) return { error: "元のリードはもう見つかりません（ほかの人が消したかもしれません）。もう一度保存してください" };
+    const same = keys.length && (await c.query(`SELECT 1 FROM mc_lead_keys x JOIN unnest($1::text[], $2::text[]) AS u(kind, k) ON u.kind=x.kind AND u.k=x.k WHERE x.lead_id=$3 LIMIT 1`, [keys.map((x) => x.kind), keys.map((x) => x.k), fromId])).rowCount;
+    if (!same) return { error: "そのリードとはもう重複していません。画面を開き直してください" };
+    if (f.locked_by && f.locked_by !== user && f.locked_at && Date.now() - new Date(f.locked_at).getTime() < 10 * 60e3) return { error: `元のリードはいま ${f.locked_by} さんがかけているので消せません。終わってからやり直してください` };
+    const t = (await c.query(`SELECT sf_lead_id FROM mc_call_leads WHERE id=$1 FOR UPDATE`, [toId])).rows[0];
+    const sf = isSfLead(f.sf_lead_id) ? f.sf_lead_id : (t && t.sf_lead_id) || null;
+    for (const tb of ["mc_call_logs", "mc_sf_fills", "mc_doc_sends", "mc_hear_mails", "mc_form_sends", "mc_inbound"]) {
+      // 表がまだ無いとき（着信の記録）は飛ばす。トランザクションの中で失敗させると全部が止まるので、先に有無を確かめる
+      if (!(await c.query(`SELECT to_regclass($1) AS t`, [tb])).rows[0].t) continue;
+      await c.query(`UPDATE ${tb} SET lead_id=$1 WHERE lead_id=$2`, [toId, fromId]);
+    }
+    await c.query(`UPDATE mc_call_leads SET dup_of=$1 WHERE dup_of=$2 AND id <> $1`, [toId, fromId]);
+    await c.query(`UPDATE mc_call_leads SET dup_of=NULL WHERE id=$1 AND dup_of=$2`, [toId, fromId]);
+    // 架電の回数は足し、最後の結果は新しい方。受付・ヒアリングはこちらが空のときだけ元のリードの値を使う
+    await c.query(`UPDATE mc_call_leads SET sf_lead_id=$2, attempts=attempts+$3,
+        last_outcome=CASE WHEN $4::timestamptz IS NOT NULL AND (last_at IS NULL OR last_at < $4::timestamptz) THEN $5 ELSE last_outcome END,
+        last_at=GREATEST(last_at, $4::timestamptz), gate=COALESCE(gate, $6::jsonb), hearing=COALESCE(hearing, $7::jsonb) WHERE id=$1`,
+      [toId, sf, f.attempts || 0, f.last_at, f.last_outcome, f.gate ? JSON.stringify(f.gate) : null, f.hearing ? JSON.stringify(f.hearing) : null]);
+    await c.query(`DELETE FROM mc_lead_keys WHERE lead_id=$1`, [fromId]);
+    await c.query(`DELETE FROM mc_call_leads WHERE id=$1`, [fromId]);
+    console.log(`[mccall] 重複していたリード ${fromId}（${f.company}）を ${toId} にまとめて消しました sf=${sf || "なし"} by ${user}`);
+    return { ok: true };
+  }
   // 会社・担当者の情報を直す（2026-11-18 福井さん。BALES のように MOCHICALL で直せるように）。
   //   会社名・担当者名・代表電話は kinbot のリードを直接直す（Bales/CSV/DOC の元のデータは変えない）。
   //   追加の番号・ほかの担当者・メールは info に持つ。番号は数字が9桁以上のものだけ残す（押して発信できない番号を増やさない）
   app.patch("/api/mccall/leads/:id", guard(async (req, res) => {
     const id = parseInt(req.params.id, 10); const b = req.body || {};
-    const lead = (await P().query(`SELECT list_id, company, person, phone, info, dup_of FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
+    const lead = (await P().query(`SELECT list_id, company, person, phone, info, dup_of, sf_lead_id FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
     if (!lead) return res.status(404).json({ error: "このリードは見つかりません" });
     if (!(await myListIds(req)).includes(lead.list_id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
     const company = b.company != null ? clip(b.company, 200) : lead.company;
@@ -2332,8 +2365,20 @@ export function registerMcCall(app, deps) {
       await c.query("BEGIN");
       if (!lead.dup_of) {
         neu = await dropIgnored(c, neu);
+        // 「SF のつなぎ先を変えて、元のリードを消す」を選んだとき（2026-11-25 福井さん）：先にそちらのリードをこのリードへまとめてから確かめ直す
+        //   ほかにも重複があれば画面がもう一度聞くので、それまでに選んだ分もまとめて送られてくる（1件ずつだと、2件目で全部取り消されて堂々めぐりになるため）
+        for (const fromId of [...new Set([].concat(b.replaceDup || []).map((x) => parseInt(x, 10)).filter((x) => x > 0))].slice(0, 5)) {
+          const m = await mergeDupInto(c, id, fromId, neu, me(req));
+          if (m.error) { await c.query("ROLLBACK"); return res.status(400).json({ error: m.error }); }
+        }
         const hit = await keyHit(c, neu, id);
-        if (hit) { await c.query("ROLLBACK"); return res.status(400).json({ error: `保存できません：${dupText(hit)}です（リードの重複は作れません）。同じ会社なら、そちらのリードを使ってください` }); }
+        if (hit) {
+          await c.query("ROLLBACK");
+          // 画面が「つなぎ先を変えて元のリードを消す」を出せるよう、相手のリードと SF のつなぎ先も返す
+          const o = (await P().query(`SELECT sf_lead_id FROM mc_call_leads WHERE id=$1`, [hit.lead_id])).rows[0] || {};
+          return res.status(400).json({ error: `保存できません：${dupText(hit)}です（リードの重複は作れません）。同じ会社なら、そちらのリードを使ってください`,
+            dup: { id: hit.lead_id, company: hit.company || "", list: hit.list || "", sf: isSfLead(o.sf_lead_id) ? o.sf_lead_id : "", mySf: isSfLead(lead.sf_lead_id) ? lead.sf_lead_id : "" } });
+        }
         await c.query(`DELETE FROM mc_lead_keys WHERE lead_id=$1 AND kind NOT LIKE 'ign:%' AND kind <> '_v'`, [id]);
         if (neu.length) await c.query(`INSERT INTO mc_lead_keys (kind, k, lead_id) SELECT a, b, $3 FROM unnest($1::text[], $2::text[]) AS u(a, b) ON CONFLICT DO NOTHING`, [neu.map((x) => x.kind), neu.map((x) => x.k), id]);
       }
