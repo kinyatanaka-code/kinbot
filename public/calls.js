@@ -7666,7 +7666,6 @@ let _nmSel = null;                  // ドリルダウン中：{type:"owner"|"gr
 let _nmChosen = new Set();          // 編集のために選んだリスト id
 let _nmStage = { archive: 0, recycle: 0, crosslost: 0 };   // アーカイブ／リサイクル／クロス失注の実データ件数（横断集計）
 let _nmCrosslost = {};   // クロス失注のメンバー別件数（email -> 件数）
-let _nmBoxes = {};       // メンバーごとの箱（email -> { lists:[id] }）。箱に入れたリストだけをその人のかける画面に出す（2026-11-25）
 let _nmClSummary = { total: 0, nowCount: 0, byMonth: {} };   // 過去リストの集計
 let _nmNur = { total: 0, week: 0, byMember: {} };   // ナーチャリングの集計（担当メンバー別）
 let _edNurture = "";   // 編集テーブルがナーチャリング（"all"/"week"）のとき
@@ -7684,45 +7683,6 @@ async function nmFetchClSummary() {
       set("month", String(Object.keys(_nmClSummary.byMonth || {}).length));
     }
   } catch {}
-}
-// ===== メンバーの「箱」（2026-11-25 田中さん「各メンバーの下に空の箱のリストカードを作って、少しずつリストを追加して整理したい」）=====
-//   箱に1本でもリストを入れたら、その人のかける画面には箱のリストだけが出る（空のあいだは今までどおり全部）。リストそのものは動かさない
-function nmBoxIds(email) { const b = _nmBoxes[String(email || "").toLowerCase()]; return b && Array.isArray(b.lists) ? b.lists.map(Number) : []; }
-function nmBoxCard(email) {
-  const ids = new Set(nmBoxIds(email));
-  const ls = [..._nmLists, ..._nmHiddenLists].filter((x) => ids.has(Number(x.id)));
-  const zan = ls.reduce((s0, x) => s0 + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0);
-  if (!ids.size) return `<button type="button" class="nm-box empty" data-box="${esc(email)}" title="箱にリストを入れると、この人のかける画面には箱のリストだけが出ます"><span class="nm-box-ic" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-5 9 5-9 5z"/><path d="M3 8v8l9 5 9-5V8"/></svg></span><b>空の箱</b><small>＋ リストを入れる</small></button>`;
-  return `<button type="button" class="nm-box" data-box="${esc(email)}" title="押すと、箱に入れるリストを選び直せます"><span class="nm-box-ic" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-5 9 5-9 5z"/><path d="M3 8v8l9 5 9-5V8"/></svg></span><b>箱</b><span class="nm-box-n">残 <em>${zan.toLocaleString()}</em></span><small>${ids.size} リスト・かける画面はこの箱だけ</small></button>`;
-}
-function nmOpenBox(email) {
-  const cur = new Set(nmBoxIds(email));
-  const mine = [..._nmLists, ..._nmHiddenLists].filter((x) => String(x.owner || "").toLowerCase() === String(email).toLowerCase() || cur.has(Number(x.id)));
-  mine.sort((a, b) => (cur.has(Number(b.id)) - cur.has(Number(a.id))) || String(a.name || "").localeCompare(String(b.name || ""), "ja"));
-  const bg = document.createElement("div"); bg.className = "nm-box-bg";
-  bg.innerHTML = `<div class="nm-box-modal" role="dialog" aria-label="${esc(nmMemberName(email))}の箱">
-    <div class="nm-box-mh"><b>${esc(nmMemberName(email))} の箱</b><span class="kx-note" data-boxn></span><button type="button" class="pr-b" data-x style="margin-left:auto">閉じる</button></div>
-    <div class="nm-box-help">チェックしたリストが箱に入ります。箱に1本でも入れると、${esc(nmMemberName(email))}さんのかける画面には<b>箱のリストだけ</b>が出ます（空にすると今までどおり全部）。リストそのもの・Salesforce は変わりません。</div>
-    <label class="nm-box-q"><input type="search" placeholder="リスト名で絞る" data-boxq></label>
-    <div class="nm-box-list">${mine.map((x) => `<label class="nm-box-it" data-name="${esc(String(x.name || "").toLowerCase())}"><input type="checkbox" value="${esc(x.id)}" ${cur.has(Number(x.id)) ? "checked" : ""}><span class="nm">${esc(x.name || "（名前なし）")}${x.hidden ? '<em class="hid">非表示中</em>' : ""}</span><span class="z">残 ${Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0)}</span></label>`).join("") || '<div class="kx-note">この人のリストがありません</div>'}</div>
-    <div class="nm-box-foot"><button type="button" class="pr-b" data-clear>箱を空にする</button><button type="button" class="pr-b" data-save style="margin-left:auto;background:#0d5b47;color:#fff;border-color:#0d5b47">保存</button></div></div>`;
-  document.body.appendChild(bg);
-  const close = () => bg.remove();
-  const paintN = () => { const n = bg.querySelectorAll(".nm-box-it input:checked").length; bg.querySelector("[data-boxn]").textContent = `${n} リストを選択中`; };
-  paintN();
-  bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
-  bg.querySelector("[data-x]").onclick = close;
-  bg.querySelectorAll(".nm-box-it input").forEach((i) => i.addEventListener("change", paintN));
-  bg.querySelector("[data-boxq]").addEventListener("input", (e) => { const q = e.target.value.trim().toLowerCase(); bg.querySelectorAll(".nm-box-it").forEach((it) => { it.style.display = !q || it.dataset.name.includes(q) ? "" : "none"; }); });
-  const save = async (lists) => {
-    try {
-      const r = await (await fetch("/api/calls/kcbox", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, lists }) })).json();
-      if (!r.ok) throw new Error(r.error || "保存できませんでした");
-      _nmBoxes[String(email).toLowerCase()] = { lists: r.lists }; close(); nmRenderRoot();
-    } catch (e) { alert(e.message); }
-  };
-  bg.querySelector("[data-save]").onclick = () => save([...bg.querySelectorAll(".nm-box-it input:checked")].map((i) => Number(i.value)));
-  bg.querySelector("[data-clear]").onclick = () => { if (confirm("箱を空にしますか？（かける画面は今までどおり全部のリストに戻ります）")) save([]); };
 }
 function nmMemberName(email) { if (email === "__other__") return "未割り当て"; const m = _nmMemByEmail.get(String(email || "").toLowerCase()); return (m && (m.name || m.email)) || email || "?"; }
 const NM_SALES_FORCE = ["kinya.tanaka@neo-career.co.jp"];   // 役割に関わらずセールス扱いにする人
@@ -7743,7 +7703,6 @@ async function nmFetch() {
     fetch("/api/calls/stage-summary?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()).catch(() => null),
     fetch("/api/calls/crosslost-members?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()).catch(() => null),
     fetch("/api/calls/nurture-summary?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()).then((d) => { if (d && d.ok) _nmNur = { total: d.total || 0, week: d.week || 0, byMember: d.byMember || {} }; }).catch(() => null),
-    fetch("/api/calls/kcbox?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()).then((d) => { if (d && d.ok) _nmBoxes = d.boxes || {}; }).catch(() => null),
   ]);
   if (sg && !sg.error) _nmStage = { archive: Number(sg.archive || 0), recycle: Number(sg.recycle || 0), crosslost: Number(sg.crosslost || 0) };
   if (clm && clm.byMember) _nmCrosslost = clm.byMember || {};
@@ -8432,7 +8391,7 @@ function nmRenderCards() {
     arr.sort((a, b) => (isIn ? rank(a.email) - rank(b.email) : 0) || nmMemberName(a.email).localeCompare(nmMemberName(b.email), "ja"));
     const workN = isIn && _nmShift ? arr.filter((a) => nmShiftOf(a.email)).length : null;
     html += `<div class="nm-sec"><div class="nm-sec-h">${esc(label)}${workN != null ? `<span class="nm-sec-shift">今日の出勤 <b>${workN}</b>人${_nmShift.holiday ? `（${esc(_nmShift.holiday)}）` : ""}</span>` : ""}</div><div class="nm-grid">` +
-      arr.map(({ email, ls }) => { const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0); const nur = ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0); const off = isIn && _nmShift && !nmShiftOf(email); return `<button type="button" class="nm-card${off ? " nm-off" : ""}" data-owner="${esc(email)}">${isIn ? nmShiftBadge(email) : ""}<div class="nm-card-name">${esc(nmMemberName(email))}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nur}・${ls.length} リスト</div><div class="nm-rates">${nmRatePill(_nmRates && _nmRates.byCaller && _nmRates.byCaller[String(email).toLowerCase()], "この人がかけた分のアポ率（直近3か月）")}${(() => { const v = nmMemberListAvg(ls); return nmExpPill(v.rate, `想定アポ率：この人が持っている表示中のリスト（${v.n}本）の想定アポ率の平均`); })()}</div></button>`.replace(/^/, '<div class="nm-col">') + nmBoxCard(email) + "</div>"; }).join("") +
+      arr.map(({ email, ls }) => { const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0); const nur = ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0); const off = isIn && _nmShift && !nmShiftOf(email); return `<button type="button" class="nm-card${off ? " nm-off" : ""}" data-owner="${esc(email)}">${isIn ? nmShiftBadge(email) : ""}<div class="nm-card-name">${esc(nmMemberName(email))}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nur}・${ls.length} リスト</div><div class="nm-rates">${nmRatePill(_nmRates && _nmRates.byCaller && _nmRates.byCaller[String(email).toLowerCase()], "この人がかけた分のアポ率（直近3か月）")}${(() => { const v = nmMemberListAvg(ls); return nmExpPill(v.rate, `想定アポ率：この人が持っている表示中のリスト（${v.n}本）の想定アポ率の平均`); })()}</div></button>`; }).join("") +
       `</div></div>`;
   }
   // その他：未割り当て／ナーチャリング／リサイクル／アーカイブ をそれぞれカードで出す
@@ -8481,7 +8440,6 @@ function nmRenderCards() {
   if ($("nmOldCsv")) $("nmOldCsv").addEventListener("change", nmOldImport);
   nmFetchOldSummary();
   nmFetchClSummary();   // カードの件数（今月かける・月別）を後追いで更新
-  body.querySelectorAll("[data-box]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); nmOpenBox(b.dataset.box); }));
   body.querySelectorAll(".nm-card").forEach((c) => c.addEventListener("click", () => {
     _nmChosen = new Set();
     if (c.dataset.cl) { nmOpenCrosslost(c.dataset.cl); return; }   // 過去リストカード（今月かける／失注リスト／月別）

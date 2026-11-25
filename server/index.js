@@ -8959,32 +8959,6 @@ app.put("/api/calls/lists/:id/hidden", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ===== メンバーごとの「箱」（2026-11-25 田中さん「各メンバーの下に空の箱のリストカードを作ってほしい。リスト管理がぐちゃぐちゃなので、空の箱に少しずつリストを追加して整理したい」）=====
-//   箱に入れたリストだけを、その人のかける画面に出す（田中さんが「箱に入れたものだけを出す」を選んだ）。
-//   箱が空のあいだ（まだ始めていない人）は、今までどおり全部のリストを出す。1本でも入れたら、箱の中だけになる。
-//   リストそのもの・Salesforce は変えない（箱は「どのリストを使うか」の印だけ）。置き場所は settings.kcBoxes = { email: { lists:[id], at, by } }
-async function kcBoxOf(email) {
-  const st = await getSettings().catch(() => ({}));
-  const b = (st.kcBoxes || {})[String(email || "").toLowerCase()];
-  const ids = b && Array.isArray(b.lists) ? b.lists.map(Number).filter(Boolean) : [];
-  return ids.length ? new Set(ids) : null;
-}
-app.get("/api/calls/kcbox", async (req, res) => {
-  try { const st = await getSettings().catch(() => ({})); res.json({ ok: true, boxes: st.kcBoxes || {} }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
-});
-app.put("/api/calls/kcbox", async (req, res) => {
-  try {
-    if (!canHideLists(req)) return res.status(403).json({ error: "箱を変えられるのは管理者・リーダーだけです" });
-    const email = String((req.body && req.body.email) || "").trim().toLowerCase();
-    if (!email || !email.includes("@")) return res.status(400).json({ error: "メンバーが分かりません" });
-    const lists = [...new Set((Array.isArray(req.body.lists) ? req.body.lists : []).map((x) => parseInt(x, 10)).filter((x) => x > 0))].slice(0, 500);
-    const st = await getSettings().catch(() => ({})); const all = { ...(st.kcBoxes || {}) };
-    all[email] = { lists, at: new Date().toISOString(), by: req.user };
-    await saveSettings({ kcBoxes: all });
-    res.json({ ok: true, email, lists });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
 app.get("/api/calls/lists", async (req, res) => {
   try {
     // メンバーを指定できる（管理者、または自分自身のときだけ有効）
@@ -8998,8 +8972,6 @@ app.get("/api/calls/lists", async (req, res) => {
       ownerOnly: !!reqMember,   // メンバーを指定して見るときは、その人が作ったリストだけ
       includeHidden: canHideLists(req) || (await isCloserUser(req.user).catch(() => false)),   // 非表示を変えられる人・クローザーには、非表示のリストも「非表示中」で見せる
     });
-    // 箱を始めた人は、箱に入れたリストだけ（アーカイブ・リサイクル・ナーチャリングのまとめはそのまま）
-    { const box = await kcBoxOf(owner); if (box) { const keep = rows.filter((r) => box.has(Number(r.id)) || ["アーカイブ", "リサイクル"].includes(String(r.name || "").trim()) || String(r.name || "").startsWith("【ナーチャリング】")); rows.length = 0; rows.push(...keep); } }
     res.json({
       ok: true,
       member: owner,
@@ -11931,7 +11903,6 @@ app.get("/api/calls/targets", async (req, res) => {
       const member = String(req.query.member || req.user || "").trim().toLowerCase();
       if (!member) return res.status(400).json({ error: "メンバーを指定してください" });
       const all = await listAllLeadsForMember(member, { q: String(req.query.q || "").trim(), limit: 5000 });
-      const todayBox = await kcBoxOf(member);
       const mtgMap = await recentMeetingMap().catch(() => new Map());
       const nowJ = new Date(Date.now() + 9 * 3600000);
       const endToday = Date.UTC(nowJ.getUTCFullYear(), nowJ.getUTCMonth(), nowJ.getUTCDate() + 1) - 9 * 3600000;
@@ -11944,7 +11915,6 @@ app.get("/api/calls/targets", async (req, res) => {
         // ほかの人のリスト・持ち主のいない（未割り当ての）リストのリードは、担当が付いていても入れない。
         if (String(r._list_owner || "").toLowerCase() !== member) return false;
         const st = `${r.stage || ""} ${r.status || ""}`;
-        if (todayBox && !todayBox.has(Number(r.list_id)) && !(nur.test(st) && !/アポ獲得/.test(st))) return false;   // 箱を始めた人は、箱のリストだけ（ナーチャリングはそのまま）
         const isPast = frameOfSource(r.source || "") === "past";
         if (nur.test(st) && !/アポ獲得/.test(st)) { /* ナーチャリングは下で */ }
         else if (deadAll.test(st) || (!isPast && /失注/.test(st) && lostHasDateSrv(r))) return false;   // 失注でも、商談の日付（失注日・商談日）が無ければかける（2026-10-31）
@@ -12026,7 +11996,6 @@ app.get("/api/calls/targets", async (req, res) => {
         rows = await searchAllLeadsGlobal({ q, limit: Math.min(2000, parseInt(req.query.limit, 10) || 2000) });
       } else {
         rows = await listAllLeadsForMember(member, { q, limit: Math.min(2000, parseInt(req.query.limit, 10) || 2000) });
-        const box = await kcBoxOf(member); if (box) rows = rows.filter((r) => box.has(Number(r.list_id)));   // 箱を始めた人は、箱のリストだけ
       }
     } else {
       const listId = parseInt(listParam, 10);
@@ -35179,7 +35148,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-25zh kincall リスト管理：メンバーごとに「箱」。箱に入れたリストだけがその人のかける画面に出る（空のあいだは今までどおり）。／2026-11-25zg 要確認の行の高さ（指定の強さを直す）。／2026-11-25zf 要確認の行は定義が入る高さを保つ。／2026-11-25ze 担当企業の流れの要確認に定義を書く。／2026-11-25left MOCHICALL：今日かけるリストの「残り」を、今日まだかけていない会社の数にした（かけたらすぐ減る。掛け直し待ちは別に数える）／2026-11-25zd ホームの担当企業：流れの行を枠の高さいっぱいに広げて余白をなくす。／2026-11-25zc kinXs ステージの名前を「済」の形に（キックオフ未設定・設定済・実施済・検収書回収済・納品メール回収済・要確認・掲載・利用中）。オンボーディング中はなくした。／2026-11-25sk MOCHICALL：レポートに「飛ばした」会社の数を出す（飛ばすを押した記録をサーバーに残す。同じ会社は1社） ／ 2026-11-25nh3 MOCHICALL：BALES のジャッジ・コネクト情報・営業フォロー・次回アクションのあるリードを、所有者の担当で MOCHICALL へ引き継ぐ（全部すぐ「かける」に出す）。過ぎた予定は最近過ぎた順、90日より前は予定なし扱い ／ 2026-11-25kc MOCHICALL：ヒアリングの ⑥採用対象で「高卒」を選べるように ／ 2026-11-25zbkinXs：予定名の頭の「Zoom」などを外して会社に議事録をつなぐ（Zoom【ユ/フォ】暁飯島工業 など）。／2026-11-25za kinXs ステージ：キックオフの実施日が入っていれば（今日以前）実施済みとしてすぐ次の段へ。／2026-11-25z ホームの担当企業の下の会社の一覧をなくす。／2026-11-25y kinXs ホームの担当企業：段・納品待ちを押すと会社の一覧をモーダルで。／2026-11-25x kinXs ホームの担当企業：上の3つの数字をやめ、今月・来月の納品待ちを見出しのとなりに。／2026-11-25w kinXs ホームのタスク：期日の札を押すとカレンダーで期日を変えられる。／2026-11-25v 担当企業の流れのキックオフ未設定・要確認を大きく・点滅。／2026-11-25u 要アクションが0社のときは1行だけにする。／2026-11-25t kinXs ホームを作りかえ（案C）：左にタスク（ぜんぶ・期限切れ・今日の数、要アクションを赤い枠で上に固定、タスクの一覧）、右に担当企業・これからの更新（月ごとに縦）・情報不足。／2026-11-25s kinXs 担当企業の流れの先頭を「受注」から「キックオフ未設定」に。／2026-11-25r kinXs：初期費用なしの会社は検収書回収を飛ばす（道のりは「不要（初期なし）」と薄く出す）。／2026-11-25q ステージの判定：10月より前の納品済みは納品メール済み、受注日が無くても先が済めば受注済み、送った日が分からないときは納品日から数える。／2026-11-25p kinXs ステージをそろえる：受注→キックオフ設定→キックオフ実施→検収書回収→納品メール回収→オンボーディング中→要確認（納品メールから2か月・掲載/利用が未確認）→掲載・利用中。担当企業の流れと企業モーダルの道のりの両方で同じ判定。／2026-11-25o kinXs 企業モーダル：議事録のタブをやめ、活動記録の「いまどこ？」の下に議事録・接触の記録・要望をまとめる。／2026-11-25fs MOCHICALL：問い合わせフォームの「送る」が止まったままになるのを直した（1回の上限2分・相手のページを読む処理に待ち時間の上限・送っている間は秒数を出す・確認画面の「検索」「再入力する」を押さない・所在国は「日本」を選ぶ） ／ 2026-11-25n 担当企業の枠の虫めがねのカーソルをやめる。／2026-11-25m kinXs ホームの担当企業から「担当企業へ ›」をなくす（余白で大きく開けるため）。／2026-11-25l 担当企業の大きなモーダルは、ホームの自分／全員と選んでいた数字から始める。／2026-11-25k kinXs ホーム：担当企業の枠の余白を押すと、担当企業の画面を大きくモーダルで出す。／2026-11-25j kinXs：VR だけの会社の企業IDは VR の URL の .aticoti の前（polus.aticoti.com → polus）。／2026-11-25sg MOCHICALL：メール・問い合わせフォームの名乗りを「株式会社ネオキャリアの福井です」の形に／送る人ごとの署名（自分の署名・名乗り）／問い合わせフォームは署名から会社名・電話を入れ、自動で決められない必須の欄（クイズなど）は画面で答えて送れる ／ 2026-11-25i MOCHICALL 検討時期待ち：SF の検討開始時期・架電で聞いた検討時期が2か月より先の会社は「かける」に出さない（情報が1年以上前ならかける。人と約束した掛け直しは出す）。リスト管理に「検討時期待ち」の絞り込み。／2026-11-25talkmap MOCHICALL：リスト管理に「リストとトークの対応」を足し、リストごとのトーク A/B/C に、ほかのリストのトークを写して差し替え・外しができるように／2026-11-25i 拡張機能 2.2.34：DOC の AI の管理画面「ユーザー管理」を開くと、一覧のメール・企業ID・権限を kinXs に送る。kinXs の企業情報「AIの管理者のログイン情報」に、その会社のユーザーのメールを出す（押すとコピー）。パスワードは管理画面にも出ないので出さない。／2026-11-25talkmap MOCHICALL：リスト管理に「リストとトークの対応」を足し、リストごとのトーク A/B/C に、ほかのリストのトークを写して差し替え・外しができるように";
+const BUILD_TAG = "2026-11-25zi kincall リスト管理のメンバーごとの「箱」を取りやめ（元の表示に戻した）。／2026-11-25zg 要確認の行の高さ（指定の強さを直す）。／2026-11-25zf 要確認の行は定義が入る高さを保つ。／2026-11-25ze 担当企業の流れの要確認に定義を書く。／2026-11-25left MOCHICALL：今日かけるリストの「残り」を、今日まだかけていない会社の数にした（かけたらすぐ減る。掛け直し待ちは別に数える）／2026-11-25zd ホームの担当企業：流れの行を枠の高さいっぱいに広げて余白をなくす。／2026-11-25zc kinXs ステージの名前を「済」の形に（キックオフ未設定・設定済・実施済・検収書回収済・納品メール回収済・要確認・掲載・利用中）。オンボーディング中はなくした。／2026-11-25sk MOCHICALL：レポートに「飛ばした」会社の数を出す（飛ばすを押した記録をサーバーに残す。同じ会社は1社） ／ 2026-11-25nh3 MOCHICALL：BALES のジャッジ・コネクト情報・営業フォロー・次回アクションのあるリードを、所有者の担当で MOCHICALL へ引き継ぐ（全部すぐ「かける」に出す）。過ぎた予定は最近過ぎた順、90日より前は予定なし扱い ／ 2026-11-25kc MOCHICALL：ヒアリングの ⑥採用対象で「高卒」を選べるように ／ 2026-11-25zbkinXs：予定名の頭の「Zoom」などを外して会社に議事録をつなぐ（Zoom【ユ/フォ】暁飯島工業 など）。／2026-11-25za kinXs ステージ：キックオフの実施日が入っていれば（今日以前）実施済みとしてすぐ次の段へ。／2026-11-25z ホームの担当企業の下の会社の一覧をなくす。／2026-11-25y kinXs ホームの担当企業：段・納品待ちを押すと会社の一覧をモーダルで。／2026-11-25x kinXs ホームの担当企業：上の3つの数字をやめ、今月・来月の納品待ちを見出しのとなりに。／2026-11-25w kinXs ホームのタスク：期日の札を押すとカレンダーで期日を変えられる。／2026-11-25v 担当企業の流れのキックオフ未設定・要確認を大きく・点滅。／2026-11-25u 要アクションが0社のときは1行だけにする。／2026-11-25t kinXs ホームを作りかえ（案C）：左にタスク（ぜんぶ・期限切れ・今日の数、要アクションを赤い枠で上に固定、タスクの一覧）、右に担当企業・これからの更新（月ごとに縦）・情報不足。／2026-11-25s kinXs 担当企業の流れの先頭を「受注」から「キックオフ未設定」に。／2026-11-25r kinXs：初期費用なしの会社は検収書回収を飛ばす（道のりは「不要（初期なし）」と薄く出す）。／2026-11-25q ステージの判定：10月より前の納品済みは納品メール済み、受注日が無くても先が済めば受注済み、送った日が分からないときは納品日から数える。／2026-11-25p kinXs ステージをそろえる：受注→キックオフ設定→キックオフ実施→検収書回収→納品メール回収→オンボーディング中→要確認（納品メールから2か月・掲載/利用が未確認）→掲載・利用中。担当企業の流れと企業モーダルの道のりの両方で同じ判定。／2026-11-25o kinXs 企業モーダル：議事録のタブをやめ、活動記録の「いまどこ？」の下に議事録・接触の記録・要望をまとめる。／2026-11-25fs MOCHICALL：問い合わせフォームの「送る」が止まったままになるのを直した（1回の上限2分・相手のページを読む処理に待ち時間の上限・送っている間は秒数を出す・確認画面の「検索」「再入力する」を押さない・所在国は「日本」を選ぶ） ／ 2026-11-25n 担当企業の枠の虫めがねのカーソルをやめる。／2026-11-25m kinXs ホームの担当企業から「担当企業へ ›」をなくす（余白で大きく開けるため）。／2026-11-25l 担当企業の大きなモーダルは、ホームの自分／全員と選んでいた数字から始める。／2026-11-25k kinXs ホーム：担当企業の枠の余白を押すと、担当企業の画面を大きくモーダルで出す。／2026-11-25j kinXs：VR だけの会社の企業IDは VR の URL の .aticoti の前（polus.aticoti.com → polus）。／2026-11-25sg MOCHICALL：メール・問い合わせフォームの名乗りを「株式会社ネオキャリアの福井です」の形に／送る人ごとの署名（自分の署名・名乗り）／問い合わせフォームは署名から会社名・電話を入れ、自動で決められない必須の欄（クイズなど）は画面で答えて送れる ／ 2026-11-25i MOCHICALL 検討時期待ち：SF の検討開始時期・架電で聞いた検討時期が2か月より先の会社は「かける」に出さない（情報が1年以上前ならかける。人と約束した掛け直しは出す）。リスト管理に「検討時期待ち」の絞り込み。／2026-11-25talkmap MOCHICALL：リスト管理に「リストとトークの対応」を足し、リストごとのトーク A/B/C に、ほかのリストのトークを写して差し替え・外しができるように／2026-11-25i 拡張機能 2.2.34：DOC の AI の管理画面「ユーザー管理」を開くと、一覧のメール・企業ID・権限を kinXs に送る。kinXs の企業情報「AIの管理者のログイン情報」に、その会社のユーザーのメールを出す（押すとコピー）。パスワードは管理画面にも出ないので出さない。／2026-11-25talkmap MOCHICALL：リスト管理に「リストとトークの対応」を足し、リストごとのトーク A/B/C に、ほかのリストのトークを写して差し替え・外しができるように";
 const BUILD_FEATURES = [
   "MOCHICALL：今日かけるリストの「残り」を、今日まだかけていない会社の数にした（かけたらすぐ減る。掛け直し待ちは別に数える）",
   "MOCHICALL：BALES のナーチャリング（ジャッジ・コネクト情報・営業フォロー・次回アクションあり）を、MOCHICALL を使っている所有者の担当で「BALES 引き継ぎ（ナーチャリング）」へ自動で引き継ぐ。1回目は管理者が下見してから",
