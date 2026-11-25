@@ -139,7 +139,8 @@
   //   「担当のリストすべて」は MOCHICA だけ。キャリミキは「キャリミキのリストすべて」（値 -1）か1本ずつ選ぶ
   function drawListSel() {
     const sel = $("mccList"), t = S.today;
-    const opt = (l) => `<option value="${l.id}" ${l.id === S.listId ? "selected" : ""}>${esc(l.name)}（今かける ${l.now}）</option>`;
+    // トークの無いリストは選んでもかけられないので、選ぶ前に分かるよう印を付ける（2026-11-25 福井さん「困った」）
+    const opt = (l) => `<option value="${l.id}" ${l.id === S.listId ? "selected" : ""}>${esc(l.name)}（今かける ${l.now}${l.talks === 0 ? "・トークなし" : ""}）</option>`;
     const cm = S.lists.filter(isCm), mc = S.lists.filter((l) => !isCm(l));
     const cmGroup = cm.length ? `<optgroup label="キャリアミキサー（キャリミキ）"><option value="-1" ${S.listId === -1 ? "selected" : ""}>キャリミキのリストすべて（今かける ${cm.reduce((a, l) => a + l.now, 0)}）</option>${cm.map(opt).join("")}</optgroup>` : "";
     // 今日かけるリストの人は、いちばん上が今日かけるリスト。下の MOCHICA・キャリミキのリストも選べる（2026-11-24 福井さん「リスト選択が止まっていて選べない」）。
@@ -161,7 +162,7 @@
     try {
       const j = await api(`/api/mccall/queue${S.listId ? `?list=${S.listId}` : ""}`); const items = j.items || [];
       S.skippedInQueue = items.filter((x) => S.skipped.has(Number(x.id))).length;
-      S.queue = items.filter((x) => !S.skipped.has(Number(x.id))); S.later = j.later || 0; S.noTalk = j.noTalk || []; S.researching = j.researching || 0; S.why = j.why || null; S.stop = j.stop || "";
+      S.queue = items.filter((x) => !S.skipped.has(Number(x.id))); S.later = j.later || 0; S.noTalk = j.noTalk || []; S.noTalkLists = j.noTalkLists || []; S.researching = j.researching || 0; S.why = j.why || null; S.stop = j.stop || "";
       // リストを選んでいる間はサーバーが today を返さない。そこで消すと一番上の「今日かけるリスト」が選べなくなるので、選んでいないときだけ入れ替える
       { const had = !!S.today; if (!S.listId || j.today) S.today = j.today || null; if (had || S.today) drawListSel(); }
       if (openFirst || !S.d) { const f = S.queue.find((x) => !S.d || x.id !== S.d.lead.id); if (f) await open(f.id); else empty(); }
@@ -181,7 +182,12 @@
       if (W.kind === "notMember") return { html: `MOCHICA の架電リストはありますが、あなたはどのリストのメンバーにも入っていません。<br>${esc(ask)}に、リストのメンバーに入れてもらってください。` };
       return { html: `まだ担当の架電リストがありません。<br>${esc(ask)}がリストを作ってあなたを入れると、ここに出ます。` };
     }
-    if (S.noTalk && S.noTalk.length && !S.researching && !S.later) return { html: `トーク（売り方）が決まっていないリストはかけられません：${esc(S.noTalk.join("・"))}<br>${S.admin ? "「リストの管理」の「トーク」で書いてください。" : `${esc(ask)}にトークを書いてもらってください。`}` };
+    if (S.noTalk && S.noTalk.length && !S.researching && !S.later) {
+      // 管理者は「リストの管理」へ移らずに、その場でトークを写す・書けるようにする（2026-11-25 福井さん「困った」：BALES から移したリストを出したらここで止まった）
+      const tl = S.admin ? (S.noTalkLists || []).slice(0, 3) : [];
+      const btns = tl.map((l) => `<div style="margin-top:10px">${tl.length > 1 ? `${esc(l.name)}：` : ""}<button class="mcc-btn primary" data-tcopy="${l.id}">いま使っているトークを写す</button> <button class="mcc-btn" data-twrite="${l.id}">トークを書く</button></div>`).join("");
+      return { html: `トーク（売り方）が決まっていないリストはかけられません：${esc(S.noTalk.join("・"))}<br>${S.admin ? (btns ? "ほかのリストで使っているトークを写すか、このリスト用に書いてください。" : "「リストの管理」の「トーク」で書いてください。") : `${esc(ask)}にトークを書いてもらってください。`}${btns}` };
+    }
     if (S.researching) return { retry: 8000, html: `企業調査が終わった会社から順に出ます（いま ${S.researching}件 を調べています）。<br>少しすると自動で次の会社が出ます。` };
     // 今日かけるリストの人は、空になった本当の理由（今日の分の残り）と、すぐできること（ほかのリストを選ぶ）を出す（2026-11-25 福井さん）。
     //   前は「残りの119件はほかの人の担当です」と出ていたが、それはほかのインターンの今日の分で、付け直しても直らず、本人も管理者も何をすればよいか分からなかった
@@ -196,8 +202,13 @@
       ].filter(Boolean);
       return { retry: 60000, html: `今かける企業はありません。<br>${lines.join("<br>")}<br><button class="mcc-btn" id="mccReload" style="margin-top:12px">もう一度読む</button>` };
     }
+    // ほかの人の今日かけるリストの分は、その人が今日かけるので付け直しを勧めない（2026-11-25 福井さん「困った」：「214件はほかの人の担当。付け直して」と出たが、
+    //   中身はインターンの今日の分で、付け直すとその人の今日の分が減ってしまう）
+    const tOth = Math.min(Number(W.todayOthers || 0), Number(W.others || 0)), oth = Number(W.others || 0) - tOth;
     const more = [
-      W.others ?`残りの <b>${W.others}件</b> はほかの人の担当です。${S.admin ? "「リストの管理」で担当を付け直してください。" : `${esc(ask)}に、担当の付け直しかリードの追加を頼んでください。`}` : "",
+      tOth ? `<b>${tOth}件</b> は、ほかの人の今日かけるリストの分です（その人が今日かけるので、付け直さなくてよいです）。` : "",
+      oth ? `${tOth ? "そのほかの" : "残りの"} <b>${oth}件</b> はほかの人の担当です。${S.admin ? "「リストの管理」で担当を付け直してください。" : `${esc(ask)}に、担当の付け直しかリードの追加を頼んでください。`}` : "",
+      tOth && !oth ? `上の「リスト」でリストを1本選ぶと、そのリストのまだ担当の付いていない会社からかけられます。` : "",
       W.locked ? `<b>${W.locked}件</b> はほかの人が開いています（10分たつと戻ります）。` : "",
       S.later ? `今日このあと掛け直す企業が <b>${S.later}件</b> あります（時刻が来たら先頭に並びます）。` : "",
       !W.others && !W.locked && !S.later ? `このリストは、今かけられる会社をかけ終わりました。${S.admin ? "リードを足してください。" : `${esc(ask)}にリードを足してもらってください。`}` : "",
@@ -214,6 +225,14 @@
     const g = $("mccGoLists"); if (g) g.addEventListener("click", () => setTab("lists"));
     clearTimeout(S.waitT); if (t.retry) S.waitT = setTimeout(() => { if (!S.d && S.tab === "call") loadQueue(true); }, t.retry);
     const r = $("mccReload"); if (r) r.addEventListener("click", () => loadQueue(true));
+    $("mccCenter").querySelectorAll("[data-tcopy]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true;
+      try { const j = await api(`/api/mccall/lists/${b.dataset.tcopy}/talks/copy`, { method: "POST" }); toast(`「${j.from}」のトークを写しました`); await loadLists(); loadQueue(true); }
+      catch (e) { toast(e.message); b.disabled = false; }
+    }));
+    $("mccCenter").querySelectorAll("[data-twrite]").forEach((b) => b.addEventListener("click", () => {
+      const id = +b.dataset.twrite; talkDialog(S.lists.find((l) => l.id === id) || { id, name: (S.noTalkLists.find((l) => l.id === id) || {}).name || "" });
+    }));
     setNotice([]);
   }
 
@@ -1785,6 +1804,8 @@
       if (!talks.some((t) => t.body.trim())) throw new Error("トークを1本は書いてください（トークが無いとこのリストはかけられません）");
       await api(`/api/mccall/lists/${l.id}/talks`, { method: "PUT", body: JSON.stringify({ talks }) });
       S.cache.clear(); toast("トークを保存しました（次に開く会社から使います）"); drawLists();
+      // 「かける」でトークが無くて止まっていたなら、書いたらすぐかけられるよう読み直す（2026-11-25）
+      if (S.tab === "call" && !S.d) loadLists().then(() => loadQueue(true)).catch(() => {});
     }, `<div class="mcc-chips" style="margin-top:12px" role="tablist">${j.labels.map((lb, i) => `<button class="mcc-chip" data-tkt="${lb}" aria-pressed="${i === 0}">トーク ${lb}${cur.has(lb) ? "" : "（なし）"}</button>`).join("")}</div>
       ${j.labels.map(pane).join("")}`);
     w.querySelectorAll("[data-tkt]").forEach((b) => b.addEventListener("click", () => {
@@ -2413,7 +2434,7 @@
     box.querySelectorAll("[data-sleads]").forEach((b) => b.addEventListener("click", () => drawLeads(stock.find((l) => l.id === +b.dataset.sleads))));
     box.querySelectorAll("[data-unstock]").forEach((b) => b.addEventListener("click", () => { const l = stock.find((x) => x.id === +b.dataset.unstock);
       dialog(`「${l.name}」をかける対象にしますか`, `残り ${l.open}件が、メンバー（決めていなければ MOCHICA 全員）の「かける」に出るようになります。件数が多いときは、先に「中を見る・割り振る」で担当を決めるか、ほかのリストへ「SHOBO から」で必要な分だけ持っていくのがおすすめです。`, "かける対象にする", async () => {
-        await api(`/api/mccall/lists/${l.id}`, { method: "PATCH", body: JSON.stringify({ stock: false }) }); toast("かける対象にしました"); drawLists(); }); }));
+        const j = await api(`/api/mccall/lists/${l.id}`, { method: "PATCH", body: JSON.stringify({ stock: false }) }); toast(j.talkFrom ? `かける対象にしました（トークは「${j.talkFrom}」から写しました）` : "かける対象にしました"); drawLists(); }); }));
   }
   // ---- リード管理（2026-11-20 福井さん「リードの種類がそれぞれ今何件あって、誰にどれだけ割り振っているのか分からない。kincall 準拠で」） ----
   //   kincall のリスト管理の「リスト」タブ（人ごとの残り）＝メンバー別、「ソース」タブ（ソースごとの件数・担当別・アポ率・メンバーに配る）＝種類別。

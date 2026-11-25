@@ -843,7 +843,11 @@ export function registerMcCall(app, deps) {
     if (b.stock != null) await P().query(`UPDATE mc_call_lists SET stock=$2 WHERE id=$1`, [id, !!b.stock]);
     if (b.product != null) await P().query(`UPDATE mc_call_lists SET product=$2 WHERE id=$1`, [id, productOf(b.product)]);
     if (b.script != null) await P().query(`UPDATE mc_call_lists SET script=$2 WHERE id=$1`, [id, String(b.script).slice(0, 20000) || null]);
-    res.json({ ok: true });
+    // 保管から「かける」へ出したリストにトークが無ければ、いま使っているトークを写す（2026-11-25 福井さん「困った」：
+    //   BALES から移したリストを出したら「トークが決まっていないリストはかけられません」で止まった。今日かけるリストを作るときと同じ考え方）
+    let talkFrom = null;
+    if (b.stock === false) talkFrom = await copyLatestTalk(id, me(req)).catch((e) => { console.error("[mccall] トークを写せませんでした", e.message); return null; });
+    res.json({ ok: true, talkFrom });
   }));
   // トークスクリプト（架電者も読む。管理者は上の PATCH で書く）
   app.get("/api/mccall/lists/:id/script", guard(async (req, res) => {
@@ -859,6 +863,26 @@ export function registerMcCall(app, deps) {
     const hist = (await P().query(`SELECT t.label, t.ver, t.active, t.created_by, t.created_at, count(g.id) AS calls
       FROM mc_call_talks t LEFT JOIN mc_call_logs g ON g.talk_id=t.id AND NOT g.undone WHERE t.list_id=$1 GROUP BY t.id ORDER BY t.label, t.ver DESC`, [id])).rows;
     res.json({ ok: true, labels: TALK_LABELS, talks: await activeTalks(id), history: hist.map((h) => ({ ...h, calls: +h.calls })) });
+  }));
+  // トークの無いリストに、同じ商材でいちばん最近トークを直したリストのトークを写す。写した元のリスト名を返す（写せなければ null）。
+  //   すでにトークがあるリストには何もしない（書いたトークを上書きしない）
+  async function copyLatestTalk(id, by) {
+    if ((await listsWithTalk([id])).size) return null;
+    const src = (await P().query(`SELECT l.id, l.name FROM mc_call_talks t JOIN mc_call_lists l ON l.id=t.list_id
+      JOIN mc_call_lists d ON d.id=$1 AND COALESCE(d.product,'mochica') = COALESCE(l.product,'mochica')
+      WHERE t.active AND NOT l.closed AND NOT l.stock AND l.biz=$2 AND l.id <> $1 GROUP BY l.id, l.name ORDER BY max(t.created_at) DESC LIMIT 1`, [id, BIZ])).rows[0];
+    if (!src) return null;
+    await saveTalks(id, (await activeTalks(src.id)).map((t) => ({ label: t.label, body: t.body })), by);
+    console.log(`[mccall] リスト${id} にトークが無いので、リスト${src.id}（${src.name}）のトークを写しました by ${by}`);
+    return src.name;
+  }
+  // 「かける」でトークが無くて止まったとき、管理者がその場で写せるように（2026-11-25 福井さん「困った」）
+  app.post("/api/mccall/lists/:id/talks/copy", adminOnly(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if ((await listsWithTalk([id])).size) return res.status(409).json({ error: "このリストにはもうトークがあります。「もう一度読む」を押してください" });
+    const from = await copyLatestTalk(id, me(req));
+    if (!from) return res.status(404).json({ error: "写せるトークがほかのリストにありません。「トークを書く」から書いてください" });
+    res.json({ ok: true, from });
   }));
   app.put("/api/mccall/lists/:id/talks", adminOnly(async (req, res) => {
     const id = parseInt(req.params.id, 10);
@@ -1830,10 +1854,12 @@ export function registerMcCall(app, deps) {
     // 売り先（リスト）と売り方（トーク）はセット。トークの無いリストは「かける」に出さない（2026-11-20 福井さん）
     const withTalk = await listsWithTalk(asked);
     const use = asked.filter((x) => withTalk.has(x));
-    const noTalk = tm ? (withTalk.has(tm.tid) ? [] : [TODAY_LIST_NAME])   // 今日かけるリストの人は、入れ先のリストのトークだけが要る
-      : asked.length > use.length ? (await P().query(`SELECT name FROM mc_call_lists WHERE id = ANY($1) AND NOT closed AND NOT stock`, [asked.filter((x) => !withTalk.has(x))])).rows.map((r) => r.name) : [];
+    // noTalkLists は id も付ける（管理者が「かける」の画面からそのリストにトークを写す・書くため。2026-11-25）。noTalk は名前だけ（今までの画面のため残す）
+    const noTalkLists = tm ? (withTalk.has(tm.tid) ? [] : [{ id: tm.tid, name: TODAY_LIST_NAME }])   // 今日かけるリストの人は、入れ先のリストのトークだけが要る
+      : asked.length > use.length ? (await P().query(`SELECT id, name FROM mc_call_lists WHERE id = ANY($1) AND NOT closed AND NOT stock ORDER BY id`, [asked.filter((x) => !withTalk.has(x))])).rows : [];
+    const noTalk = noTalkLists.map((r) => r.name);
     const today = tm ? { ...tm.info, list: tm.tid } : null;
-    if (!use.length) return res.json({ ok: true, items: [], later: 0, noTalk, researching: 0, today });
+    if (!use.length) return res.json({ ok: true, items: [], later: 0, noTalk, noTalkLists, researching: 0, today });
     // アプローチ禁止の名簿が読めないときは順番を出さない（禁止の会社に架けないための安全側）。
     //   ただし「エラー」ではなく、なぜ止まっているか・どうすればよいかを画面に出し、画面は少しずつ読み直す
     try { await banListOrStop(); }
@@ -1874,11 +1900,15 @@ export function registerMcCall(app, deps) {
     // 出せる会社が無いときは、残りがどこにあるか（ほかの人の担当・ほかの人が開いている）を返す
     let why = null;
     if (!items.length) {
+      // todayOthers：ほかの人の今日かけるリストの今日の分（その人がかけるので、付け直しを勧めない。2026-11-25 福井さん「困った」：
+      //   管理者の画面で「残りの214件はほかの人の担当です。担当を付け直してください」と出たが、中身はインターンの今日の分だった）
+      const tidNow = ((await P().query(`SELECT id FROM mc_call_lists WHERE today_src AND biz=$1 ORDER BY id LIMIT 1`, [BIZ])).rows[0] || {}).id;   // todayList() は無いと作るので、ここでは読むだけ
       const r = (await P().query(`SELECT count(*) FILTER (WHERE assigned_to IS NOT NULL AND assigned_to <> $2) AS others,
+          count(*) FILTER (WHERE assigned_to IS NOT NULL AND assigned_to <> $2 AND list_id = $3 AND today_day = $4) AS today_others,
           count(*) FILTER (WHERE (assigned_to IS NULL OR assigned_to = $2) AND locked_by IS NOT NULL AND locked_by <> $2 AND locked_at >= now() - interval '10 minutes') AS locked,
           count(*) FILTER (WHERE next_at > now()) AS waiting
-        FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL`, [use, u])).rows[0];
-      why = { others: +r.others, locked: +r.locked, waiting: +r.waiting };
+        FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL`, [use, u, tidNow || 0, todayDay()])).rows[0];
+      why = { others: +r.others, todayOthers: +r.today_others, locked: +r.locked, waiting: +r.waiting };
     }
     // 今日かけるリストの人は、今日の分のうち残り（まだ終わっていない・今かけられる）も返す
     if (today) today.left = +(await P().query(`SELECT count(*) FROM mc_call_leads WHERE list_id=$1 AND assigned_to=$2 AND today_day=$3 AND NOT done AND dup_of IS NULL`, [tm.tid, u, tm.day])).rows[0].count;
