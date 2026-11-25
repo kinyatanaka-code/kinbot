@@ -2657,7 +2657,10 @@ const KX_STAGES = [
 ];
 function kxStageInfo(x) {
   const pub = !!(x.published || x.publishedOn || (x.places || []).length) || /^活用：(公開掲載|限定公開)/.test(String(x.usage || ""));
-  const koNotDone = (x.actions || []).some((a) => a.kind === "キックオフ未実施") || (x.label === "フォローMTG設定済" && !x.followDone);
+  // キックオフの実施日が入っていて、その日が今日以前なら、実施済み（設定も済み）。道のりの「キックオフ」で実施日を入れたら、すぐ次の段へ進む（2026-11-25 田中さん「キックオフ実施済みにしたらすぐに反映させてほしい」）
+  const today0 = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const koDoneDate = !!x.kickoffOn && String(x.kickoffOn).slice(0, 10) <= today0;
+  const koNotDone = !koDoneDate && ((x.actions || []).some((a) => a.kind === "キックオフ未実施") || (x.label === "フォローMTG設定済" && !x.followDone));
   const koAct = (x.actions || []).find((a) => a.kind === "キックオフ未実施");
   const koSet = !koNotDone || !!x.kickoffClear || (koAct && koAct.ko && koAct.ko !== "未設定");
   // 初期費用なし（アチコチパースだけなど）は検収書が要らないので、検収書回収は飛ばして済みにする（2026-11-25 田中さん）
