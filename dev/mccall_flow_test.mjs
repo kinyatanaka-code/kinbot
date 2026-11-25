@@ -247,6 +247,25 @@ await t("営業と管理者を兼ねる人（齊藤さん等）：同じメー�
   assert.equal((await call(A, "GET", "/api/mccall/people")).rows.find((r) => r.kind === "sales" && r.key === "齊藤玲耶").email, OUTSIDER.email, "営業の登録は残る");
   await call(A, "PUT", "/api/mccall/people", { kind: "sales", key: "齊藤玲耶", email: "" });
 });
+await t("リストとトークの対応：ほかのリストのトークを写せる・同じ印が付く・最後の1本は外せない・管理者だけ", async () => {
+  const L2 = (await call(A, "POST", "/api/mccall/lists", { name: "試験リスト（対応）", members: [] })).id;
+  try {
+    let m = await call(A, "GET", "/api/mccall/talk-map");
+    const a1 = m.talks.find((x) => x.listId === L1 && x.label === "A"); assert.ok(a1, "L1 のトーク A が一覧に出る");
+    assert.ok(!m.talks.some((x) => x.listId === L2) && m.lists.some((l) => l.id === L2), "トークの無いリストも行として出る");
+    await call(A, "PUT", "/api/mccall/talk-map", { to: L2, label: "B", from: a1.id });
+    m = await call(A, "GET", "/api/mccall/talk-map");
+    const b2 = m.talks.find((x) => x.listId === L2 && x.label === "B"); const a1b = m.talks.find((x) => x.listId === L1 && x.label === "A");
+    assert.ok(b2 && b2.same && b2.same === a1b.same, "写したトークに、写し元と同じ印が付く");
+    assert.equal(a1b.id, a1.id, "写し元のトークは変わらない（版が増えない）");
+    await assert.rejects(call(A, "PUT", "/api/mccall/talk-map", { to: L2, label: "B", from: null }), /400/, "最後の1本は外せない");
+    await assert.rejects(call(I1, "GET", "/api/mccall/talk-map"), /403/, "管理者でない人は見られない");
+    await call(A, "PUT", "/api/mccall/talk-map", { to: L2, label: "A", from: a1.id });
+    await call(A, "PUT", "/api/mccall/talk-map", { to: L2, label: "B", from: null });
+    const left = (await q(`SELECT label, ver, active FROM mc_call_talks WHERE list_id=$1 ORDER BY id`, [L2])).rows;
+    assert.deepEqual(left.map((r) => `${r.label}${r.ver}${r.active ? "+" : "-"}`), ["B1-", "A1+"], "外した欄は前の版として残る");
+  } finally { await call(A, "PATCH", `/api/mccall/lists/${L2}`, { closed: true }); }
+});
 await t("アプローチ禁止の名簿が読めない：エラーにせず、止めている理由（stop=ban）を返す", async () => {
   await q(`ALTER TABLE approach_bans RENAME TO approach_bans_test_off`);
   try {
