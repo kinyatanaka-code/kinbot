@@ -13381,6 +13381,26 @@ export async function mcBalesSources(listKey, { col = "", val = null } = {}) {
   const nr = (await pool.query(`SELECT count(*) AS n, ${BAPO_SEL}${stgSel} ${base} AND COALESCE(array_to_string(ARRAY[${BALES_SRC_COLS.replace(/data->>/g, "r.data->>")}], ''), '') = ''`, args)).rows[0]; const none = Number(nr.n);
   return none ? [...named, { v: "-", n: none, ...more(nr) }] : named;
 }
+// MOCHICALL へ引き継ぐナーチャリング（2026-11-25 福井さん「ジャッジ・コネクト情報・営業フォロー・次回アクション設定のリードは
+//   すべて MOCHICALL でも引き継ぐ」）：主のリストのいまの取り込みのうち、リサイクル・アーカイブ以外で、
+//   ステージがジャッジかコネクト情報（獲得）、または最終架電結果が営業フォロー・資料送付、または終わっていない次回アクションがあるもの。
+//   お断り・アポ獲得も含める（福井さん決定）。重複でまとめた行と MOCHICA ユーザーは、ほかの表と同じく省く（かける相手ではないため）。
+//   所有者は表と同じく kinbot の割り振りを先に見る。中身（data）は丸ごと返さず、引き継ぐのに要る項目だけにする（10分ごとに読むので軽くする）。
+//   next_at＝終わっていない次回アクションのいちばん早い日時（無ければ null）
+export async function mcNurtureTargets(listKey, col) {
+  if (!pool) return []; await ensureMcBales();
+  const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l || !l.run_at) return [];
+  const na = (i) => `r.data->>('nextActions.' || ${i} || '.reservedAt')`;
+  return (await pool.query(`SELECT r.row_key, ${colX(col, "$3", "r.")} AS owner, r.hot, r.sf->'lead'->>'id' AS lid,
+      r.data->>'companyName' AS company, COALESCE(NULLIF(r.data->>'companyTel1',''), r.data->>'personalTel') AS phone, r.data->>'targetName' AS person,
+      (SELECT min(CASE WHEN ${na("i")} ~ '^\\d{4}-\\d{2}-\\d{2}T' THEN (${na("i")})::timestamptz END) FROM generate_series(0, 29) i
+        WHERE COALESCE(r.data->>('nextActions.' || i || '.isDone'), 'false') <> 'true') AS next_at
+    FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.run_at=$2 AND r.dup_of IS NULL AND NOT ${BALES_MCU}
+      AND ${BST.replace(/data/g, "r.data")} !~ '(アーカイブ|リサイクル)'
+      AND (${BST.replace(/data/g, "r.data")} ~ '(ジャッジ|コネクト情報)' OR ${BCR.replace(/data/g, "r.data")} ~ '(営業フォロー|資料送付)'
+        OR EXISTS (SELECT 1 FROM generate_series(0, 29) i WHERE ${na("i")} ~ '^\\d{4}-\\d{2}-\\d{2}T'
+          AND COALESCE(r.data->>('nextActions.' || i || '.isDone'), 'false') <> 'true'))`, [listKey, l.run_at, col])).rows;
+}
 export async function mcBalesValues(listKey, col, { stg = "", blank = false } = {}) {
   if (!pool) return []; await ensureMcBales();
   // stg（ステージ別）を付けると、その分だけ数える（メンバー別の「残りの架け先」＝active）

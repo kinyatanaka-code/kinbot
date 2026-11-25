@@ -13,7 +13,7 @@
 // 画面の考え方（ASUMO のレビューと kincall の評価から）：
 //   結果は「どこまで届いたか → 中身」の2段。不在でも受付で聞けたこと（担当者名・在席時間・直通）を残す。
 //   担当者に届かなかった不在は、1〜2営業日あけて前回と違う時間帯に自動で掛け直しに回し、8回続いたら一度休ませる（mccadence.js。解除できる）。記録の取り消しは「元に戻す」で行う。
-import { dbPool, listUsers, approachBanHit, approachBanHitSync, approachBanHitLead, approachBanHitLeadSync, loadApproachBans, listMembers, getSettings, saveSettings, mcBalesToday, mcBalesValues, BALES_MCU } from "./db.js";
+import { dbPool, listUsers, approachBanHit, approachBanHitSync, approachBanHitLead, approachBanHitLeadSync, loadApproachBans, listMembers, getSettings, saveSettings, mcBalesToday, mcBalesValues, mcNurtureTargets, BALES_MCU } from "./db.js";
 import { freeBusy, gmailSend, isConnected as googleConnected, createCalendarEvent, deleteCalendarEvent } from "./google.js";
 import { notifyPerson } from "./chat.js";
 import { teamOf, teamLabel, splitFree, slotScore, pickFs } from "./mcteam.js";   // IS と FS のチーム（2026-11-23）
@@ -30,7 +30,7 @@ import { fetchPageText } from "./companyenrich.js";
 import { pickLeadStages, stageOf, stageCode, normCode, autoStage, LEAD_STAGES } from "./mcstage.js";   // リードの状況は基本の7つだけ出す（2026-11-24）
 import { segOf, SEG_V, SF_LEAD_FIELDS, sfLeadRow, balesCarry, sfLeadWhere } from "./mcseg.js";
 import { ensurePlay, talkForLead, activeTalks, saveTalks, listsWithTalk, measures, researchGate, researchSoon, researchState, inboundFor, inboundAllows, startPlayPumps, TALK_LABELS } from "./mcplay.js";
-import { CADENCE, BENCH, WHY_HUMAN, jstDayStart, jstAt, nextMissAt, hourRates, slotNow, rankQueue } from "./mccadence.js";
+import { CADENCE, BENCH, WHY_HUMAN, jstDayStart, jstAt, nextMissAt, hourRates, slotNow, rankQueue, STALE_NEXT_DAYS } from "./mccadence.js";
 import { planFromBales, MAX_AGE_H } from "./mcbalessync.js";   // BALES でかけた結果で「かける」の順番を変える（2026-11-25）
 import { FILL_APIS, FILL_SOQL_FIELDS, readMemo, readInputs, planFills, pickedFields, hiresBucket } from "./mcsffill.js";
 import { formRun } from "./mcform.js";   // 問い合わせフォームの自動送信（2026-11-20）
@@ -199,6 +199,13 @@ async function ensure() {
     await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS prio SMALLINT`);
     // BALES でかけた結果をどこまで順番に入れたか（at＝BALES の最終架電日時・result・kind・why・prev＝入れる前の値）（2026-11-25 福井さん）
     await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS bales_seen JSONB`);
+    // BALES のナーチャリングを MOCHICALL へ引き継いだ印（2026-11-25 福井さん）。handover_at＝はじめて引き継いだ日時、
+    //   handover_owner＝そのときの BALES の所有者（変わったら担当を付け直す）。handover_src＝引き継ぎの入れ先のリスト（1本だけ）
+    await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS handover_at TIMESTAMPTZ`);
+    await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS handover_owner TEXT`);
+    // はじめて引き継いだときの元の値（担当・リスト・掛け直し）。引き継ぎをやめて元に戻すときに使う
+    await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS handover_prev JSONB`);
+    await q(`ALTER TABLE mc_call_lists ADD COLUMN IF NOT EXISTS handover_src BOOLEAN NOT NULL DEFAULT false`);
     await backfillLeadKeys();
     await q(`CREATE TABLE IF NOT EXISTS mc_cross_moves (
       id SERIAL PRIMARY KEY, from_biz TEXT, to_biz TEXT, from_ref TEXT, from_name TEXT, to_list_id INT,
@@ -443,10 +450,13 @@ export function applyBalesCalls() {
       out[p.kind]++;
     }
     if (out.seen) console.log(`[mccall] BALES の架電を順番に入れました：${JSON.stringify(out)}`);
+    // 続けて、BALES のナーチャリングの引き継ぎも新しくする（同じきっかけで動かす。新しい定期処理は足さない）
+    if (_handoverFn) _handoverFn().catch((e) => console.warn("[mccall] ナーチャリングを引き継げませんでした:", e.message));
     return out;
   })().finally(() => { _balesRun = null; });
   return _balesRun;
 }
+let _handoverFn = null;   // 下の app の中で入れる（balesMain などを使うため）
 async function mynaviOf(company) {
   const k = companyKey(company); if (!k) return null;
   const r = (await P().query(`SELECT data, at FROM mc_mynavi WHERE ckey=$1`, [k]).catch(() => ({ rows: [] }))).rows[0];
@@ -1831,6 +1841,140 @@ export function registerMcCall(app, deps) {
     })().finally(() => { _todayListP = null; });
     return _todayListP;
   }
+  // ---- BALES のナーチャリングを MOCHICALL へ引き継ぐ（2026-11-25 福井さん） ----
+  //   「BALES のナーチャリングのうち、ジャッジ・コネクト情報・営業フォロー・次回アクション設定のリードは、すべて MOCHICALL でも引き継ぐ」。
+  //   調べたところ、2,833件のうち 2,370件がトークの無い「BALES：すべてのリード」に担当なしで置かれ、だれの「かける」にも出ていなかった。
+  //   決めごと（福井さん）：
+  //   ・担当は BALES の所有者（kinbot で割り振り直していればそちら）。所有者が MOCHICALL を使い始めるまでは引き継がない
+  //     （＝MOCHICALL で60日以内にかけたことのある人だけ。未割り振りの分は引き継がない）
+  //   ・引き継いだ分は全部すぐ「かける」に出す（今日かけるリストの人も、今日の分と並べて出す）
+  //   ・BALES の次回アクションは MOCHICALL の掛け直しに写す。先の予定はその時刻に、過ぎた予定は最近過ぎた順に出す。
+  //     90日より前に過ぎた予定は「予定なし」と同じ扱いにする（何年も前の予定が毎日先頭に来ないように）
+  //   ・お断り・アポ獲得も含める。MOCHICALL で終わったリード・キャリミキのリストのリード・アプローチ禁止は動かさない
+  //   入れ先は、トークを写した「BALES 引き継ぎ（ナーチャリング）」のリスト（今日かけるリストにあるものは、そのまま置く）。
+  //   新しい定期処理は足さず、BALES の見張り・取り込みが届いたとき（applyBalesCalls の続き）と、起動のあと1回だけ動く。AI・有料 API は使わない
+  const HANDOVER_LIST_NAME = "BALES 引き継ぎ（ナーチャリング）";
+  const HANDOVER_STALE_DAYS = 90;
+  let _handoverListP = null;
+  async function handoverList() {
+    const r = (await P().query(`SELECT id, closed FROM mc_call_lists WHERE handover_src AND biz=$1 ORDER BY id LIMIT 1`, [BIZ])).rows[0];
+    if (r) return r.closed ? null : r.id;   // 閉じたら引き継ぎを止める（止めたいときの切り替え）
+    if (!_handoverListP) _handoverListP = (async () => {
+      const id = (await P().query(`INSERT INTO mc_call_lists (name, note, members, created_by, handover_src) VALUES ($1,$2,'{}',$3,true) RETURNING id`,
+        [HANDOVER_LIST_NAME, "BALES のジャッジ・コネクト情報・営業フォロー・次回アクションのあるリードを、所有者の担当で自動で引き継ぎます。閉じると引き継ぎを止めます", "自動（BALES 引き継ぎ）"])).rows[0].id;
+      const from = await copyLatestTalk(id, "自動（BALES 引き継ぎ）").catch(() => null);
+      console.log(`[mccall] 「${HANDOVER_LIST_NAME}」を作りました（id ${id}・トーク：${from ? `「${from}」から写した` : "なし"}）`);
+      return id;
+    })().finally(() => { _handoverListP = null; });
+    return _handoverListP;
+  }
+  // BALES の所有者 → 引き継ぐ人（メール）。MOCHICALL で60日以内にかけたことのある人だけ。同じ所有者に2人当たるときは引き継がない
+  async function handoverOwners(bm) {
+    const vals = await mcBalesValues(bm.listKey, bm.col).catch(() => []);
+    const every = await everyoneNames();
+    const reg = await loadPeople().catch(() => new Map());
+    const active = new Set((await P().query(`SELECT DISTINCT lower(caller) AS e FROM mc_call_logs WHERE caller IS NOT NULL AND created_at >= now() - interval '60 days'`)).rows.map((r) => r.e));
+    const claim = new Map();
+    for (const x of await listUsers().catch(() => [])) {
+      const e = String((x && x.email) || "").toLowerCase(); if (!e || !active.has(e)) continue;
+      const forms = new Set([foldPersonName(x.name)].filter(Boolean));
+      for (const p of MCDASH_ROSTER.is) if (rosterEmailOf(reg, "is", p.sf) === e || rosterHit(x.name, [p])) for (const f of rosterForms(p)) forms.add(f);
+      const o = pickBalesOwner(forms, vals, every); if (o) claim.set(o, [...(claim.get(o) || []), e]);
+    }
+    return new Map([...claim].filter(([, es]) => es.length === 1).map(([o, es]) => [o, es[0]]));
+  }
+  // dry＝数えるだけ（管理者の下見）。戻り値は所有者ごとの件数と、どう扱ったかの内訳
+  let _handoverAt = 0, _handoverRun = null;
+  async function nurtureHandover({ dry = false, force = false } = {}) {
+    if (!dry && _handoverRun) return _handoverRun;
+    if (!dry && !force && Date.now() - _handoverAt < 5 * 60e3) return { skipped: "5分以内に動かしたばかり" };   // 見張りは10分ごとに何度も届くので、間を空ける
+    // 自動で動くのは、管理者が下見を見て1回目を動かしたあとだけ（mcHandoverOn）。いきなり2千件の担当を書き換えないため
+    if (!dry && !force && !(await getSettings().catch(() => ({}))).mcHandoverOn) return { skipped: "まだ1回目を動かしていません（管理者が /api/mccall/nurture-handover を POST）" };
+    const run = (async () => {
+      const bm = await balesMain(); if (!bm) return { error: "BALES の主のリストがありません" };
+      const hid = dry ? ((await P().query(`SELECT id FROM mc_call_lists WHERE handover_src AND NOT closed AND biz=$1 LIMIT 1`, [BIZ])).rows[0] || {}).id || 0 : await handoverList();
+      if (hid == null) return { error: `「${HANDOVER_LIST_NAME}」が閉じているので引き継いでいません` };
+      const tid = await todayList().catch(() => null);
+      const owners = await handoverOwners(bm);
+      const rows = await mcNurtureTargets(bm.listKey, bm.col);
+      await banListOrStop();
+      const now = Date.now(), staleMs = HANDOVER_STALE_DAYS * 86400e3, day = todayDay();
+      // いま MOCHICALL にあるリード（重複でまとめたものは、まとめ先）
+      const sks = rows.map((r) => `${bm.listKey}|${r.row_key}`);
+      const map = new Map((await P().query(`SELECT src_key, COALESCE(dup_of, id) AS id FROM mc_call_leads WHERE src='bales' AND src_key = ANY($1) ORDER BY (dup_of IS NULL) DESC, id`, [sks])).rows.reverse().map((r) => [r.src_key, r.id]));
+      const ids = [...new Set(map.values())];
+      const cur = new Map((ids.length ? (await P().query(`SELECT c.id, c.src, c.src_key, c.done, c.list_id, c.assigned_to, c.today_day, c.next_at, c.handover_at, c.handover_owner,
+          (c.locked_by IS NOT NULL AND c.locked_at >= now() - interval '10 minutes') AS busy, c.locked_by, l.product, l.stock, l.closed
+        FROM mc_call_leads c JOIN mc_call_lists l ON l.id = c.list_id WHERE c.id = ANY($1)`, [ids])).rows : []).map((r) => [r.id, r]));
+      const callable = await listsWithTalk([...new Set([...cur.values()].map((c) => c.list_id))]);
+      const per = new Map(); const tally = (o, k) => { const x = per.get(o) || { owner: o, n: 0 }; x.n++; x[k] = (x[k] || 0) + 1; per.set(o, x); };
+      const up = [], add = [], seenKey = new Set();
+      // BALES の次回アクション → MOCHICALL の掛け直し（先の予定は約束として、最近過ぎた予定は時刻が来た掛け直しとして。90日より前は写さない）
+      const nextOf = (r) => { const t = r.next_at ? new Date(r.next_at).getTime() : NaN; if (!Number.isFinite(t) || now - t > staleMs) return [null, null];
+        return t > now ? [new Date(t), WHY_HUMAN] : [new Date(t), "BALES の次回アクション（予定日を過ぎています）"]; };
+      for (const r of rows) {
+        const o = String(r.owner || "").trim() || "（未割り振り）", u = owners.get(o);
+        if (!u) { tally(o, o === "（未割り振り）" ? "noOwner" : "notUsing"); continue; }
+        if (approachBanHitSync({ company: r.company, phone: r.phone, leadId: r.lid })) { tally(o, "banned"); continue; }
+        const id = map.get(`${bm.listKey}|${r.row_key}`), c = id ? cur.get(id) : null;
+        const [nAt, nWhy] = nextOf(r);
+        if (!c) { add.push({ r, o, u, nAt, nWhy }); tally(o, "add"); continue; }
+        if (c.done) { tally(o, "done"); continue; }
+        if (c.product === "careermixer") { tally(o, "careermixer"); continue; }
+        const k = `${c.src}\u0000${c.src_key}`; if (seenKey.has(k)) { tally(o, "same"); continue; } seenKey.add(k);
+        const ownerChanged = c.handover_at && c.handover_owner !== o;
+        const takeOver = !c.handover_at || ownerChanged || !c.assigned_to;
+        const busyOther = (c.busy && String(c.locked_by || "").toLowerCase() !== u) || (c.assigned_to && c.assigned_to !== u && c.today_day === day);
+        const needMove = c.list_id !== tid && (c.stock || c.closed || !callable.has(c.list_id));
+        if (!takeOver && !needMove) { tally(o, c.assigned_to === u ? "kept" : "keptOther"); continue; }
+        if (busyOther) { tally(o, "busy"); continue; }   // ほかの人が開いている・今日の分でかけている：次の回にする
+        up.push({ id: c.id, a: takeOver ? u : c.assigned_to, l: needMove ? hid : null, n: !c.handover_at ? nAt : null, w: !c.handover_at ? nWhy : null, o });
+        tally(o, takeOver ? (c.assigned_to && c.assigned_to !== u ? "reassigned" : "assigned") : "moved");
+      }
+      const out = { dry, list: hid, targets: rows.length, owners: [...per.values()].sort((a, b) => b.n - a.n), updated: 0, added: 0 };
+      if (dry) { out.plan = { update: up.length, add: add.length }; return out; }
+      // まとめて書く。終わったリード・ほかの人が開いたばかりのリード・キャリミキのリストのリードは、書く直前にもう一度確かめて動かさない
+      for (let i = 0; i < up.length; i += 500) {
+        const s = up.slice(i, i + 500);
+        const x = await P().query(`UPDATE mc_call_leads c SET assigned_to = u.a,
+            list_id = CASE WHEN u.l IS NOT NULL AND NOT EXISTS (SELECT 1 FROM mc_call_leads d WHERE d.list_id = u.l AND d.src = c.src AND d.src_key = c.src_key AND d.id <> c.id) THEN u.l ELSE c.list_id END,
+            talk_label = CASE WHEN u.l IS NOT NULL AND u.l <> c.list_id THEN NULL ELSE c.talk_label END,
+            next_at = CASE WHEN c.handover_at IS NULL AND c.next_at IS NULL AND u.n IS NOT NULL THEN u.n ELSE c.next_at END,
+            next_why = CASE WHEN c.handover_at IS NULL AND c.next_at IS NULL AND u.n IS NOT NULL THEN u.w ELSE c.next_why END,
+            handover_at = COALESCE(c.handover_at, now()), handover_owner = u.o,
+            handover_prev = COALESCE(c.handover_prev, jsonb_build_object('assigned_to', c.assigned_to, 'list_id', c.list_id, 'next_at', c.next_at, 'next_why', c.next_why))
+          FROM unnest($1::int[], $2::text[], $3::int[], $4::timestamptz[], $5::text[], $6::text[]) AS u(id, a, l, n, w, o)
+          WHERE c.id = u.id AND NOT c.done AND (c.locked_by IS NULL OR c.locked_by = u.a OR c.locked_at < now() - interval '10 minutes') AND ${NOT_IN_CM("c.list_id")}`,
+          [s.map((x) => x.id), s.map((x) => x.a), s.map((x) => x.l), s.map((x) => x.n), s.map((x) => x.w), s.map((x) => x.o)]);
+        out.updated += x.rowCount;
+      }
+      for (const { r, u, o, nAt, nWhy } of add) {
+        const x = await addLeadUnique({ list_id: hid, src: "bales", src_key: `${bm.listKey}|${r.row_key}`, company: r.company, phone: r.phone, person: r.person, sf_lead_id: r.lid || null, hot: r.hot,
+          assigned_to: u, next_at: nAt, next_why: nWhy, handover_at: new Date(), handover_owner: o }, {}).catch((e) => ({ error: e.message }));
+        if (x.added) out.added++;
+      }
+      // 引き継いだ人を入れ先のリストのメンバーにする（その人の「かける」にリストが出るように）。ほかの人には出さない
+      const mem = (await P().query(`SELECT DISTINCT assigned_to AS e FROM mc_call_leads WHERE list_id=$1 AND assigned_to IS NOT NULL`, [hid])).rows.map((r) => r.e);
+      await P().query(`UPDATE mc_call_lists SET members=$2 WHERE id=$1`, [hid, mem.length ? mem : ["-"]]);
+      _handoverAt = Date.now();
+      console.log(`[mccall] BALES のナーチャリングを引き継ぎました：対象 ${rows.length}件・書き換え ${out.updated}件・新しく入れた ${out.added}件 ${JSON.stringify(out.owners.map((x) => `${x.owner}:${x.n}`))}`);
+      return out;
+    })();
+    if (dry) return run;
+    _handoverRun = run.finally(() => { _handoverRun = null; });
+    return _handoverRun;
+  }
+  _handoverFn = () => nurtureHandover();
+  setTimeout(() => { nurtureHandover().catch((e) => console.warn("[mccall] ナーチャリングを引き継げませんでした:", e.message)); }, 90e3).unref?.();
+  // 管理者の下見と、すぐ動かす（GET＝数えるだけ、POST＝引き継ぐ。POST したあとは自動でも動く）
+  app.get("/api/mccall/nurture-handover", adminOnly(async (req, res) => { res.json({ ok: true, on: !!(await getSettings().catch(() => ({}))).mcHandoverOn, ...(await nurtureHandover({ dry: true })) }); }));
+  app.post("/api/mccall/nurture-handover", adminOnly(async (req, res) => {
+    const r = await nurtureHandover({ force: true });
+    if (!r.error) await saveSettings({ mcHandoverOn: true });
+    console.log(`[mccall] ナーチャリングの引き継ぎを動かしました by ${me(req)}`);
+    res.json({ ok: true, ...r });
+  }));
+
   // その人の今日の分を MOCHICALL に入れる（担当を付け、today_day に今日の日付）。同じ日の同じ中身なら10分に1回だけ（ほかの人が開いていて移せなかった分を拾い直す）
   const _todaySync = new Map();
   async function syncToday(u, owner, bm, tid) {
@@ -2018,7 +2162,9 @@ export function registerMcCall(app, deps) {
     //   tid は数・day は日付の形なので、そのまま SQL に書く（ほかの問い合わせと $ の数を変えないため）
     // 検討時期待ちの会社（検討時期の2か月前まで）は出さない。ただし情報が1年以上前なら出す（whenHoldSql・2026-11-25 福井さん）
     const HOLD_Q = whenHoldSql("mc_call_leads");
+    //   BALES から引き継いだ本人のリード（handover_at）も、今日の分と並べて全部出す（2026-11-25 福井さん「全部すぐ出す」）
     const todayW = tm && /^\d{4}-\d{2}-\d{2}$/.test(tm.day) ? ` AND ((list_id = ${Number(tm.tid)} AND assigned_to = $2 AND today_day = '${tm.day}')
+        OR (handover_at IS NOT NULL AND assigned_to = $2)
         OR (next_at IS NOT NULL AND (assigned_to = $2 OR (assigned_to IS NULL AND (SELECT g.caller FROM mc_call_logs g WHERE g.lead_id = mc_call_leads.id AND NOT g.undone ORDER BY g.created_at DESC LIMIT 1) = $2))))` : "";
     const base = `list_id = ANY($1) AND NOT done AND dup_of IS NULL AND (next_at IS NULL OR next_at <= now())
         AND (assigned_to IS NULL OR assigned_to=$2) AND (locked_by IS NULL OR locked_by=$2 OR locked_at < now() - interval '10 minutes')${todayW}
@@ -2026,7 +2172,8 @@ export function registerMcCall(app, deps) {
     const order = `(next_at IS NOT NULL) DESC, next_at, COALESCE(hot,0) DESC, attempts, id`;
     // 順番は mccadence.js の rankQueue で決める（約束の掛け直し → 時刻が来た掛け直し → ホット度・検討時期・在席時間の順）。SQL では候補を多め（300件）に絞るだけ
     //   候補の300件には、リスト管理で優先度を高にした会社を先に入れる（低は後ろ）（2026-11-25 福井さん）
-    const rankOrder = `(next_at IS NOT NULL) DESC, COALESCE(next_why = $3, false) DESC, COALESCE(prio,2) DESC, next_at, COALESCE(hot,0) DESC, attempts, id`;
+    //   候補を選ぶときも、90日より前に過ぎた予定は「予定なし」と同じに数え、過ぎた予定は最近過ぎたものから選ぶ（rankQueue と同じ決まり。2026-11-25 福井さん）
+    const rankOrder = `(next_at IS NOT NULL AND next_at > now() - interval '${STALE_NEXT_DAYS} days') DESC, COALESCE(next_why = $3, false) DESC, COALESCE(prio,2) DESC, next_at DESC NULLS LAST, COALESCE(hot,0) DESC, attempts, id`;
     const cols = `id, list_id, company, person, hot, attempts, next_at, next_why, last_outcome, cross_from, miss_streak, hearing, gate, phone, info, sf_lead_id, prio, (research_at IS NOT NULL) AS researched`;
     // 企業調査が終わった会社を先に出す（架電者が調べなくてよいように）。
     //   調べ終わった会社が足りないときは、まだの会社も後ろに足して出す（「調査中」と出すだけで、かけてよい）。

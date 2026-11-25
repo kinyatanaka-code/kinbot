@@ -103,10 +103,15 @@ export function nextMissAt({ now = new Date(), streak = 1, gateHours = "", rates
 // l：{ next_at, next_why, hot, attempts, miss_streak, hearing, gate }
 // tier 0＝人が決めた約束の掛け直し／1＝時刻が来た自動の掛け直し／2＝それ以外（点の高い順）。
 //   約束と掛け直しの時刻を先に守るのは、型（間隔）を崩さないため。点は tier 2 の中の並びだけに効く
+// 90日より前に過ぎた予定は「予定なし」と同じに扱う（2026-11-25 福井さん）。BALES から写した何年も前の次回アクションが、
+//   「時刻が来た掛け直し」として毎日先頭を占めていたため
+export const STALE_NEXT_DAYS = 90;
 export function priorityOf(l, now = new Date()) {
-  const due = l.next_at && new Date(l.next_at).getTime() <= now.getTime();
-  if (due) return { tier: l.next_why === WHY_HUMAN ? 0 : 1, score: 0, reasons: [l.next_why === WHY_HUMAN ? "約束の掛け直し" : "掛け直しの時刻が来ました"] };
-  let score = 0; const reasons = [];
+  const t = l.next_at ? new Date(l.next_at).getTime() : NaN;
+  const due = Number.isFinite(t) && t <= now.getTime();
+  const stale = due && now.getTime() - t > STALE_NEXT_DAYS * 86400e3;
+  if (due && !stale) return { tier: l.next_why === WHY_HUMAN ? 0 : 1, score: 0, reasons: [l.next_why === WHY_HUMAN ? "約束の掛け直し" : "掛け直しの時刻が来ました"] };
+  let score = 0; const reasons = stale ? ["前の予定（90日より前）"] : [];
   const hot = Number(l.hot || 0);
   if (hot >= 3) { score += 30; reasons.push("ホット（担当者名・ニーズ・時期が分かる）"); } else if (hot === 2) { score += 20; reasons.push("ウォーム"); } else score += hot * 10;
   // 検討時期が近い会社は、採用の意思決定の窓が開いている（MOCHICA 科学化：採用暦に合わせる）
@@ -121,7 +126,8 @@ export function priorityOf(l, now = new Date()) {
   score -= 3 * (l.miss_streak || 0);
   return { tier: 2, score, reasons: reasons.slice(0, 3) };
 }
+// 約束（tier 0）は時刻の早い順。時刻が来た掛け直し（tier 1）は最近過ぎたものから（2026-11-25 福井さん「新しく過ぎた順に出す」）
 export function rankQueue(rows, now = new Date()) {
   return rows.map((r) => ({ ...r, ...priorityOf(r, now) })).sort((a, b) =>
-    a.tier - b.tier || (a.tier < 2 ? new Date(a.next_at) - new Date(b.next_at) : b.score - a.score) || (a.attempts || 0) - (b.attempts || 0) || a.id - b.id);
+    a.tier - b.tier || (a.tier === 0 ? new Date(a.next_at) - new Date(b.next_at) : a.tier === 1 ? new Date(b.next_at) - new Date(a.next_at) : b.score - a.score) || (a.attempts || 0) - (b.attempts || 0) || a.id - b.id);
 }
