@@ -740,6 +740,24 @@ document.addEventListener("pointerover", (e) => {
   const id = el && (el.dataset.open || el.dataset.id || el.dataset.card || el.dataset.khOpen || el.dataset.msOpen || el.dataset.tkCo || el.dataset.tkOpen);
   if (id && /^(001[0-9A-Za-z]{12,15}|manual-[\w-]+)$/.test(id) && !_kxDetail.has(id)) kxDetailGet(id).catch(() => {});
 }, { passive: true });
+// 企業モーダルの見出しの2段目に「CS担当（その場で変えられる）」と「DOC の企業ID（押すとコピー）」を出す（2026-11-25 田中さん）。
+//   企業ID は AI（候補者画面）の URL の最後（brainverse-ai.com/<企業ID>）。無ければ CS連携のポータルの企業ID
+function kxDocCompanyId(d) {
+  const ai = (d.info && d.info.aiUrl) || "";
+  return (/brainverse-ai\.com\/([A-Za-z0-9_-]+)/.exec(ai) || [])[1] || (d.info && d.info.portal && d.info.portal.id) || "";
+}
+function kxHeadExtra(d) {
+  const x = d.item, st = d.status || {};
+  const opts = [...new Set((st.csOptions || []).filter(Boolean))];
+  const sur = (n) => String(n || "").normalize("NFKC").trim().split(/[\s　]+/)[0];
+  let cur = x.cs || "";
+  if (cur && !opts.includes(cur)) { const hit = opts.find((o) => sur(o) === sur(cur) || o.startsWith(sur(cur)) || sur(cur).startsWith(sur(o))); if (hit) cur = hit; else opts.push(cur); }
+  const cid = kxDocCompanyId(d);
+  const ico = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="3"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>';
+  return `<span class="kx-hx"><span class="kx-note">CS担当</span><select class="kx-hx-cs" data-hx-cs title="CS担当を変える（すぐ保存）"><option value="">（未定）</option>${opts.map((o) => `<option ${o === cur ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></span>`
+    + (cid ? `<button type="button" class="kx-hx-id" data-hx-copy="${esc(cid)}" title="押すと企業IDをコピーします"><span class="kx-note">企業ID</span><b>${esc(cid)}</b>${ico}</button>`
+           : `<span class="kx-hx"><span class="kx-note">企業ID</span><span class="kx-note">—（企業情報に AI の URL がありません）</span></span>`);
+}
 async function openDetail(id, reuse) {
   // 押したらすぐ枠を出す（中身は届いてから）。保存のあとの描き直し（reuse）は今の画面のまま
   let bg0 = reuse && reuse.bg;
@@ -779,7 +797,7 @@ async function openDetail(id, reuse) {
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="kx-lab l-${esc(x.label)}">${esc(x.label)}</span><button type="button" class="kx-rank r-${x.rank} kx-rank-btn" data-rank-open title="押すと更新確度を変えられます" aria-expanded="false">${x.rank} <small>▾</small></button><span class="kx-note">更新月 ${x.renew ? esc(x.renew.replace("-", "/")) : "—"}${x.left != null ? `（${x.left < 0 ? `${-x.left}日過ぎ` : `あと${x.left}日`}）` : ""}${x.renewLocked ? "・手で決めた" : ""}</span>
       <button type="button" class="kx-ren" data-renew-open>更新月を変える</button>
-      <span class="kx-renew-ed" data-renew-box hidden><input type="month" class="kx-in" data-renew-in value="${esc(x.renew || "")}" style="width:150px;height:30px" /><button type="button" class="hp-b" data-renew-save>保存</button>${x.renewLocked ? '<button type="button" class="hp-b" data-renew-auto title="手で決めた更新月をやめて、契約終了日の前月に戻す">自動に戻す</button>' : ""}<button type="button" class="hp-b" data-renew-cancel>やめる</button></span></div>
+      <span class="kx-renew-ed" data-renew-box hidden><input type="month" class="kx-in" data-renew-in value="${esc(x.renew || "")}" style="width:150px;height:30px" /><button type="button" class="hp-b" data-renew-save>保存</button>${x.renewLocked ? '<button type="button" class="hp-b" data-renew-auto title="手で決めた更新月をやめて、契約終了日の前月に戻す">自動に戻す</button>' : ""}<button type="button" class="hp-b" data-renew-cancel>やめる</button></span>${kxHeadExtra(d)}</div>
     <div class="kx-rank-pop" data-rank-pop hidden></div>
     ${x.alerts.length ? `<div class="kx-sec" style="background:#FFF7EA;border-color:#F0D5B0;color:#6B3700;font-size:12.5px"><b>要注意：</b>${x.alerts.map((a) => `${esc(a.rule)}（${esc(a.detail)}）`).join("／")}</div>` : ""}
     <div class="kx-tabs"><button type="button" class="on" data-tab="task">タスク</button><button type="button" data-tab="info">活動記録</button><button type="button" data-tab="tl">議事録（${d.timeline.filter((t) => t.kind === "mtg").length}）</button><button type="button" data-tab="hire">採用状況</button><button type="button" data-tab="docai">候補者の質問</button><button type="button" data-tab="co">企業情報</button></div>
@@ -857,6 +875,11 @@ async function openDetail(id, reuse) {
   })();
   if (!bg.isConnected) document.body.appendChild(bg);
   kxCircusMount(bg, x); kxKenshuMount(bg, x); kxNowMount(bg); kxSalesMount(bg, x); kxCTaskMount(bg, x); kxGuideMount(bg, x, d);
+  { const cs = bg.querySelector("[data-hx-cs]"); if (cs) cs.addEventListener("change", () => put({ cs_name: cs.value }));
+    const cp = bg.querySelector("[data-hx-copy]"); if (cp) cp.addEventListener("click", async () => {
+      const v = cp.dataset.hxCopy; try { await navigator.clipboard.writeText(v); } catch { const t = document.createElement("textarea"); t.value = v; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); }
+      const b = cp.querySelector("b"); const old0 = b.textContent; b.textContent = "コピーしました"; cp.classList.add("ok"); setTimeout(() => { b.textContent = old0; cp.classList.remove("ok"); }, 1200);
+    }); }
   if (reuse) {
     if (reuse.tab) { bg.querySelectorAll("[data-tab]").forEach((x2) => x2.classList.toggle("on", x2.dataset.tab === reuse.tab)); bg.querySelectorAll("[data-pane]").forEach((p2) => { p2.hidden = p2.dataset.pane !== reuse.tab; }); }
     const dr = bg.querySelector(".kx-drawer"); if (dr && reuse.scroll) dr.scrollTop = reuse.scroll;
