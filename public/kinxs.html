@@ -11,7 +11,7 @@
     <link rel="manifest" href="/kinxs.webmanifest" />
     <meta name="theme-color" content="#0B3B2E" />
     <meta name="apple-mobile-web-app-title" content="kinXs" />
-    <link rel="stylesheet" href="style.css?v=20261125r" />
+    <link rel="stylesheet" href="style.css?v=20261125s" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1480,6 +1480,14 @@
   #kh2 .h2-row.h3 .h2-rm .m{grid-row:1/3;grid-column:1;flex-direction:row;align-items:baseline;gap:5px;} #kh2 .h2-row.h3 .h2-rm .m b{font-size:14px;}
   #kh2 .h2-row.h3 .h2-rm .st{grid-row:1;grid-column:2;height:8px;} #kh2 .h2-row.h3 .h2-rm .rk{grid-row:2;grid-column:2;} #kh2 .h2-row.h3 .h2-rm .n{grid-row:1/3;grid-column:3;font-size:17px;text-align:right;}
   @media (max-width:1100px){ #kh2 .h2-row.h3{grid-template-columns:1fr;grid-template-rows:none;grid-template-areas:"task" "mine" "ren" "miss";} }
+  /* 担当企業の流れで、キックオフ未設定・要確認に会社がいるときは大きく・点滅（2026-11-25 田中さん）。動きを減らす設定の人には点滅させない */
+  .mi-flow .mi-kpi.hot{background:color-mix(in srgb,var(--c) 12%,#fff) !important;box-shadow:inset 4px 0 0 var(--c) !important;min-height:46px !important;}
+  .mi-flow .mi-kpi.hot .l{font-size:14.5px !important;font-weight:900;color:var(--c) !important;}
+  .mi-flow .mi-kpi.hot .v{font-size:28px !important;color:var(--c) !important;animation:kxPico 1.1s ease-in-out infinite;}
+  .mi-flow .mi-kpi.hot .l i{width:15px !important;height:15px !important;animation:kxPicoDot 1.1s ease-in-out infinite;}
+  @keyframes kxPico{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(1.08)}}
+  @keyframes kxPicoDot{0%,100%{box-shadow:0 0 0 3px #fff,0 0 0 3px color-mix(in srgb,var(--c) 0%,transparent)}50%{box-shadow:0 0 0 3px #fff,0 0 0 8px color-mix(in srgb,var(--c) 35%,transparent)}}
+  @media (prefers-reduced-motion:reduce){.mi-flow .mi-kpi.hot .v,.mi-flow .mi-kpi.hot .l i{animation:none;}}
 </style>
 </head>
   <body>
@@ -1640,8 +1648,8 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261125r" defer></script>
-    <script src="kinxs.js?v=20261125r"></script>
+    <script src="kbchat.js?v=20261125s" defer></script>
+    <script src="kinxs.js?v=20261125s"></script>
   <script>
   // スマホのメニューの開け閉め。項目を押したら閉じる（2026-11-24）
   (function () {
