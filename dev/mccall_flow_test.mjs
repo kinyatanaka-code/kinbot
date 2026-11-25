@@ -207,6 +207,19 @@ await t("受付で断られた：断り文句を選んで記録 → 記録に残
   assert.ok(d.timeline.some((x) => x.title.includes(meta.gateReasons[0]) && x.who), "これまでに断り文句とだれが出る");
   await call(I1, "POST", `/api/mccall/logs/${r.logId}/undo`); await call(I1, "POST", `/api/mccall/leads/${id}/release`);
 });
+await t("飛ばす → 記録が残り、レポートの「飛ばした」に同じ会社は1社で数えられる（コールには数えない）", async () => {
+  const before = await call(A, "GET", "/api/mccall/report?by=user");
+  const id = (await call(I1, "GET", "/api/mccall/queue")).items[0].id;
+  await call(I1, "GET", `/api/mccall/leads/${id}?lock=1`);
+  await call(I1, "POST", `/api/mccall/leads/${id}/skip`); await call(I1, "POST", `/api/mccall/leads/${id}/skip`);
+  assert.equal((await q(`SELECT locked_by FROM mc_call_leads WHERE id=$1`, [id])).rows[0].locked_by, null, "飛ばすと開いていた印が外れる");
+  const rep = await call(A, "GET", "/api/mccall/report?by=user");
+  assert.equal(rep.total.skipped, (before.total.skipped || 0) + 1); assert.equal(rep.total.calls, before.total.calls);
+  assert.equal(rep.rows.find((r) => r.key === I1).skipped, 1);
+  const day = await call(A, "GET", "/api/mccall/report?by=day");
+  assert.equal(day.rows.reduce((a, r) => a + r.skipped, 0), 1);
+  await q(`DELETE FROM mc_call_skips`);
+});
 await t("メールで登録：名前で当たらない人（Raia Naito）は、内藤さんの行にメールを登録するとインターンになる", async () => {
   assert.equal((await call(ROMAJI.email, "GET", "/api/mccall/queue")).why.kind, "notIntern");
   const ppl = await call(A, "GET", "/api/mccall/people");

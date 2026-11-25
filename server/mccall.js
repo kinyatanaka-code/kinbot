@@ -140,6 +140,10 @@ async function ensure() {
       old_val TEXT, new_val TEXT, undone BOOLEAN NOT NULL DEFAULT false, created_at TIMESTAMPTZ DEFAULT now())`);
     await q(`CREATE INDEX IF NOT EXISTS ix_mc_sf_fills_log ON mc_sf_fills(log_id)`);
     await q(`CREATE INDEX IF NOT EXISTS ix_mc_sf_fills_day ON mc_sf_fills(created_at)`);
+    // 「飛ばす」を押した記録（2026-11-25 福井さん「レポートで飛ばした企業数を出せるように」）。
+    //   前は飛ばしたことをブラウザの中にしか残しておらず、あとから数えられなかった。架電ではないので mc_call_logs には入れない（コール数に数えないため）
+    await q(`CREATE TABLE IF NOT EXISTS mc_call_skips (id SERIAL PRIMARY KEY, lead_id INT, list_id INT, caller TEXT, created_at TIMESTAMPTZ DEFAULT now())`);
+    await q(`CREATE INDEX IF NOT EXISTS ix_mc_call_skips_day ON mc_call_skips(created_at)`);
     await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS sf_pick JSONB`);
     await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS sf_fill_done BOOLEAN NOT NULL DEFAULT false`);
     // 架電のあとにリードの状況を自動で進めた結果 { old, new } か { err }（2026-11-24）。取り消したときに戻すのに使う
@@ -1112,11 +1116,20 @@ export function registerMcCall(app, deps) {
     const ftot = fnum((await P().query(`SELECT ${fcols} ${fjoin}`, p)).rows[0]);
     const inv = new Map((await P().query(`SELECT ${key} AS k, count(*) AS n FROM mc_call_logs g WHERE ${w} AND g.outcome='invalid' GROUP BY 1`, p)).rows.map((r) => [String(r.k), +r.n]));
     const fields = (await P().query(`SELECT f.label AS k, count(*) AS n ${fjoin} GROUP BY 1 ORDER BY 2 DESC`, p)).rows.map((r) => ({ k: r.k, n: +r.n }));
-    const fx = (k) => ({ ...(frows.get(String(k)) || fnum(null)), invalid: inv.get(String(k)) || 0 });
+    // 飛ばした会社の数（同じ会社を何度飛ばしても1社）。飛ばした表には取り消しが無いので undone の条件だけ外す
+    const ws = w.replace("NOT g.undone AND ", "");
+    const skips = new Map((await P().query(`SELECT ${key} AS k, count(DISTINCT g.lead_id) AS n FROM mc_call_skips g WHERE ${ws} GROUP BY 1`, p)).rows.map((r) => [String(r.k), +r.n]));
+    const skipTot = +(await P().query(`SELECT count(DISTINCT g.lead_id) AS n FROM mc_call_skips g WHERE ${ws}`, p)).rows[0].n;
+    const skipPrev = +(await P().query(`SELECT count(DISTINCT g.lead_id) AS n FROM mc_call_skips g WHERE ${ws}`, [new Date(from.getTime() - span), from, ...p.slice(2)])).rows[0].n;
+    // 飛ばしただけで1本もかけていない人・日も、表に出す（飛ばしてばかりの日を見落とさないように）
+    const zero = num({});
+    for (const k of skips.keys()) if (!rows.some((r) => String(r.k) === k)) rows.push({ k, ...Object.fromEntries(Object.keys(zero).map((x) => [x, 0])) });
+    if (by === "day") rows.sort((a, b) => String(a.k).localeCompare(String(b.k)));
+    const fx = (k) => ({ ...(frows.get(String(k)) || fnum(null)), invalid: inv.get(String(k)) || 0, skipped: skips.get(String(k)) || 0 });
     const names = await nameMap();
     const lists = by === "list" ? new Map((await P().query(`SELECT id::text AS id, name FROM mc_call_lists`)).rows.map((r) => [r.id, r.name])) : null;
     const label = (k) => by === "user" ? names.get(String(k || "").toLowerCase()) || k : by === "list" ? lists.get(k) || `リスト ${k}` : k;
-    res.json({ ok: true, by, from, to, all: isAdmin(req), days: Math.round(span / 86400e3), prev: num(prev), total: { ...num(tot), ...ftot, invalid: [...inv.values()].reduce((a, b) => a + b, 0) }, reasons, gateReasons, fields,
+    res.json({ ok: true, by, from, to, all: isAdmin(req), days: Math.round(span / 86400e3), prev: { ...num(prev), skipped: skipPrev }, total: { ...num(tot), ...ftot, invalid: [...inv.values()].reduce((a, b) => a + b, 0), skipped: skipTot }, reasons, gateReasons, fields,
       rows: rows.map((r) => ({ key: r.k, label: label(r.k), ...num(r), ...fx(r.k) })).sort((a, b) => by === "day" ? 0 : b.calls - a.calls) });
   }));
 
@@ -2464,6 +2477,12 @@ export function registerMcCall(app, deps) {
       sf: sf && sf.lead ? { lead: sf.lead, sum: sf.sum || null } : null, cross: lead.cross_id ? (await P().query(`SELECT from_name, reason, at FROM mc_cross_moves WHERE id=$1`, [lead.cross_id])).rows[0] || null : null });
   }));
   // 開いたまま次へ行かなかったときに順番へ戻す
+  // 飛ばした記録を残して、開いていた印を外す（レポートの「飛ばした」に数える。2026-11-25 福井さん）
+  app.post("/api/mccall/leads/:id/skip", guard(async (req, res) => {
+    const id = parseInt(req.params.id, 10); const u = me(req);
+    await P().query(`INSERT INTO mc_call_skips (lead_id, list_id, caller) SELECT id, list_id, $2 FROM mc_call_leads WHERE id=$1`, [id, u]);
+    await P().query(`UPDATE mc_call_leads SET locked_by=NULL WHERE id=$1 AND locked_by=$2`, [id, u]); res.json({ ok: true });
+  }));
   app.post("/api/mccall/leads/:id/release", guard(async (req, res) => {
     await P().query(`UPDATE mc_call_leads SET locked_by=NULL WHERE id=$1 AND locked_by=$2`, [parseInt(req.params.id, 10), me(req)]); res.json({ ok: true });
   }));

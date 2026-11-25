@@ -1523,7 +1523,8 @@
     } catch (e) { S.busy = false; setNotice([{ kind: "danger", text: `記録できませんでした：${e.message}` }]); }
   }
   async function skip() {
-    if (!S.d) return; const id = S.d.lead.id; release(); if (isInbound(id)) S.inbound = null;
+    // 飛ばしたことをサーバーにも残す（レポートの「飛ばした」に数えるため。開いていた印もここで外れる）
+    if (!S.d) return; const id = S.d.lead.id; post(`/api/mccall/leads/${id}/skip`).catch(() => {}); if (isInbound(id)) S.inbound = null;
     S.skipped.add(id); saveSkippedIds(S.skipped);
     S.queue = S.queue.filter((x) => x.id !== id);
     const n = nextItem(); if (n && n.id !== id) await open(n.id);
@@ -2056,15 +2057,17 @@
         ${stage("", "担当者と話せた", "つながったうち", T.person, T.reached, P && P.person, P && P.reached)}
         ${stage("apo", "アポ", "話せたうち", T.apo, T.person, P && P.apo, P && P.person)}
       </div>
-      <p class="mcc-note">コールからアポまで通すと <b>${pc(T.apo, T.calls)}</b>${P && P.calls ? `（${prevLbl}は ${pc(P.apo, P.calls)}）` : ""}。割合がいちばん小さい段階、前より下がった段階が、次に直すところです。</p>`
-      : '<p class="mcc-note">この期間の記録はありません。</p>';
-    const res = $("mccRres"); if (!T.calls) { res.innerHTML = ""; return; }
+      <p class="mcc-note">コールからアポまで通すと <b>${pc(T.apo, T.calls)}</b>${P && P.calls ? `（${prevLbl}は ${pc(P.apo, P.calls)}）` : ""}。割合がいちばん小さい段階、前より下がった段階が、次に直すところです。</p>
+      <p class="mcc-note">かけずに飛ばした会社 <b>${T.skipped || 0}社</b>${P ? `（${prevLbl}は ${P.skipped || 0}社）` : ""}。</p>`
+      : `<p class="mcc-note">この期間の架電の記録はありません。${T.skipped ? `かけずに飛ばした会社は <b>${T.skipped}社</b> です。` : ""}</p>`;
+    // 飛ばしただけでコールが0の期間も、だれが飛ばしたかを表で見られるようにする
+    const res = $("mccRres"); if (!T.calls && !T.skipped) { res.innerHTML = ""; return; }
     const dayLbl = (k) => { const x = new Date(`${k}T00:00:00`); return isNaN(x) ? k : `${x.getMonth() + 1}/${x.getDate()}（${"日月火水木金土"[x.getDay()]}）`; };
     const lbl = (r) => (j.by === "day" ? dayLbl(r.label) : r.label);
     const maxCalls = Math.max(...j.rows.map((r) => r.calls), 1);
     // コールの数は細い線でも出す（人・日を上から下へ見比べやすいように）。合計の行には引かない
     const callTd = (r, sum) => `<td class="num bar">${sum ? "" : `<i style="width:calc((100% - 16px) * ${(r.calls / maxCalls).toFixed(3)})"></i>`}${r.calls}</td>`;
-    const rowA = (l, r, sum) => `<tr class="${sum ? "sum top" : ""}"><td>${esc(l)}</td>${callTd(r, sum)}<td class="num">${r.leads}</td><td class="num">${r.reached}<small> ${pc(r.reached, r.calls)}</small></td><td class="num">${r.person}<small> ${pc(r.person, r.calls)}</small></td>
+    const rowA = (l, r, sum) => `<tr class="${sum ? "sum top" : ""}"><td>${esc(l)}</td>${callTd(r, sum)}<td class="num">${r.leads}</td><td class="num">${r.skipped || 0}</td><td class="num">${r.reached}<small> ${pc(r.reached, r.calls)}</small></td><td class="num">${r.person}<small> ${pc(r.person, r.calls)}</small></td>
       <td class="num apo">${r.apo}<small> ${pc(r.apo, r.calls)}</small></td><td class="num">${pc(r.apo, r.person)}</td><td class="num">${r.doc}</td><td class="num">${r.follow}</td><td class="num">${r.reject}</td></tr>`;
     const rowB = (l, r, sum) => `<tr class="${sum ? "sum top" : ""}"><td>${esc(l)}</td>${callTd(r, sum)}<td class="num fill">${r.fill || 0}<small> ${r.calls ? ((r.fill || 0) / r.calls).toFixed(2) : "—"}/コール</small></td><td class="num">${r.fillNew || 0}</td><td class="num">${r.fillFix || 0}</td><td class="num">${r.fillLeads || 0}</td><td class="num">${r.fillNoApo || 0}</td><td class="num">${r.invalid || 0}</td></tr>`;
     const fill = RP.view === "fill", row = fill ? rowB : rowA;
@@ -2072,7 +2075,7 @@
     const bys = S.admin ? [["user", "人ごと"], ["list", "リストごと"], ["day", "日ごと"]] : [["day", "日ごと"], ["list", "リストごと"]];
     const thead = fill
       ? `<th>${head}</th><th class="num">コール</th><th class="num fill" title="架電の内容から SF のリードの項目を埋めた・直した数（1項目＝1）">SF 項目</th><th class="num" title="空だった項目を埋めた">うち新規</th><th class="num" title="古い値を直した・課題感などに足した">うち更新</th><th class="num" title="項目を1つでも埋めた会社の数">埋まった会社</th><th class="num" title="アポにならなかった架電で埋めた数">アポ以外の架電で</th><th class="num" title="「番号が使えない」と記録した数">使えない番号</th>`
-      : `<th>${head}</th><th class="num">コール</th><th class="num">会社数</th><th class="num" title="小さい字はコールのうちの割合">つながった</th><th class="num" title="小さい字はコールのうちの割合">担当者と話せた</th><th class="num" title="小さい字はコールのうちの割合">アポ</th><th class="num">話せたうちアポ</th><th class="num">資料</th><th class="num">フォロー</th><th class="num">断り</th>`;
+      : `<th>${head}</th><th class="num">コール</th><th class="num">会社数</th><th class="num" title="「飛ばす」を押した会社の数（同じ会社を何度飛ばしても1社）">飛ばした</th><th class="num" title="小さい字はコールのうちの割合">つながった</th><th class="num" title="小さい字はコールのうちの割合">担当者と話せた</th><th class="num" title="小さい字はコールのうちの割合">アポ</th><th class="num">話せたうちアポ</th><th class="num">資料</th><th class="num">フォロー</th><th class="num">断り</th>`;
     const rank = (title, arr) => { if (!arr || !arr.length) return ""; const mx = Math.max(...arr.map((r) => r.n), 1);
       return `<div><h3>${title}</h3>${arr.map((r) => `<div class="mcc-rk"><span title="${esc(r.k)}">${esc(r.k)}</span><i><u style="width:${Math.round(r.n / mx * 100)}%"></u></i><b>${r.n}</b></div>`).join("")}</div>`; };
     const ranks = rank("受付で断られた文句", j.gateReasons) + rank("担当者に断られた理由", j.reasons) + rank("聞けて SF に入れた項目", j.fields);
