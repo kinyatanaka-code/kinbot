@@ -74,7 +74,64 @@
       "部署名": dp.name, "電話番号1": dp.tel, "FAX番号1": dp.fax,
     };
     ps.forEach((p, i) => { const w = `取引先担当者${i + 1}`; Object.assign(m, { [`${w}|氏名`]: p.name, [`${w}|氏名カナ`]: p.kana, [`${w}|部署詳細`]: p.dept, [`${w}|役職`]: p.title, [`${w}|メールアドレス`]: p.email }); });
+    if (kind === "unit_new" && d.unit) Object.assign(m, unitPlan(d.unit));
     return m;
+  }
+  // ===== 事業部新規（apply_edit?mode=unit_new）（2026-11-25 田中さん「事業部新規のときは、氏名・氏名カナ・メールアドレス・請求書必着日・適用日を入れて」）=====
+  //   事業部新規は、すでにある部署に「事業部別の取引部署情報」を足す画面。担当者と請求書必着日は、その部署の画面（office_detail）の
+  //   「請求書送付先情報」にもう入っているので、そこから写す（SF の取引先責任者より、経理に登録済みの請求書の宛先のほうが正しいため）。
+  //   適用日は今日（日本時間）。申請はこれまでどおり押さない
+  function unitPlan(u) {
+    const w = "取引先担当者1";
+    return { [`${w}|氏名`]: u.name, [`${w}|氏名カナ`]: u.kana, [`${w}|メールアドレス`]: u.email, "請求書必着日": u.due, "適用日": u.applyOn };
+  }
+  const todayJst = () => { const d = new Date(Date.now() + 9 * 3600000); return d.toISOString().slice(0, 10); };
+  // 部署の画面を読み、請求書送付先1の担当者名・カナ・メール・請求書必着日を取る（同じ NeoSTAGE の中なので、ログインしたまま読める）
+  async function unitFromDetail() {
+    const q = new URLSearchParams(location.search);
+    const corp = q.get("corp_id"), office = q.get("office_id"), sec = q.get("section_id");
+    const out = { applyOn: todayJst() };
+    if (!corp || !office) return out;
+    try {
+      const r = await fetch(`/office_detail?corp_id=${encodeURIComponent(corp)}&office_id=${encodeURIComponent(office)}${sec ? "&section_id=" + encodeURIComponent(sec) : ""}`, { credentials: "same-origin" });
+      if (!r.ok) return out;
+      const doc = new DOMParser().parseFromString(await r.text(), "text/html");
+      // その部署（<a name="section_<id>">）から次の部署の印までだけを見る。
+      //   1つの部署に事業部がいくつもあるときは、請求書送付先も事業部の数だけ並ぶ。「事業部新規」のボタンのすぐ上（＝いちばん下）のものを写す
+      //   （2026-11-25 田中さん「その上の氏名…」。丸全昭和運輸では上が 後藤さん・月末、ボタンのすぐ上が 佐藤さん・末）
+      const marks = [...doc.querySelectorAll("a[name^='section_'],[id^='section_']")].filter((e) => /^section_\d+$/.test(e.getAttribute("name") || e.id || ""));
+      const anchor = sec ? marks.find((e) => (e.getAttribute("name") || e.id) === `section_${sec}`) : null;
+      const next = anchor ? marks[marks.indexOf(anchor) + 1] : null;
+      const inSec = (el) => (!anchor || !!(anchor.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) && (!next || !!(next.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING));
+      const cells = [...doc.querySelectorAll("th,td")].filter(inSec).reverse();   // 後ろから探す＝いちばん下のもの
+      const t = (el) => clean(el && el.textContent);
+      // 見出しが上の行・値が下の行（担当者名・カナ・メール）
+      const below = (label) => {
+        const h = cells.find((c) => t(c) === clean(label)); if (!h) return "";
+        const tr = h.parentElement; const i = [...tr.children].indexOf(h); const nx = tr.nextElementSibling;
+        const v = nx && nx.children[i]; return v ? String(v.textContent || "").replace(/\s+/g, " ").trim() : "";
+      };
+      // 見出しの右のセルが値（請求書必着日）
+      const right = (label) => { const h = cells.find((c) => t(c) === clean(label)); const v = h && h.nextElementSibling; return v ? String(v.textContent || "").trim() : ""; };
+      out.name = below("請求書送付先 担当者名").replace(/\s+/g, "　");
+      out.kana = below("請求書送付先 担当者名カナ");
+      out.email = below("請求書送付先 担当者メールアドレス").replace(/\s+/g, "");
+      out.due = right("請求書必着日");
+      if (out.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(out.email)) out.email = "";   // メールの形でなければ入れない
+      if (out.name.length > 40) out.name = ""; if (out.kana.length > 60) out.kana = ""; if (out.due.length > 10) out.due = "";
+    } catch {}
+    return out;
+  }
+  // 事業部新規は SF を選ばなくても入れられる（値は部署の画面から写すため）
+  async function fillUnit(extra) {
+    $("kbNeoMsg").textContent = "部署の画面から、請求書送付先の担当者を読んでいます…";
+    const u = await unitFromDetail();
+    const res = fill({ ...(extra || {}), unit: u });
+    $("kbNeoMsg").innerHTML = `部署の画面の請求書送付先から <b>${res.done.length}項目</b> 入れました（適用日は今日）。`
+      + (u.name ? "" : `<br><span style="color:#8A4B00">請求書送付先の担当者が読めませんでした。手で入れてください</span>`)
+      + (res.miss.length ? `<br><span style="color:#B4441F">まだ空の必須：${esc(res.miss.slice(0, 12).join("・"))}</span>` : "");
+    sendSchema({ done: res.done, miss: res.miss });
+    return res;
   }
   function fill(d) {
     const kind = pageKind(); const want = plan(d, kind); const ctx = ctxMap(); const done = new Set(); const miss = [];
@@ -120,6 +177,7 @@
   function wire() {
     const open = () => { $("kbNeoPanel").hidden = false; $("kbNeoOpen").hidden = true;
       // 部署新規などは、上に会社名（【社名】〇〇（コード））が出ているので、それで探しておく
+      if (pageKind() === "unit_new") { fillUnit(); return; }   // 事業部新規は SF を探さず、部署の画面から写す
       if (!$("kbNeoQ").value) { const m = String(document.body.innerText || "").match(/【社名】\s*([^\s（(【]{2,60})/); if (m) { $("kbNeoQ").value = m[1]; find(); } }
       $("kbNeoQ").focus(); sendSchema(null); };
     $("kbNeoOpen").onclick = open;
@@ -176,7 +234,9 @@
     $("kbNeoMsg").textContent = "SF と gBizINFO から値を作っています…";
     const r = await api(`prefill?id=${encodeURIComponent(id)}`);
     if (!r.ok) { $("kbNeoMsg").textContent = r.error || "値を作れませんでした"; return; }
-    const d = r.data; const res = fill(d); const kind = pageKind();
+    const d = r.data; const kind = pageKind();
+    if (kind === "unit_new") d.unit = await unitFromDetail();   // 事業部新規は、部署の画面の請求書送付先も一緒に
+    const res = fill(d);
     $("kbNeoList").innerHTML = "";
     $("kbNeoMsg").innerHTML = `<b style="color:${G}">${esc(d.account.name)}</b> の値を <b>${res.done.length}項目</b> 入れました。`
       + (res.miss.length ? `<br><span style="color:#B4441F">まだ空の必須：${esc(res.miss.slice(0, 12).join("・"))}</span>` : "")
