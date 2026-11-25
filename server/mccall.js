@@ -1578,8 +1578,9 @@ export function registerMcCall(app, deps) {
   const todayDay = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
   // リスト管理で使っている Bales のリスト（画面の mainList と同じ：取り込み中でない、いちばん新しいもの）と、所有者の列（画面の ownerCol と同じ）
   async function balesMain() {
-    const ls = (await P().query(`SELECT list_key, status, cols, view FROM mochica_bales_lists ORDER BY run_at DESC NULLS LAST`).catch(() => ({ rows: [] }))).rows;
-    const l = ls.find((x) => x.status !== "running") || ls[0]; if (!l) return null;
+    const ls = (await P().query(`SELECT list_key, src, status, cols, view FROM mochica_bales_lists ORDER BY run_at DESC NULLS LAST`).catch(() => ({ rows: [] }))).rows;
+    //   CSV・SF から足したリストは主にしない（画面の mainList と同じ。新しく CSV を足すと、今日かけるリストがその CSV だけで作られ「かける」が空になっていたため）（2026-11-25）
+    const l = ls.find((x) => x.src !== "csv" && x.src !== "sf" && x.status !== "running") || ls.find((x) => x.status !== "running") || ls[0]; if (!l) return null;
     const keys = new Set((Array.isArray(l.cols) ? l.cols : []).map((c) => c && c.key));
     if (keys.has("companyName") || keys.has("company_name") || String(l.list_key).startsWith("bales:")) return { listKey: l.list_key, col: !keys.has("operatorName") && keys.has("operator_name") ? "operator_name" : "operatorName" };
     const v = (Array.isArray(l.view) ? l.view : []).find((x) => /所有者|オーナー/.test(String((x && x.label) || "")));
