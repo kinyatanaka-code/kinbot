@@ -130,7 +130,7 @@
   }
   async function loadLists() {
     const j = await api("/api/mccall/lists"); S.lists = j.items || [];
-    if (S.listId > 0 && !S.lists.some((l) => l.id === S.listId)) S.listId = 0;
+    if (S.listId > 0 && !S.lists.some((l) => l.id === S.listId && !l.today_src)) S.listId = 0;   // 入れ物の今日かけるリストを選んでいたら外す（選ぶ欄に出さないため）
     if (S.listId === -1 && !S.lists.some(isCm)) S.listId = 0;
     drawListSel();
   }
@@ -141,7 +141,9 @@
     const sel = $("mccList"), t = S.today;
     // トークの無いリストは選んでもかけられないので、選ぶ前に分かるよう印を付ける（2026-11-25 福井さん「困った」）
     const opt = (l) => `<option value="${l.id}" ${l.id === S.listId ? "selected" : ""}>${esc(l.name)}（今かける ${l.now}${l.talks === 0 ? "・トークなし" : ""}）</option>`;
-    const cm = S.lists.filter(isCm), mc = S.lists.filter((l) => !isCm(l));
+    // 「今日かけるリスト（リスト管理）」は全員の今日の分を入れておく入れ物なので、選ぶ欄には出さない（2026-11-25 福井さん「今日かけるリストが二つある」）。
+    //   本人の今日の分は一番上の「今日かけるリスト 残り…」で選ぶ。入れ物を選ぶとほかの人の分ばかりで、かけられる会社が出ない
+    const cm = S.lists.filter(isCm), mc = S.lists.filter((l) => !isCm(l) && !l.today_src);
     const cmGroup = cm.length ? `<optgroup label="キャリアミキサー（キャリミキ）"><option value="-1" ${S.listId === -1 ? "selected" : ""}>キャリミキのリストすべて（今かける ${cm.reduce((a, l) => a + l.now, 0)}）</option>${cm.map(opt).join("")}</optgroup>` : "";
     // 今日かけるリストの人は、いちばん上が今日かけるリスト。下の MOCHICA・キャリミキのリストも選べる（2026-11-24 福井さん「リスト選択が止まっていて選べない」）。
     //   前はキャリミキのリストが無いと選ぶ欄ごと止まっていた

@@ -824,7 +824,7 @@ export function registerMcCall(app, deps) {
   // ---- リスト ----
   app.get("/api/mccall/lists", guard(async (req, res) => {
     const ids = await myListIds(req, req.query.stock === "1");
-    const rows = ids.length ? (await P().query(`SELECT l.id, l.name, l.note, l.members, l.created_at, l.stock, l.bales_key, l.product,
+    const rows = ids.length ? (await P().query(`SELECT l.id, l.name, l.note, l.members, l.created_at, l.stock, l.bales_key, l.product, COALESCE(l.today_src, false) AS today_src,
         count(c.id) AS total, count(c.id) FILTER (WHERE NOT c.done) AS open,
         count(c.id) FILTER (WHERE NOT c.done AND (c.next_at IS NULL OR c.next_at <= now())) AS now,
         count(c.id) FILTER (WHERE c.cross_from IS NOT NULL) AS cross,
