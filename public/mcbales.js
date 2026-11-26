@@ -225,14 +225,43 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
     const box = root.querySelector("[data-mems]"); if (!box || !root.isConnected) return;
     const shown0 = Array.isArray(members) && members.length ? members.map((nm) => vals.find((v) => v.v === nm) || { v: nm, n: 0 }) : vals;
     const shown = bl.all ? [...shown0, { v: "", n: bl.all }] : shown0;   // 最後に「未割り振り」（v が空）
-    box.innerHTML = shown.length ? shown.map((v) => `<div class="bl-lc mem${v.v ? "" : " none"}" role="button" tabindex="0" data-mem="${esc(v.v)}"><span class="bl-mh"><span class="av">${v.v ? esc(String(v.v).replace(/\s/g, "").slice(0, 1)) : "−"}</span><b>${v.v ? esc(v.v) : "未割り振り"}</b></span><span class="bl-mkv"><span><span class="bl-lc-k">残りの架け先</span><span class="n">${Number(act.get(v.v) || 0).toLocaleString()}<small>件</small></span></span><span><span class="bl-lc-k nur">ナーチャリング</span><span class="n nur">${Number(nur.get(v.v) || 0).toLocaleString()}<small>件</small></span></span></span>${apoTxt(...(apoM.get(v.v) || [0, 0]))}<span class="bl-lc-td" data-td="${esc(v.v)}">今日かける見込みアポ率<em>…</em></span>${hotLine(hotM.get(v.v))}<small>全 ${Number(v.n || 0).toLocaleString()}件（${esc(m0.name || "")} から）</small>${v.v && Array.isArray(members) && members.length ? `<button type="button" class="bl-lc-x" data-mx="${esc(v.v)}" title="メンバー別から外す">×</button>` : ""}</div>`).join("")
+    box.innerHTML = shown.length ? shown.map((v) => `<div class="bl-lc mem${v.v ? "" : " none"}" role="button" tabindex="0" data-mem="${esc(v.v)}"><span class="bl-mh"><span class="av">${v.v ? esc(String(v.v).replace(/\s/g, "").slice(0, 1)) : "−"}</span><b>${v.v ? esc(v.v) : "未割り振り"}</b></span><span class="bl-mkv"><span><span class="bl-lc-k">残りの架け先</span><span class="n">${Number(act.get(v.v) || 0).toLocaleString()}<small>件</small></span></span><span><span class="bl-lc-k nur">ナーチャリング</span><span class="n nur">${Number(nur.get(v.v) || 0).toLocaleString()}<small>件</small></span></span></span>${apoTxt(...(apoM.get(v.v) || [0, 0]))}<span class="bl-lc-td" data-td="${esc(v.v)}">今日かける見込みアポ率<em>…</em></span>${v.v ? `<span class="bl-lc-mode" data-tm="${esc(v.v)}">選び方：…</span>` : ""}${hotLine(hotM.get(v.v))}<small>全 ${Number(v.n || 0).toLocaleString()}件（${esc(m0.name || "")} から）</small>${v.v && Array.isArray(members) && members.length ? `<button type="button" class="bl-lc-x" data-mx="${esc(v.v)}" title="メンバー別から外す">×</button>` : ""}</div>`).join("")
       : '<div class="mc-note">所有者の入ったリードがありません。</div>';
     // 今日かけるリストの見込みアポ率（2026-11-23 田中さん「ここで今日かけるのアポ率も見えたら」）。
     //   その日初めてだと1人ずつリストを作るので、一度に全員分を頼まず1人ずつ順に読む（サーバーを詰まらせないため）
     (async () => { for (const el of box.querySelectorAll("[data-td]")) { if (!el.isConnected) return; const nm = el.dataset.td;
       try { const t = await api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/today?col=${encodeURIComponent(oc)}&${nm ? `val=${encodeURIComponent(nm)}` : "blank=1"}`);
-        el.innerHTML = `今日かける見込みアポ率<em>${(Number(t.exp || 0) * 100).toFixed(1)}%</em><small>${Number(t.n || 0).toLocaleString()}件</small>`; el.title = `今日かけるリスト ${Number(t.n || 0)}件（予定のナーチャリング ${Number(t.due_nurture || 0)}・予定のそのほか ${Number(t.due_other || 0)}・過去失注 ${Number(t.pastlost || 0)}・新規 ${Number(t.newlist || 0)}）`; }
+        el.innerHTML = `今日かける見込みアポ率<em>${(Number(t.exp || 0) * 100).toFixed(1)}%</em><small>${Number(t.n || 0).toLocaleString()}件</small>`;
+        // 手持ち300件から選んでいるときは、手持ちの件数と種類ごとの内訳を出す（2026-11-26 福井さん）
+        const c = Array.isArray(t.cats) ? t.cats : null;
+        el.title = c ? `今日かけるリスト ${Number(t.n || 0)}件（${t.mode_label || ""}：ナーチャリング・ホット ${c[0]}・ウォーム ${c[1]}・コールド ${c[2]}）／手持ち ${Number(t.hold || 0)}件（目標 ${Number(t.hold_target || 300)}件${t.refilled ? `・今日 ${t.refilled}件を未割り振り・SF リードから配った` : ""}）`
+          : `今日かけるリスト ${Number(t.n || 0)}件（予定のナーチャリング ${Number(t.due_nurture || 0)}・予定のそのほか ${Number(t.due_other || 0)}・過去失注 ${Number(t.pastlost || 0)}・新規 ${Number(t.newlist || 0)}）`;
+        if (c) el.insertAdjacentHTML("beforeend", `<small class="bl-lc-hold">手持ち ${Number(t.hold || 0).toLocaleString()}／${Number(t.hold_target || 300)}件</small>`); }
       catch { el.innerHTML = "今日かける見込みアポ率<em>-</em>"; } } })();
+    // 今日かける100件の選び方（全力でアポ・バランス・コールド育成）。だれでも見られ、変えられるのは管理者だけ（2026-11-26 福井さん）
+    (async () => {
+      let tm; try { tm = await api("/api/mccall/today-mode"); } catch { box.querySelectorAll("[data-tm]").forEach((x) => { x.textContent = ""; }); return; }
+      const lab = (m) => (tm.modes[m] || tm.modes.balance).label;
+      box.querySelectorAll("[data-tm]").forEach((x) => {
+        const m = tm.map[x.dataset.tm] || "balance"; x.textContent = `選び方：${lab(m)}`;
+        if (!tm.admin) { x.title = "今日かける100件の選び方（変えられるのは管理者だけ）"; return; }
+        x.classList.add("on"); x.setAttribute("role", "button"); x.tabIndex = 0; x.title = "押すと今日かける100件の選び方を変えられます";
+        const open = (e) => { e.stopPropagation(); e.preventDefault();
+          const cur = tm.map[x.dataset.tm] || "balance";
+          const sh = sheet(`<h3 class="bl-sh-t">${esc(x.dataset.tm)} さんの今日かける100件の選び方</h3>
+            <p class="mc-note">手持ち（${tm.hold}件まで）から、種類ごとの割合で選びます。</p>
+            <div class="bl-mpick">${Object.entries(tm.modes).map(([k, v]) => `<label><input type="radio" name="tmode" value="${k}" ${k === cur ? "checked" : ""}><span>${esc(v.label)}</span><small>ナーチャリング・ホット ${v.r[0]}・ウォーム ${v.r[1]}・コールド ${v.r[2]}</small></label>`).join("")}</div>
+            <label class="mc-note" style="display:flex;gap:6px;align-items:center;margin-top:10px"><input type="checkbox" data-tmre>今日の分も今すぐ作り直す（入れなければ明日の朝から）</label>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button type="button" class="mt-btn" data-tmsave>保存する</button></div>`);
+          sh.querySelector("[data-tmsave]").addEventListener("click", async () => {
+            const mode = (sh.querySelector("input[name=tmode]:checked") || {}).value; if (!mode) return;
+            try { await api("/api/mccall/today-mode", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ member: x.dataset.tm, mode, rebuild: !!sh.querySelector("[data-tmre]").checked }) }); }
+            catch (er) { alert("保存できませんでした：" + er.message); return; }
+            closeSheet(); home(root); });
+        };
+        x.addEventListener("click", open); x.addEventListener("keydown", (e) => { if (e.key === "Enter") open(e); });
+      });
+    })();
     // メンバーのカードを押すと、その人のリードソース別のカード（2026-11-23 田中さん）
     box.querySelectorAll("[data-mem]").forEach((el) => { const go = () => { mode = "member"; memHome = { name: el.dataset.mem, blank: !el.dataset.mem }; openList(); }; el.addEventListener("click", go); el.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); }); });
     box.querySelectorAll("[data-mx]").forEach((b) => b.addEventListener("click", async (e) => { e.stopPropagation(); members = (members || []).filter((x) => x !== b.dataset.mx); try { await api("/api/mochica/bales/members", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ members }) }); } catch {} home(root); }));

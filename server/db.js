@@ -13500,6 +13500,93 @@ async function ensureMcToday() {
 }
 const VIS = `dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND NOT ${BALES_OUT}`;
 const _mcSegCache = new Map();
+// ===== 手持ち300件と、今日かける100件の選び方（2026-11-26 福井さん） =====
+//   「BALES から MOCHICALL への移行期間。MOCHICALL で配るナーチャリング・ホットは未割り振り・SF リード・過去失注から。
+//    週末に BALES のコネクト情報獲得・ジャッジを丸ごと所有者の担当で移し、そのほかは1人300件になるまで埋める。
+//    300件から『全力でアポ』『バランス』『コールド育成』のどれかで今日の100件を選ぶ（種類の割合を守る）。選び方は管理者だけが決める」。
+//   手持ち＝主のリストで kinbot が割り振った会社（assign_name）＋本人のコネクト情報獲得・ジャッジ＋ほかのリスト（SF・CSV）でその人の担当の会社・その人に渡した会社。
+//     BALES の所有者のままの、そのほかの会社は入れない（今週は人が精査している最中のため）
+//   補充：手持ちが300件に足りなければ、未割り振り（主のリストで担当が空。過去失注を含む）と SF リード（SF から足したリストで担当が空）から、
+//     選び方の割合に合わせて種類ごとに見込みアポ率の高い順に配る（kinbot の担当＝assign_name を付ける。BALES の所有者は変えない）。
+//     配ったものは mochica_bales_hold に残す（いつ・だれに配ったか）。1人ずつ順に作るので、同じ会社を2人に配らない
+//   種類：ナーチャリング・ホット＝ステージがジャッジかコネクト情報・最終結果が営業フォローか資料送付・終わっていない次回アクションがある・ホット／ウォーム／コールド
+export const TODAY_MODES = {
+  full: { label: "全力でアポ", r: [70, 25, 5] },
+  balance: { label: "バランス", r: [40, 40, 20] },
+  cold: { label: "コールド育成", r: [15, 25, 60] },
+};
+export const HOLD_N = 300, TODAY_N = 100;
+let _mcHoldInit = false;
+async function ensureMcHold() {
+  if (!pool || _mcHoldInit) return; _mcHoldInit = true;
+  await pool.query(`CREATE TABLE IF NOT EXISTS mochica_bales_hold (list_key TEXT, row_key TEXT, member TEXT, src TEXT, added_at TIMESTAMPTZ DEFAULT now(), PRIMARY KEY (list_key, row_key))`).catch(() => {});
+}
+async function mcTodayHold(listKey, run_at, col, val, day, rate) {
+  await ensureMcHold();
+  const st = await getSettings().catch(() => ({}));
+  const mode = TODAY_MODES[(st.mcTodayMode || {})[val]] ? (st.mcTodayMode || {})[val] : "balance";
+  const R = TODAY_MODES[mode].r;
+  const STG = `COALESCE(r.data->>'lastLeadStageName','')`;
+  const pick0 = `r.list_key, r.row_key, COALESCE(NULLIF(r.data->>'leadSources.0.name',''),'-') AS s, (${BALES_PL}) AS pl, LEAST(GREATEST(COALESCE(r.hot,0),1),3) AS h, r.prio AS pr,
+      (${STG} ~ '(ジャッジ|コネクト情報)' OR COALESCE(r.data->>'callResult','') ~ '(営業フォロー|資料送付)') AS nur, r.data->>'lastCalledAt' AS lc,
+      (SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(r.data) e WHERE e.key ~ '^nextActions\\.[0-9]+\\.(reservedAt|isDone|id)$') AS na`;
+  const canCall = bCanCall(), own = `COALESCE(${colX(col, "$3", "r.")},'')`;
+  // 手持ち（主のリスト）：kinbot で割り振った会社＋本人のコネクト情報獲得・ジャッジ
+  const mine = (await pool.query(`SELECT ${pick0} FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.run_at=$2 AND ${VIS} AND ${canCall}
+      AND ${own} = $4 AND (COALESCE(r.assign_name,'') = $4 OR ${STG} ~ '(ジャッジ|コネクト情報)')`, [listKey, run_at, col, val])).rows;
+  // 手持ち（ほかのリスト）：SF・CSV のリストでその人の担当の会社と、その人に渡した会社（取り込み直して担当が空に戻っていても渡した印で入れる）
+  const other = (await pool.query(`SELECT ${pick0} FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key = r.list_key AND l.run_at = r.run_at AND l.list_key <> $1 AND l.status IS DISTINCT FROM 'running'
+      WHERE ${VIS} AND ${canCall} AND (r.assign_name = $2 OR (COALESCE(r.assign_name,'') = '' AND EXISTS (SELECT 1 FROM mochica_bales_handoff h WHERE h.list_key = r.list_key AND h.row_key = r.row_key AND h.member = $2)))`,
+    [listKey, val]).catch((e) => { console.warn("[mcToday] ほかのリストの手持ちを読めませんでした", e.message); return { rows: [] }; })).rows;
+  const nextDay = (na) => { let t = null; for (let i = 0; i < 50; i++) { if (!na || na[`nextActions.${i}.id`] == null && na[`nextActions.${i}.reservedAt`] == null) break;
+    if (String(na[`nextActions.${i}.isDone`]) === "true") continue; const x = Date.parse(na[`nextActions.${i}.reservedAt`]); if (Number.isFinite(x) && (t == null || x < t)) t = x; } return t == null ? "" : jstDay(t); };
+  const toL = (c) => { const nd = nextDay(c.na), h = Number(c.h) || 1, ext = c.list_key !== listKey;
+    return { k: c.row_key, l: c.list_key, ext, id: ext ? `${c.list_key}\t${c.row_key}` : c.row_key, pv: c.pr == null ? 2 : Number(c.pr), h, p: rate(c.s, c.pl, c.h), pl: c.pl, nd, due: !!nd && nd <= day,
+      lc: c.lc ? Date.parse(c.lc) || 0 : 0, cat: c.nur || !!nd || h >= 3 ? 0 : h === 2 ? 1 : 2 }; };
+  const H = new Map(); for (const c of [...mine, ...other]) { const x = toL(c); if (!H.has(x.id)) H.set(x.id, x); }
+  // 補充：300件に足りない分を、未割り振り・SF リードから選び方の割合に合わせて配る
+  let refilled = 0;
+  const need = HOLD_N - H.size;
+  if (need > 0) {
+    const pool0 = (await pool.query(`SELECT ${pick0} FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key = r.list_key AND l.run_at = r.run_at AND l.status IS DISTINCT FROM 'running'
+        WHERE ${VIS} AND ${canCall} AND (r.list_key <> $1 OR r.run_at = $2) AND (
+          (r.list_key = $1 AND ${own} = '')
+          OR (l.src = 'sf' AND COALESCE(NULLIF(r.assign_name, '${BALES_NONE}'), '') = '' AND NOT EXISTS (SELECT 1 FROM mochica_bales_handoff h WHERE h.list_key = r.list_key AND h.row_key = r.row_key)))`,
+      [listKey, run_at, col]).catch((e) => { console.warn("[mcToday] 補充の候補を読めませんでした", e.message); return { rows: [] }; })).rows.map(toL).filter((x) => !H.has(x.id));
+    const ordP = (a, b) => b.pv - a.pv || (b.due ? 1 : 0) - (a.due ? 1 : 0) || b.p - a.p || a.lc - b.lc;
+    const have = [0, 0, 0]; for (const x of H.values()) have[x.cat]++;
+    const got = [], used = new Set();
+    for (let c = 0; c < 3; c++) {
+      let want = Math.max(0, Math.round(HOLD_N * R[c] / 100) - have[c]);
+      for (const x of pool0.filter((y) => y.cat === c).sort(ordP)) { if (want <= 0 || got.length >= need) break; used.add(x.id); got.push(x); want--; }
+    }
+    if (got.length < need) for (const x of [...pool0].sort(ordP)) { if (got.length >= need) break; if (used.has(x.id)) continue; used.add(x.id); got.push(x); }
+    if (got.length) {
+      // 配る直前にもう一度「担当が空」を確かめて付ける（ほかで割り振られていたら配らない）
+      const u = await pool.query(`UPDATE mochica_bales_rows r SET assign_name = $1 FROM unnest($2::text[], $3::text[]) AS x(lk, rk)
+          WHERE r.list_key = x.lk AND r.row_key = x.rk AND COALESCE(NULLIF(r.assign_name, '${BALES_NONE}'), '') = '' RETURNING r.list_key, r.row_key`,
+        [val, got.map((x) => x.l), got.map((x) => x.k)]);
+      const ok = new Set(u.rows.map((r) => `${r.list_key}\t${r.row_key}`));
+      await pool.query(`INSERT INTO mochica_bales_hold (list_key, row_key, member, src) SELECT a, b, $3, $4 FROM unnest($1::text[], $2::text[]) AS t(a, b)
+          ON CONFLICT (list_key, row_key) DO UPDATE SET member = EXCLUDED.member, src = EXCLUDED.src, added_at = now()`,
+        [u.rows.map((r) => r.list_key), u.rows.map((r) => r.row_key), val, `auto:${day}`]).catch((e) => console.warn("[mcToday] 配った印を残せませんでした", e.message));
+      for (const x of got) if (ok.has(`${x.l}\t${x.k}`)) { H.set(x.id, x); refilled++; }
+      console.log(`[mcToday] ${val} の手持ちを補充しました：${refilled}件（手持ち ${H.size}件・選び方 ${TODAY_MODES[mode].label}）`);
+    }
+  }
+  // 今日の100件：選び方の割合で種類ごとに取る（種類の中は 優先度 → 予定日が今日以前 → ホット度 → 見込みアポ率 → 最後にかけたのが古い順）。足りない種類の分はほかの種類で埋める
+  const ord = (a, b) => b.pv - a.pv || (b.due ? 1 : 0) - (a.due ? 1 : 0) || b.h - a.h || b.p - a.p || a.lc - b.lc;
+  const all = [...H.values()], taken = new Set(), out = [];
+  for (let c = 0; c < 3; c++) for (const x of all.filter((y) => y.cat === c).sort(ord)) { if (out.filter((o) => o.cat === c).length >= R[c]) break; taken.add(x.id); out.push(x); }
+  if (out.length < TODAY_N) for (const x of all.sort(ord)) { if (out.length >= TODAY_N) break; if (taken.has(x.id)) continue; taken.add(x.id); out.push(x); }
+  const byCat = (arr) => [0, 1, 2].map((c) => arr.filter((x) => x.cat === c).length);
+  const info = { n: out.length, exp: out.length ? out.reduce((t, x) => t + x.p, 0) / out.length : 0, mode, mode_label: TODAY_MODES[mode].label, ratio: R,
+    hold: H.size, hold_target: HOLD_N, refilled, cats: byCat(out), hold_cats: byCat(all),
+    prio_hi: out.filter((x) => x.pv >= 3).length, due_nurture: out.filter((x) => x.cat === 0 && x.due).length, due_other: out.filter((x) => x.cat !== 0 && x.due).length,
+    pastlost: out.filter((x) => !x.due && x.pl).length, newlist: out.filter((x) => !x.due && !x.pl).length, pl_free: 0, pool: H.size,
+    ext_n: out.filter((x) => x.ext).length, ext_pool: all.filter((x) => x.ext).length, cold_left: all.filter((x) => !taken.has(x.id) && x.cat === 2).length, v: BALES_TODAY_V };
+  return { keys: out.filter((x) => !x.ext).map((x) => x.k), ext: out.filter((x) => x.ext).map((x) => [x.l, x.k]), info };
+}
 async function mcTodayBuild(listKey, run_at, col, val, day, ok = "") {
   // これまでのアポ率をかたまりごとに（リスト全体・見えているリード全部で数える。1人分だと件数が少なくぶれるため）
   //   メンバー別のカードで全員分を続けて作るので、15分は覚えておく（毎回リスト全体を数え直さないため）
@@ -13514,6 +13601,8 @@ async function mcTodayBuild(listKey, run_at, col, val, day, ok = "") {
   const K = 30, base = all[1] ? all[0] / all[1] : 0.03;
   const sm = (x, prior) => (x ? (x[0] + K * prior) / (x[1] + K) : prior);
   const rate = (s, pl, h) => { const pm = sm(mid.get(`${pl}|${h}`), base); return sm(fine.get(`${s}|${pl}|${h}`), pm); };
+  // 人の今日の分は「手持ち300件から選び方で100件」で作る（2026-11-26 福井さん）。未割り振りの表（名前が空）などは今までの作り方のまま
+  if (col && isOwnCol(col) && String(val) !== "") return mcTodayHold(listKey, run_at, col, String(val), day, rate);
   // その人のかけるリスト（アポ獲得済みは外す）
   //   SF のリードの状況がアーカイブ・リサイクルのもの、最終架電結果がお断りのものも外す（2026-11-23 田中さん：Bales のステージはかけるリストのままでも、今日かける先ではないため）
   //   所有者で作る人（名前のある人）は、未割り振りの過去失注も候補に入れる（free＝未割り振りから。ほかの人が今日もう持っている分は外す）

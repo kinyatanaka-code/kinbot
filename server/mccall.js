@@ -13,7 +13,7 @@
 // 画面の考え方（ASUMO のレビューと kincall の評価から）：
 //   結果は「どこまで届いたか → 中身」の2段。不在でも受付で聞けたこと（担当者名・在席時間・直通）を残す。
 //   担当者に届かなかった不在は、1〜2営業日あけて前回と違う時間帯に自動で掛け直しに回し、8回続いたら一度休ませる（mccadence.js。解除できる）。記録の取り消しは「元に戻す」で行う。
-import { dbPool, listUsers, approachBanHit, approachBanHitSync, approachBanHitLead, approachBanHitLeadSync, loadApproachBans, listMembers, getSettings, saveSettings, mcBalesToday, mcBalesValues, mcNurtureTargets, BALES_MCU } from "./db.js";
+import { dbPool, listUsers, approachBanHit, approachBanHitSync, approachBanHitLead, approachBanHitLeadSync, loadApproachBans, listMembers, getSettings, saveSettings, mcBalesToday, mcBalesValues, mcNurtureTargets, BALES_MCU, TODAY_MODES, HOLD_N } from "./db.js";
 import { freeBusy, gmailSend, isConnected as googleConnected, createCalendarEvent, deleteCalendarEvent } from "./google.js";
 import { notifyPerson } from "./chat.js";
 import { teamOf, teamLabel, splitFree, slotScore, pickFs } from "./mcteam.js";   // IS と FS のチーム（2026-11-23）
@@ -2010,6 +2010,23 @@ export function registerMcCall(app, deps) {
     console.log(`[mccall] ナーチャリングの引き継ぎを動かしました by ${me(req)}`);
     res.json({ ok: true, ...r });
   }));
+  // ---- 今日かける100件の選び方（2026-11-26 福井さん「全力でアポ・バランス・コールド育成の3つ。選び方は管理者だけが決める」） ----
+  //   人（リスト管理の所有者の名前）ごとに settings.mcTodayMode に残す。決めていない人はバランス。
+  //   変えたら次に今日の分を作るとき（翌朝）から効く。rebuild を付けると、その人の今日の分を今すぐ作り直す
+  app.get("/api/mccall/today-mode", guard(async (req, res) => {
+    res.json({ ok: true, admin: isAdmin(req), modes: TODAY_MODES, hold: HOLD_N, map: (await getSettings().catch(() => ({}))).mcTodayMode || {} });
+  }));
+  app.post("/api/mccall/today-mode", adminOnly(async (req, res) => {
+    const b = req.body || {}; const member = String(b.member || "").trim().slice(0, 80), mode = String(b.mode || "");
+    if (!member) return res.status(400).json({ error: "だれの選び方かを選んでください" });
+    if (!TODAY_MODES[mode]) return res.status(400).json({ error: "選び方は 全力でアポ・バランス・コールド育成 のどれかを選んでください" });
+    const map = { ...((await getSettings().catch(() => ({}))).mcTodayMode || {}), [member]: mode };
+    await saveSettings({ mcTodayMode: map });
+    console.log(`[mccall] 今日の選び方：${member} → ${TODAY_MODES[mode].label} by ${me(req)}`);
+    let today = null;
+    if (b.rebuild) { const bm = await balesMain(); if (bm) today = await mcBalesToday(bm.listKey, { col: bm.col, val: member, rebuild: true }).then((t) => ({ n: t.n, exp: t.exp, hold: t.hold, refilled: t.refilled })).catch((e) => ({ error: e.message })); }
+    res.json({ ok: true, member, mode, today });
+  }));
   // ---- 今週（移行期間）の切り替え：昨日引き継いだうち、コネクト情報獲得・ジャッジ以外を元に戻す（2026-11-26 福井さん） ----
   //   「今週は BALES から持ってくるリストを精査する週。MOCHICALL で配るのは未割り振り・SF リード・過去失注から。
   //    週末に BALES のコネクト情報獲得とジャッジを丸ごと所有者の担当で移す」。そのため、
@@ -2255,9 +2272,9 @@ export function registerMcCall(app, deps) {
     //   tid は数・day は日付の形なので、そのまま SQL に書く（ほかの問い合わせと $ の数を変えないため）
     // 検討時期待ちの会社（検討時期の2か月前まで）は出さない。ただし情報が1年以上前なら出す（whenHoldSql・2026-11-25 福井さん）
     const HOLD_Q = whenHoldSql("mc_call_leads");
-    //   BALES から引き継いだ本人のリード（handover_at）も、今日の分と並べて全部出す（2026-11-25 福井さん「全部すぐ出す」）
+    //   BALES から引き継いだ本人のリード（handover_at）は、11-25 は全部出していたが、11-26 から「手持ち300件から選び方で選んだ今日の100件」に入ったときと、
+    //   掛け直しの時刻が来たときだけ出す（2026-11-26 福井さん「300件から最もアポが取れるものを今日かける100件に」）
     const todayW = tm && /^\d{4}-\d{2}-\d{2}$/.test(tm.day) ? ` AND ((list_id = ${Number(tm.tid)} AND assigned_to = $2 AND today_day = '${tm.day}')
-        OR (handover_at IS NOT NULL AND assigned_to = $2)
         OR (next_at IS NOT NULL AND (assigned_to = $2 OR (assigned_to IS NULL AND (SELECT g.caller FROM mc_call_logs g WHERE g.lead_id = mc_call_leads.id AND NOT g.undone ORDER BY g.created_at DESC LIMIT 1) = $2))))` : "";
     const base = `list_id = ANY($1) AND NOT done AND dup_of IS NULL AND (next_at IS NULL OR next_at <= now())
         AND (assigned_to IS NULL OR assigned_to=$2) AND (locked_by IS NULL OR locked_by=$2 OR locked_at < now() - interval '10 minutes')${todayW}
