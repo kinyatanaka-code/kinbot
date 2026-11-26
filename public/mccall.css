@@ -467,6 +467,22 @@
   body.mc-side-mini .mc-side-btn .mc-side-chev{transform:rotate(180deg);}
 }
 /* 架電中に SF のリードの状況を変える欄 */
+/* 架電回数と架電頻度（左の会社欄）。大きな「◯回目」と、直近30日の1日1マス */
+.mcc-freq{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:center;margin-top:8px;background:#fff;border:1px solid var(--c-line);border-radius:12px;padding:8px 12px;}
+.mcc-freq-n{display:flex;align-items:baseline;gap:2px;color:var(--c-deep);}
+.mcc-freq-n b{font-size:26px;font-weight:900;line-height:1;}
+.mcc-freq-n small{font-size:11px;font-weight:800;color:var(--c-muted);}
+.mcc-freq-kv{display:flex;flex-wrap:wrap;gap:2px 12px;margin:0;font-size:12px;}
+.mcc-freq-kv div{display:flex;gap:4px;align-items:baseline;}
+.mcc-freq-kv dt{color:var(--c-muted);font-weight:700;}
+.mcc-freq-kv dd{margin:0;font-weight:900;color:var(--c-ink);}
+.mcc-freq-bar{grid-column:1/-1;display:grid;grid-template-columns:repeat(30,1fr);gap:2px;}
+.mcc-freq-bar i{height:10px;border-radius:3px;background:var(--c-bg);border:1px solid var(--c-line);}
+.mcc-freq-bar i.l1{background:#8fd3d9;border-color:#8fd3d9;}
+.mcc-freq-bar i.l2{background:var(--c-accent);border-color:var(--c-accent);}
+.mcc-freq-bar i.l3{background:var(--c-deep);border-color:var(--c-deep);}
+.mcc-freq-ax{grid-column:1/-1;display:flex;justify-content:space-between;font-size:10.5px;color:var(--c-muted);font-weight:700;margin-top:-2px;}
+.mcc-freq-warn{grid-column:1/-1;font-size:12px;font-weight:800;color:var(--c-warn);background:var(--c-warn-soft);border-radius:8px;padding:2px 8px;}
 .mcc-lst{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px;font-weight:800;color:var(--c-muted);}
 .mcc-lst .mcc-sel{height:30px;font-size:12.5px;flex:1;min-width:0;max-width:none;}
 .mcc-lst small{font-weight:600;} .mcc-lst small.err{color:var(--c-danger);}

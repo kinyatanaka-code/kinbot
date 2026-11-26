@@ -448,6 +448,7 @@
       <div class="mcc-person">${esc(g.name || L.person || "担当者名はまだ分かりません")}${g.name && L.person && g.name !== L.person ? `<small style="color:var(--c-muted);font-weight:600">（リストでは ${esc(L.person)}）</small>` : ""}</div>
       ${g.hours || g.direct || g.biz ? `<div class="mcc-gatei">${g.hours ? `<span>いる時間 <b>${esc(g.hours)}</b></span>` : ""}${g.direct ? `<span>直通・内線 <b>${esc(g.direct)}</b></span>` : ""}${g.biz ? `<span>営業時間 <b>${esc(g.biz)}</b></span>` : ""}</div>` : ""}
       <div class="mcc-badges">${hotBadge(L.hot)}${L.cross_from ? `<span class="mcc-badge doc">${esc(L.cross_from)} から（部署をまたぐ）</span>` : ""}${d.ban ? '<span class="mcc-badge danger">アプローチ禁止</span>' : ""}${sum && sum.n ? `<span class="mcc-badge sf">SF の商談 ${sum.n}件${sum.won ? "・受注あり" : sum.lost ? "・失注あり" : ""}</span>` : ""}</div>
+      ${freqHtml(d)}
       ${statusHtml()}
       ${researchHtml(L)}
       ${contactsHtml(L.info, d)}
@@ -462,6 +463,44 @@
     $("mccEdit").addEventListener("click", editDialog);
     const st = $("mccLst"); if (st) st.addEventListener("change", () => changeStatus(st.value));
     const sn = $("mccSfNew"); if (sn) sn.addEventListener("click", sfNewDialog);
+  }
+  // 架電回数と架電頻度（2026-11-26 福井さん「架電時に架電回数と架電頻度が一目でわかるように」）。
+  //   かけすぎ（同じ日に何度も）・空きすぎ（久しぶり）を、発信する前に気づけるようにする。
+  //   回数・間隔は「これまで」の時系列から架電だけを拾って数える（MOCHICALL・BALES・DOC・Zoom・SF の架電。メール・資料送付・商談は数えない）。
+  //   通算は、リードに数えてある回数（BALES から持ってきた回数を含む）のほうが多ければそちらを出す。伏せたリストは本人の分だけ（時系列も本人の分だけなので、そろう）
+  const NOT_CALL_KB = /^(資料送付|ヒアリングのメール|問い合わせフォーム)/;
+  const NOT_CALL_BALES = /メール|mail|配信|B2BMA|Integration|次回アクション|商談|予定|最終活動|^活動$/i;
+  const isCallTl = (t) => {
+    if (!t || !t.at || isNaN(new Date(t.at))) return false;
+    if (t.src === "kinbot") return !NOT_CALL_KB.test(t.title || "");
+    if (t.src === "DOC" || t.src === "Zoom") return true;
+    if (t.src === "SF") return /^架電：/.test(t.title || "");
+    if (t.src === "Bales") return !NOT_CALL_BALES.test(`${t.title || ""} ${t.who || ""}`);
+    return false;
+  };
+  function freqHtml(d) {
+    const DAY = 864e5, now = new Date(), today0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const ats = (d.timeline || []).filter(isCallTl).map((t) => new Date(t.at).getTime()).filter((x) => x <= now.getTime() + 60e3).sort((a, b) => b - a);
+    const total = Math.max(ats.length, d.blind ? 0 : (d.lead.attempts || 0));
+    // 何日前か（夏時間は無いが、日付の切れ目で数えるため丸める）
+    const dayOf = (ms) => { const x = new Date(ms); x.setHours(0, 0, 0, 0); return Math.round((today0 - x.getTime()) / DAY); };
+    const todayN = ats.filter((x) => x >= today0).length;
+    const n30 = ats.filter((x) => dayOf(x) < 30).length;
+    const lastAgo = ats.length ? dayOf(ats[0]) : null;
+    // 平均の間隔は、かけた日（同じ日の何本かは1日と数える）どうしの間をならす
+    const days = [...new Set(ats.map(dayOf))].sort((a, b) => a - b);
+    const gap = days.length >= 2 ? Math.round((days[days.length - 1] - days[0]) / (days.length - 1) * 10) / 10 : null;
+    const ago = lastAgo == null ? "—" : lastAgo === 0 ? "今日" : lastAgo === 1 ? "昨日" : `${lastAgo}日前`;
+    const warn = todayN >= 2 ? `今日すでに${todayN}回かけています` : lastAgo != null && lastAgo >= 30 ? `${lastAgo}日ぶりの架電です` : "";
+    // 直近30日を1日1マスで並べる（左が30日前・右が今日）。濃いほどその日にたくさんかけている
+    const per = new Array(30).fill(0); for (const x of ats) { const k = dayOf(x); if (k >= 0 && k < 30) per[29 - k]++; }
+    const cells = per.map((n, i) => { const dt = new Date(today0 - (29 - i) * DAY); return `<i class="l${Math.min(n, 3)}" title="${dt.getMonth() + 1}/${dt.getDate()}（${WD[dt.getDay()]}） ${n ? `${n}回` : "かけていない"}"></i>`; }).join("");
+    return `<div class="mcc-freq" id="mccFreq" aria-label="架電回数と架電頻度">
+      <div class="mcc-freq-n"><b>${total + 1}</b><small>回目の架電</small></div>
+      <dl class="mcc-freq-kv"><div><dt>通算</dt><dd>${total}回</dd></div><div><dt>直近30日</dt><dd>${n30}回</dd></div><div><dt>前回</dt><dd>${esc(ago)}</dd></div><div><dt>平均</dt><dd>${gap == null ? "—" : `${gap}日おき`}</dd></div></dl>
+      <div class="mcc-freq-bar" aria-hidden="true">${cells}</div>
+      <div class="mcc-freq-ax"><span>30日前</span><span>今日</span></div>
+      ${warn ? `<div class="mcc-freq-warn">${esc(warn)}</div>` : ""}</div>`;
   }
   // リードの状況（SF の Lead.Status）を架電中に変える（2026-11-23 福井さん「リードのリードステージを変更できるように」）。
   //   選択肢は SF の選択リストをそのまま出す。開いた会社ごとに1回だけ読み、選んだらすぐ SF に書く（記録ボタンとは別）
