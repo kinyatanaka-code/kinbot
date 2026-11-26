@@ -366,7 +366,8 @@ function kxTrackSeg(onChange) {
 const kxHasSns = (x) => (x.prodLabels || []).some((t) => KX_SNS_L.includes(t));
 // 納品前の会社か（2026-11-17 田中さん「納品前の企業はタグ付けてほしい」）。納品＝検収書を回収した（または前からの契約）。解約・キャンセルの会社は付けない
 const kxPreDeliv = (x) => x && x.delivered === false && !x.archived && !["解約済み", "キャンセル"].includes(x.label);
-const kxHasDoc = (x) => (x.prodLabels || []).some((t) => KX_DOC_L.includes(t)) || !(x.prodLabels || []).length;
+//   oVice などの DOC ではないツールだけの会社（nonDoc）は DOC にしない（2026-11-26 久野さん）
+const kxHasDoc = (x) => !x.nonDoc && ((x.prodLabels || []).some((t) => KX_DOC_L.includes(t)) || !(x.prodLabels || []).length);
 function renderList() {
   const d = lsData; if (!d) return;
   const sel = $("lsCs"), cur = sel.value;
@@ -1890,7 +1891,7 @@ function renderHomeV2() {
     <button type="button" class="h2-hero" data-kpi="all"><span class="l">DOC受注社数</span><span class="v" data-cu="${c.all.length}">${c.all.length}<small>社</small></span>${dl(c.all.length, p.all.length)}
       <span class="h2-mix" data-grow><i style="width:${(c.ka.length / tot) * 100}%" class="ka"></i><i style="width:${(c.mo.length / tot) * 100}%" class="mo"></i><i style="width:${(c.kai.length / tot) * 100}%" class="kai"></i></span>
       <span class="h2-leg"><span><i class="ka"></i>稼働 ${Math.round((c.ka.length / tot) * 100)}%</span><span><i class="mo"></i>先月お申込み ${Math.round((c.mo.length / tot) * 100)}%</span><span><i class="kai"></i>解約 ${Math.round((c.kai.length / tot) * 100)}%</span></span></button>
-    ${[["ka", "稼働社数（積み上げ）", "その月末までに納品した会社", c.ka, p.ka, "ka"], ["mo", "先月お申込者数", `${Number(kxYmAdd(ym, -1).slice(5))}月に受注した会社`, c.mo, p.mo, "mo"], ["kai", "解約社数", "アチコチバースの解約（アーカイブも含む）", c.kai, p.kai, "kai"]].map(([k, l, s, cur, prev, cls]) => `<button type="button" class="h2-card ${cls}" data-kpi="${k}"><span class="dot"></span><span class="l">${l}</span><span class="v" data-cu="${cur.length}">${cur.length}<small>社</small></span><span class="s">${s}</span>${dl(cur.length, prev.length)}</button>`).join("")}
+    ${[["ka", "稼働社数（積み上げ）", "その月末までに納品した会社", c.ka, p.ka, "ka"], ["mo", "先月お申込者数", `${Number(kxYmAdd(ym, -1).slice(5))}月に受注した会社`, c.mo, p.mo, "mo"], ["kai", "DOC解約社数（積み上げ）", "その月末までに解約したDOCの会社（アチコチバース・アーカイブも含む）", c.kai, p.kai, "kai"]].map(([k, l, s, cur, prev, cls]) => `<button type="button" class="h2-card ${cls}" data-kpi="${k}"><span class="dot"></span><span class="l">${l}</span><span class="v" data-cu="${cur.length}">${cur.length}<small>社</small></span><span class="s">${s}</span>${dl(cur.length, prev.length)}</button>`).join("")}
   </div>
   <div class="h2-row">
     <div class="h2-left">${window.__kxActBig ? '<div class="h2-act-bd" data-act-close></div>' : ""}<section class="h2-box h2-act${window.__kxActBig ? " big" : ""}"><div class="h2-h"><h2 class="h2-act-open" data-act-big title="押すと大きく表示">要アクション</h2><span class="h2-big h2-act-open" data-act-big data-cu="${actCos}">${actCos}<small>社</small></span><span class="h2-sub">事前アラート</span><span class="h2-scope" role="tablist"><button type="button" class="${kxScope !== "all" ? "on" : ""}" data-home-scope="me">自分</button><button type="button" class="${kxScope === "all" ? "on" : ""}" data-home-scope="all">全員</button></span>${window.__kxActBig ? '<button type="button" class="h2-act-x" data-act-close title="閉じる">✕ 閉じる</button>' : ""}</div>
