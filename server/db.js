@@ -4550,6 +4550,13 @@ export async function addCallTargets(listId, items = [], { dedupe = false, takeO
 // かける画面の「アーカイブ／リサイクル（まとめ）」と同じ考え方。
 // 「かける」ステージ（2026-11-26 田中さん「ステージ別のリスト。かける＝ステージが空白・-・NEW・担当者未接触・コネクト情報獲得・ジャッジ」）
 export const KAKERU_STAGE_SQL = `(btrim(COALESCE(t.stage,'')) IN ('', '-', '－', 'ー', '―') OR COALESCE(t.stage,'') ILIKE '%NEW%' OR COALESCE(t.stage,'') ~ '担当者未接触|コネクト情報獲得|ジャッジ')`;
+// ステージ別の件数を数えるための、軽い一覧（id・リード・電話・会社・ステージ・ステータスだけ）（2026-11-26）
+//   開いたときの一覧（listStageTargets）と同じく、リストに関係なく全部の架電先から
+export async function stageLeadsLight() {
+  if (!pool) return [];
+  const { rows } = await pool.query(`SELECT t.id, t.lead_id, t.phone, t.company, t.stage, t.status FROM call_targets t`);
+  return rows;
+}
 export async function stageSummaryCounts() {
   if (!pool) return { archive: 0, recycle: 0 };
   try {
