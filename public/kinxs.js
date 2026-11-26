@@ -1320,7 +1320,8 @@ function renderBoard() {
   const q = $("bdQ").value || "";
   const bdTrack = window.__bdTrack || "DOC";
   document.querySelectorAll("[data-bdtrack]").forEach((b) => b.classList.toggle("on", b.dataset.bdtrack === bdTrack));
-  const items = d.items.filter((x) => !x.archived && (bdTrack === "SNS" ? kxHasSns(x) : kxHasDoc(x)) && kxMatch(q, x.name, x.formerNames || [], x.cs, x.fs, x.products, x.label) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
+  //   解約済みは、アーカイブしていても解約済みの列に出す（ホームの解約社数と数をそろえる）（2026-11-26 久野さん）
+  const items = d.items.filter((x) => (!x.archived || x.label === "解約済み") && (bdTrack === "SNS" ? kxHasSns(x) : kxHasDoc(x)) && kxMatch(q, x.name, x.formerNames || [], x.cs, x.fs, x.products, x.label) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
   // SNSは、SNSのフェーズの列（DOCとSNSの両方をやっている会社は、カードにもう一方のフェーズを出す）
   const SNS_C = ["#7C8AA5", "#9B6BD6", "#3F72C9", "#2E8FB0", "#1D9E75", "#C9A227", "#E07A1F", "#D25F5F", "#B54F8E", "#5A63C7", "#3A3F3D"];
   if (bdTrack === "SNS") for (const x of items) x._ph = x.snsPhase || "計上"; else for (const x of items) x._ph = x.label;
@@ -1667,7 +1668,9 @@ function kxDocCounts(items, ym) {
   const docs = items.filter((x) => kxHasDoc(x) && bk(x) && bk(x) <= E);   // アーカイブも入れる
   const churnOn = (x) => x.endOn || (x.renew ? `${x.renew}-01` : "");
   // 解約は、受注商品に「アチコチバース」が入っている会社だけ数える（2026-11-06 久野さん）
-  const kai = docs.filter((x) => kxIsAchiX(x) && (x.label === "解約済み" || x.rank === "F" || x.archived) && (!churnOn(x) || churnOn(x) <= E));
+  //   2026-11-26 久野さん「ホームとフェーズ別で解約者数が合わない」：フェーズ別と同じく「解約済み」のDOCの会社を数える（アーカイブしただけの会社は入れない）。
+  //   解約済み＝契約終了日を過ぎた・更新確度F・手でフェーズを「解約済み」にした会社（アチコチバースに限らない）
+  const kai = docs.filter((x) => x.label === "解約済み" && (!churnOn(x) || churnOn(x) <= E));
   const ka = docs.filter((x) => x.delivered && (!x.deliveredOn || x.deliveredOn <= E));
   // 申し込みは「先月お申込者数」：表示している月の前の月に受注した会社（2026-11-06 久野さん）
   const pm = kxYmAdd(ym, -1), PS = `${pm}-01`, PE = kxYmEnd(pm);
@@ -1891,7 +1894,7 @@ function renderHomeV2() {
     <button type="button" class="h2-hero" data-kpi="all"><span class="l">DOC受注社数</span><span class="v" data-cu="${c.all.length}">${c.all.length}<small>社</small></span>${dl(c.all.length, p.all.length)}
       <span class="h2-mix" data-grow><i style="width:${(c.ka.length / tot) * 100}%" class="ka"></i><i style="width:${(c.mo.length / tot) * 100}%" class="mo"></i><i style="width:${(c.kai.length / tot) * 100}%" class="kai"></i></span>
       <span class="h2-leg"><span><i class="ka"></i>稼働 ${Math.round((c.ka.length / tot) * 100)}%</span><span><i class="mo"></i>先月お申込み ${Math.round((c.mo.length / tot) * 100)}%</span><span><i class="kai"></i>解約 ${Math.round((c.kai.length / tot) * 100)}%</span></span></button>
-    ${[["ka", "稼働社数（積み上げ）", "その月末までに納品した会社", c.ka, p.ka, "ka"], ["mo", "先月お申込者数", `${Number(kxYmAdd(ym, -1).slice(5))}月に受注した会社`, c.mo, p.mo, "mo"], ["kai", "DOC解約社数（積み上げ）", "その月末までに解約したDOCの会社（アチコチバース・アーカイブも含む）", c.kai, p.kai, "kai"]].map(([k, l, s, cur, prev, cls]) => `<button type="button" class="h2-card ${cls}" data-kpi="${k}"><span class="dot"></span><span class="l">${l}</span><span class="v" data-cu="${cur.length}">${cur.length}<small>社</small></span><span class="s">${s}</span>${dl(cur.length, prev.length)}</button>`).join("")}
+    ${[["ka", "稼働社数（積み上げ）", "その月末までに納品した会社", c.ka, p.ka, "ka"], ["mo", "先月お申込者数", `${Number(kxYmAdd(ym, -1).slice(5))}月に受注した会社`, c.mo, p.mo, "mo"], ["kai", "DOC解約社数（積み上げ）", "その月末までに解約済みになったDOCの会社（アーカイブも含む）", c.kai, p.kai, "kai"]].map(([k, l, s, cur, prev, cls]) => `<button type="button" class="h2-card ${cls}" data-kpi="${k}"><span class="dot"></span><span class="l">${l}</span><span class="v" data-cu="${cur.length}">${cur.length}<small>社</small></span><span class="s">${s}</span>${dl(cur.length, prev.length)}</button>`).join("")}
   </div>
   <div class="h2-row">
     <div class="h2-left">${window.__kxActBig ? '<div class="h2-act-bd" data-act-close></div>' : ""}<section class="h2-box h2-act${window.__kxActBig ? " big" : ""}"><div class="h2-h"><h2 class="h2-act-open" data-act-big title="押すと大きく表示">要アクション</h2><span class="h2-big h2-act-open" data-act-big data-cu="${actCos}">${actCos}<small>社</small></span><span class="h2-sub">事前アラート</span><span class="h2-scope" role="tablist"><button type="button" class="${kxScope !== "all" ? "on" : ""}" data-home-scope="me">自分</button><button type="button" class="${kxScope === "all" ? "on" : ""}" data-home-scope="all">全員</button></span>${window.__kxActBig ? '<button type="button" class="h2-act-x" data-act-close title="閉じる">✕ 閉じる</button>' : ""}</div>
