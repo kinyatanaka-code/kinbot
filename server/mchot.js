@@ -7,7 +7,8 @@
 //   DB も通信も使わない純粋な関数だけにして、node で直接試せるようにしている。
 
 // ルールを変えたらこの数字を上げる（保存済みの判定を全部やり直す合図）
-export const HOT_VERSION = 1;
+//   2：検討時期を商談メモの項目ごとに読み、商談日程・連絡先の項目を外した（2026-11-26）
+export const HOT_VERSION = 2;
 
 // 担当者名として扱わない書き方（名前ではなく役職・部署・「不明」など）
 const NAME_GENERIC = /^(ご|御)?(採用|人事|総務|労務|管理|経営企画|事務)?(部|課|室|グループ)?(の)?(ご)?(担当|担当者|責任者|窓口|部長|課長|係長|社長|代表|院長|園長|事務長)?(様|さま|さん|殿)?$/;
@@ -37,13 +38,26 @@ const clean = (s) => String(s ?? "").normalize("NFKC").replace(/\s+/g, " ").trim
 // 文に分ける（「〜はあるが、〜はない」のように1文に両方あるときは、その文はどちらにも数えない）
 const sentences = (t) => String(t).split(/[。．！!？?\n\r]|、(?=[^、]{0,4}(が|けど|けれど|しかし|ただ))/).map((x) => x && x.trim()).filter(Boolean);
 
+// 商談メモの型（■見出し・「項目:値」が空白でつながったもの）を1項目＝1行に分ける。
+//   分けないと「■基本情報 担当者名:… メールアドレス:… 商談日程:…」全体が1文になり、どこかに時期の言葉があると
+//   先頭の担当者名・メールが検討時期の根拠として画面に出てしまう（2026-11-26 福井さん「検討時期とは違う項目が入っている」）
+const segs = (t) => String(t).replace(/\s*([■◆【])/g, "\n$1").replace(/ (?=[^\s\d:■◆【][^\s:■◆【]{1,13}:)/g, "\n");   // 「14:00」のような時刻は項目と見ない
+// 商談・面談の日程や連絡先の項目は、相手が採用を考える時期ではない
+const NOT_WHEN = /^[■◆【]?[^:]{0,14}(商談|面談|日程|日時|アポ|MTG|打ち?合わ|訪問|次回|架電|電話|メール|担当者)[^:]{0,6}:/;
+// 根拠の1文は、当たった言葉のまわりを出す（長い文の頭だけ切ると、どこが当たったのか分からないため）
+function around(s, re) {
+  if (s.length <= 80) return s;
+  const i = Math.max(0, s.search(re) - 30);
+  return (i > 0 ? "…" : "") + s.slice(i, i + 78) + (i + 78 < s.length ? "…" : "");
+}
+
 function readTexts(texts, POS, NEG, skip) {
   let pos = "", neg = "";
   for (const t of texts) for (const s of sentences(t)) {
     if (skip && skip.test(s)) continue;
     const p = POS.test(s), n = NEG.test(s);
-    if (p && !n && !pos) pos = s.slice(0, 80);
-    if (n && !neg) neg = s.slice(0, 80);
+    if (p && !n && !pos) pos = around(s, POS);
+    if (n && !neg) neg = around(s, NEG);
   }
   return pos ? { st: "あり", why: pos } : neg ? { st: "なし", why: neg } : { st: "", why: "" };
 }
@@ -69,7 +83,8 @@ export function judgeHot(data, lead) {
   }
 
   // ③ 検討時期：コメント等 → SF の「検討開始時期」「現利用サービス更新予定月」
-  let when = readTexts(texts, WHEN_POS, WHEN_NEG, CALLBACK);
+  //   商談メモの型は1項目ずつに分けて読み、商談日程・連絡先などの項目は読まない（2026-11-26 福井さん）
+  let when = readTexts(texts.map(segs), WHEN_POS, WHEN_NEG, { test: (s) => CALLBACK.test(s) || NOT_WHEN.test(s) });
   if (when.st !== "あり") {
     for (const lbl of ["検討開始時期", "現利用サービス更新予定月"]) {
       const v = clean(L[lbl]); if (v) { when = { st: "あり", why: `SF ${lbl}：${v.slice(0, 40)}` }; break; }
