@@ -170,7 +170,8 @@ async function researchPick(n) {
   if (out.length < n && _reDay === jstDay() && _reCount < R_RECHECK) {
     const more = (await P().query(`SELECT c.id FROM mc_call_leads c JOIN mc_call_lists l ON l.id=c.list_id
       WHERE NOT l.closed AND NOT l.stock AND NOT c.done AND c.dup_of IS NULL AND c.research_at IS NOT NULL AND COALESCE(c.company,'') <> ''
-        AND COALESCE(c.research->>'status','') <> 'error'
+        -- 調べられなかった会社も、1日たったら調べ直す（2026-11-26 困ったボタン：11/20 より前の Gemini の残高切れ 402 のまま、ずっと「調べられませんでした」と出ていた）
+        AND (COALESCE(c.research->>'status','') <> 'error' OR c.research_at < now() - interval '1 day')
         AND (COALESCE(c.research->'check'->>'v','') <> '${CHECK_V}' OR (c.research->'check'->>'at')::timestamptz < now() - interval '${STALE_DAYS} days'
           OR (c.research->>'web' = 'false' AND c.research_at < now() - interval '1 day'))   -- 検索先に止められて何も調べられなかった会社も、日を改めて調べ直す
       ORDER BY (c.next_at IS NOT NULL AND c.next_at <= now() + interval '1 day') DESC, COALESCE(c.hot,0) DESC, c.attempts, c.id LIMIT ${n + _rBusy.size}`)).rows.map((r) => r.id);

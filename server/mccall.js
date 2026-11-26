@@ -2537,7 +2537,9 @@ export function registerMcCall(app, deps) {
     if (!viaInbound && !(await myListIds(req)).includes(lead.list_id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
     if (req.query.lock === "1") await P().query(`UPDATE mc_call_leads SET locked_by=$2, locked_at=now() WHERE id=$1`, [id, u]);
     // まだ企業調査が済んでいない会社を開いたら、先に調べるよう頼む（画面は「調査中」と出し、かけるのは止めない）
-    if (!lead.research_at) researchSoon([id]);
+    // 前に調べられなかった会社（1日以上前）も、開いたときに先に調べ直す。いまの企業調査は AI を使わない無料の検索なので、お金は増えない
+    const oldErr = lead.research && lead.research.status === "error" && lead.research_at && Date.now() - new Date(lead.research_at) > 86400e3;
+    if (!lead.research_at || oldErr) researchSoon([id]);
     const names = await nameMap();
     // 元のデータ（Bales は最新の取り込みを読む。DOC は call_targets を読むだけ）
     let data = {}, sf = null, detail = null;
