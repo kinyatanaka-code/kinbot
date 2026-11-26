@@ -11,7 +11,7 @@
     <link rel="manifest" href="/kinxs.webmanifest" />
     <meta name="theme-color" content="#0B3B2E" />
     <meta name="apple-mobile-web-app-title" content="kinXs" />
-    <link rel="stylesheet" href="style.css?v=20261126h" />
+    <link rel="stylesheet" href="style.css?v=20261126i" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1320,6 +1320,11 @@
 .mi-flow .mi-kpi{min-width:0;}
 .mi-flow .mi-kpi .l{flex-wrap:wrap;}
 .mi-flow .mi-def{display:block;font-size:10.5px;line-height:1.4;font-weight:600;}
+/* 横一列（担当企業の大きな画面）では定義を出さない（カードが縦に伸びて下が見づらくなる）。定義はカードにカーソルを乗せると出る（2026-11-26 田中さん「下が見づらくなってしまった」）
+   ホームの縦の並びでは今までどおり出す */
+.kx-mine-big .mi-flow .mi-def{display:none;}
+.kx-mine-big .mi-flow .mi-kpi{min-height:0;}
+.kx-mine-big .mi-flow .mi-nm{font-size:11.5px;line-height:1.35;}
 @media (max-width:1100px){ .mi-flow{grid-template-columns:repeat(4,minmax(0,1fr) auto) minmax(0,1fr);row-gap:8px;} .mi-flow > .mi-arr:nth-of-type(5){display:none;} }
 @media (max-width:760px){ .mi-flow{grid-template-columns:1fr;} .mi-arr{transform:rotate(90deg);height:30px;width:auto;} }
   .mi-kpi.on{border-color:var(--c,#1d9e75);box-shadow:0 0 0 3px color-mix(in srgb,var(--c,#1d9e75) 18%,transparent)}
@@ -1669,8 +1674,8 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261126h" defer></script>
-    <script src="kinxs.js?v=20261126h"></script>
+    <script src="kbchat.js?v=20261126i" defer></script>
+    <script src="kinxs.js?v=20261126i"></script>
   <script>
   // スマホのメニューの開け閉め。項目を押したら閉じる（2026-11-24）
   (function () {
