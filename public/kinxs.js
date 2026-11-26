@@ -430,7 +430,7 @@ function renderList() {
   // ロゴ（会社のHPから）があれば白い四角に、読めなければ頭文字
   const card = (x) => `<div class="kx-uc kx-uc-lux" style="--accent:${PH[x.label] || "#1D9E75"}" data-open="${esc(x.id)}" role="button" tabindex="0" title="${esc(`${x.name}（${x.label}）`)}">${x.logo
       ? `<span class="mono logo" aria-hidden="true"><img src="${esc(x.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.classList.remove('logo');this.parentNode.textContent='${esc(mono(x.name)).replace(/'/g, "")}'"></span>`
-      : `<span class="mono" aria-hidden="true">${esc(mono(x.name))}</span>`}<div class="nm has-former"><span class="t">${esc(x.name)}</span>${(x.formerNames || []).length ? `<span class="kx-former" title="旧社名：${esc(x.formerNames.join("・"))}">旧：${esc(x.formerNames[x.formerNames.length - 1])}</span>` : ""}<span class="kx-uc-tags2">${x.channel ? `<span class="kx-chtag ${x.channel === "直販" ? "dr" : "ps"}" title="販売区分">${esc(x.channel)}</span>` : ""}${kxPlTags(x)}${x.initFee === true ? '<span class="kx-chtag init" title="初期費用（エントリープランなど）あり">初期あり</span>' : x.initFee === false ? '<span class="kx-chtag noinit" title="初期費用なし（アチコチバースのみ）">初期なし</span>' : ""}${kxPreDeliv(x) ? '<span class="kx-chtag predeliv" title="まだ納品していない会社（検収書を回収していない）">納品前</span>' : ""}</span></div></div>`;
+      : `<span class="mono" aria-hidden="true">${esc(mono(x.name))}</span>`}<div class="nm has-former"><span class="t">${esc(x.name)}</span>${(x.formerNames || []).length ? `<span class="kx-former" title="旧社名：${esc(x.formerNames.join("・"))}">旧：${esc(x.formerNames[x.formerNames.length - 1])}</span>` : ""}<span class="kx-uc-tags2">${kxCoTags(x)}</span></div></div>`;
   const lsTab = window.__lsTab || "all";
   const lsTabPrevSeen = window.__lsTabSeen; window.__lsTabPrev = lsTabPrevSeen; window.__lsTabSeen = lsTab;
   document.querySelectorAll("[data-lstab]").forEach((b) => b.classList.toggle("on", b.dataset.lstab === lsTab));
@@ -804,7 +804,7 @@ async function openDetail(id, reuse) {
     <div style="display:flex;align-items:center;gap:14px">
       <div class="kx-dlogo" data-logo-btn role="button" tabindex="0" title="押すと、ロゴを取り直す・手で入れる">${x.logo ? `<img src="${esc(x.logo)}" alt="" data-logo-img" />` : `<span class="mono">${esc((x.name || "？").replace(/^(株式会社|有限会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|公益財団法人|学校法人)\s*/, "").slice(0, 1))}</span>`}<span class="ed">ロゴ</span></div>
       <div style="min-width:0"><h2>${esc(x.name)}${(x.formerNames || []).length ? `<span class="kx-former-h">（旧：${esc(x.formerNames.slice().reverse().join("・旧："))}）</span>` : ""} <button type="button" class="kx-ren kx-pen" data-ren-open title="社名を変える（社名が変わったとき）" aria-label="社名を変える"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg></button>${kxHeadId(d)}</h2>
-        <div class="kx-golinks">${kxGoLinks(d)}</div></div><button type="button" class="kx-btn" data-archive style="margin-left:auto" title="${x.archived ? "ユーザー一覧・フェーズ別に戻す" : "動いていない会社を、ユーザー一覧・フェーズ別から見えなくする（あとで戻せる）"}">${x.archived ? "アーカイブから戻す" : "アーカイブする"}</button><button type="button" class="kx-btn" data-x>閉じる</button></div>
+        <div class="kx-golinks">${kxGoLinks(d)}<span class="kx-uc-tags2 kx-head-tags">${kxCoTags(x)}</span></div></div><button type="button" class="kx-btn" data-archive style="margin-left:auto" title="${x.archived ? "ユーザー一覧・フェーズ別に戻す" : "動いていない会社を、ユーザー一覧・フェーズ別から見えなくする（あとで戻せる）"}">${x.archived ? "アーカイブから戻す" : "アーカイブする"}</button><button type="button" class="kx-btn" data-x>閉じる</button></div>
     ${x.archived ? '<div class="kh-warn" style="margin:0">この会社はアーカイブしています（ユーザー一覧・フェーズ別には出ません）</div>' : ""}
     <div class="kx-logo-menu" data-ren-box hidden>
       <div class="h" style="width:100%"><b>社名を変える</b><span class="kx-note">今の名前は「旧社名」として残り、「新しい社名（旧：今の社名）」と出ます</span><button type="button" class="hp-b" data-ren-close style="margin-left:auto">しまう ▲</button></div>
@@ -2757,6 +2757,8 @@ function kxStageSelWire(box) {
     });
   });
 }
+// 会社の札（販売区分・掲載先・初期あり／なし・納品前）。一覧のカードと企業モーダルの上で同じものを出す（2026-11-26 田中さん「企業ページにもタグをつけてほしい」）
+function kxCoTags(x) { return `${x.channel ? `<span class="kx-chtag ${x.channel === "直販" ? "dr" : "ps"}" title="販売区分">${esc(x.channel)}</span>` : ""}${kxPlTags(x)}${x.initFee === true ? '<span class="kx-chtag init" title="初期費用（エントリープランなど）あり">初期あり</span>' : x.initFee === false ? '<span class="kx-chtag noinit" title="初期費用なし（アチコチバースのみ）">初期なし</span>' : ""}${kxPreDeliv(x) ? '<span class="kx-chtag predeliv" title="まだ納品していない会社（検収書を回収していない）">納品前</span>' : ""}`; }
 function kxMineBig() {
   const bg = document.createElement("div"); bg.className = "kx-drawer-bg";
   bg.innerHTML = `<aside class="kx-drawer kx-mine-big" role="dialog" aria-label="担当企業"><div class="kx-mine-big-h"><h2>担当企業</h2><button type="button" class="kx-btn" data-x style="margin-left:auto">閉じる</button></div><div data-mine-big></div></aside>`;
