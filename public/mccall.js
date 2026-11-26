@@ -2775,7 +2775,7 @@
   //   o.url：数える API、o.body()：数えるときに一緒に送るもの、o.after(s)：数え終わったあとの処理（試算など）
   const SEG_KEY = "shobo_seg_filters";
   const SEG_ORDER = ["origin", "list", "source", "stage", "gyokai", "category", "gyoshu", "roles", "pref", "city", "owner", "research", "phone", "competitor", "due", "followup",
-    "hireSource", "lastResult", "decline", "last", "hot", "conds", "segments", "pains", "budget", "renewal", "lost"];
+    "hireSource", "lastResult", "decline", "last", "hot", "conds", "segments", "pains", "budget", "renewal", "lost", "mql"];
   const SEG_SCALAR = ["q", "mode", "callsMin", "callsMax", "hireMin", "hireMax", "hideDnc", "hideTouched", "hideSfTouched", "sort", "dir"];
   function segPicker(w, o) {
     let saved = {}; try { saved = JSON.parse(localStorage.getItem(SEG_KEY) || "{}") || {}; } catch {}

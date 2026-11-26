@@ -45,6 +45,8 @@ import { callbackShiftWindows, MCDASH_ROSTER } from "./mcdash.js";   // イン�
 import { rosterHit, startsWithSurname, rosterForms, foldPersonName, pickBalesOwner } from "./mcname.js";   // 名前の照合（異体字・姓名の順などをそろえる）
 import { loadPeople, emailOf as rosterEmailOf, setPerson, rosterRows, PEOPLE_KINDS } from "./mcpeople.js";   // 名簿の人をメールで結びつける（2026-11-23）
 import { leadMails, sfLeadIdOf } from "./mcmail.js";   // 1社のメールを1か所で集める（SF・BALES・DOC のメールが画面に出なかったため。2026-11-24）
+import { MQL_V, MQL_WHY, MQL_OK_LABEL, MQL_NONE_LABEL, leadFields } from "./mcmql.js";   // 「かける」に出す条件（MQL）（2026-11-23）
+import { ensureMql, computeMql, mqlGateOn, mqlPass, MQL_OK_SQL, untilPassed, startMql, registerMcMql, afterImport, MC_RT, mochicaRtId } from "./mcsfsync.js";
 import { HEAR_ITEMS, cleanHearing, mergeHearing, hearingLines as hearLines, apoCheck, valueText, mailDefaults, MAIL_ITEMS, HEAR_MAIL_SUBJECT, hearMailBody, realName } from "./mchearing.js";   // アポの必須ヒアリングとヒアリングのメール（2026-11-23）   // 問い合わせフォームの自動送信（2026-11-20）
 export { hiresBucket };
 
@@ -241,6 +243,8 @@ async function ensure() {
           AND COALESCE(bales_seen->>'result','') ~ '受付(ブロック|NG|ＮＧ|拒否)' AND COALESCE(next_why,'') LIKE 'BALESで%'`);
       if (a.rowCount || b.rowCount) console.log(`[mccall] 受付ブロックのまま残っていた会社を終わりにしました：MOCHICALL ${a.rowCount}件・BALES ${b.rowCount}件`);
     } catch (e) { console.warn("[mccall] 受付ブロックの会社を終わりにできませんでした", e.message); }
+    // 「かける」に出す条件（MQL）の印と、判定に使う SF の項目（2026-11-23）。mcsfsync.js
+    await ensureMql(q);
   })().catch((e) => { _ready = null; throw e; });
   return _ready;
 }
@@ -662,6 +666,11 @@ export const SEG_DIMS = {
   city: { label: "市区町村", sql: `COALESCE(NULLIF(c.seg->>'city',''),'（未登録）')`, needs: "pref" },
   owner: { label: "自社担当", sql: `COALESCE(c.assigned_to,'（担当なし）')`, names: true },
   research: { label: "事前調査", sql: `CASE WHEN c.research_at IS NULL THEN '未調査' WHEN c.research->>'status' = 'error' THEN '調べられなかった' ELSE '調査済み' END`, order: ["調査済み", "調べられなかった", "未調査"] },
+  // MQL 外の理由（2026-11-23）：「かける」に出ないリードが、なぜ出ないか。外れたリードは消さずに残すので、ここで理由ごとに見られる
+  mql: { label: "MQL 外の理由（かけるに出ない理由）", multi: true, none: MQL_NONE_LABEL,
+    sql: `CASE WHEN c.mql IS NULL THEN ARRAY[${sqlLit(MQL_NONE_LABEL)}]::text[] WHEN COALESCE((c.mql->>'ok')::boolean, false) OR ${untilPassed("c.mql")} THEN ARRAY[${sqlLit(MQL_OK_LABEL)}]::text[]
+      ELSE ARRAY(SELECT CASE w ${Object.entries(MQL_WHY).map(([k, v]) => `WHEN ${sqlLit(k)} THEN ${sqlLit(v)}`).join(" ")} ELSE w END FROM jsonb_array_elements_text(COALESCE(c.mql->'why', '[]'::jsonb)) AS w) END`,
+    order: [MQL_OK_LABEL, ...Object.values(MQL_WHY), MQL_NONE_LABEL] },
   phone: { label: "電話番号", sql: `CASE WHEN ${DIGITS} ~ '^0[0-9]{9,10}$' THEN '発信できる' WHEN ${DIGITS} = '' THEN '未登録' ELSE '番号の形が正しくない' END`, order: ["発信できる", "番号の形が正しくない", "未登録"] },
   competitor: { label: "競合バッティング", sql: `CASE WHEN COALESCE(c.seg->'lost'->>'rival','') <> '' THEN '競合に負けた（SF の失注）'
       WHEN COALESCE(c.seg->>'ats','') <> '' OR (c.last_outcome = 'reject' AND ${LAST_REJECT} = '他社を使っている') THEN '競合を利用中' ELSE '競合の印なし' END`, order: ["競合に負けた（SF の失注）", "競合を利用中", "競合の印なし"] },
@@ -767,6 +776,10 @@ export function registerMcCall(app, deps) {
   startPlayPumps();
   _balesRates = () => ratesNow();   // BALES の不在の掛け直しも、MOCHICA の時間帯ごとのつながりやすさで選ぶ
   startZoomSync();   // Zoom Phone の通話を DB に写して、番号で過去の通話を引けるようにする
+  // MQL の印を付ける・夜に SF の項目を読み直す（2026-11-23）。SF は運用者のアカウントで読む
+  const sfOwner = async () => (deps.sfOperator ? await deps.sfOperator().catch(() => "") : "");
+  startMql({ getOwner: sfOwner, refreshSeg, ensure,
+    listIds: async () => (await P().query(`SELECT id FROM mc_call_lists WHERE biz=$1 AND NOT closed`, [BIZ])).rows.map((r) => r.id) });
   const isMcIntern = deps.isMcIntern || (async () => false);
   const me = (req) => String(req.user || "").toLowerCase();
   const guard = (fn) => async (req, res) => {
@@ -925,6 +938,8 @@ export function registerMcCall(app, deps) {
   const SF_FAIL = `NOT g.undone AND g.sf_task_id IS NULL AND COALESCE(g.sf_err,'') <> 'nolead' AND (g.sf_err IS NOT NULL OR g.created_at < now() - interval '2 minutes')`;
 
   const adminOnly = (fn) => guard(async (req, res) => { if (!isAdmin(req)) return res.status(403).json({ error: "リストの管理は管理者だけができます" }); await fn(req, res); });
+  // MQL の状態・今すぐ読み直す・SF 立ち上げの試し（と承認後の実行）（2026-11-23）
+  registerMcMql(app, { adminOnly, sfActor, getOwner: sfOwner, me });
 
   // 時間帯ごとのつながりやすさ（MOCHICA の直近90日の記録から。掛け直しの時刻の選び方と、画面の「いま」に使う）。
   //   記録のたびに数え直すと重いので10分だけ覚えておく。数えられなかったときは資料の目安だけで進める（架電は止めない）
@@ -970,7 +985,7 @@ export function registerMcCall(app, deps) {
   // ---- リスト ----
   app.get("/api/mccall/lists", guard(async (req, res) => {
     const ids = await myListIds(req, req.query.stock === "1");
-    const rows = ids.length ? (await P().query(`SELECT l.id, l.name, l.note, l.members, l.created_at, l.stock, l.bales_key, l.product, COALESCE(l.today_src, false) AS today_src, l.hide_history,
+    const rows = ids.length ? (await P().query(`SELECT l.id, l.name, l.note, l.members, l.created_at, l.stock, l.bales_key, l.product, COALESCE(l.today_src, false) AS today_src, l.hide_history, l.lead_source,
         count(c.id) AS total, count(c.id) FILTER (WHERE NOT c.done) AS open,
         count(c.id) FILTER (WHERE NOT c.done AND (c.next_at IS NULL OR c.next_at <= now())) AS now,
         count(c.id) FILTER (WHERE c.cross_from IS NOT NULL) AS cross,
@@ -981,7 +996,7 @@ export function registerMcCall(app, deps) {
   app.post("/api/mccall/lists", adminOnly(async (req, res) => {
     const name = clip(req.body && req.body.name, 80); if (!name) return res.status(400).json({ error: "リストの名前を入れてください" });
     const members = Array.isArray(req.body.members) ? req.body.members.map((x) => String(x).toLowerCase()).slice(0, 200) : [];
-    const r = (await P().query(`INSERT INTO mc_call_lists (name, note, members, created_by, product) VALUES ($1,$2,$3,$4,$5) RETURNING id`, [name, clip(req.body.note, 400), members, me(req), productOf(req.body.product)])).rows[0];
+    const r = (await P().query(`INSERT INTO mc_call_lists (name, note, members, created_by, product, lead_source) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`, [name, clip(req.body.note, 400), members, me(req), productOf(req.body.product), clip(req.body.leadSource, 80) || null])).rows[0];
     res.json({ ok: true, id: r.id });
   }));
   app.patch("/api/mccall/lists/:id", adminOnly(async (req, res) => {
@@ -997,6 +1012,11 @@ export function registerMcCall(app, deps) {
     //   BALES から移したリストを出したら「トークが決まっていないリストはかけられません」で止まった。今日かけるリストを作るときと同じ考え方）
     let talkFrom = null;
     if (b.stock === false) talkFrom = await copyLatestTalk(id, me(req)).catch((e) => { console.error("[mccall] トークを写せませんでした", e.message); return null; });
+    // リストに付けた SF のリード元（2026-11-23）。CSV・DOC のリードの MQL の判定が変わるので、このリストの印を付け直す
+    if (b.leadSource != null) {
+      const x = await P().query(`UPDATE mc_call_lists SET lead_source=$2 WHERE id=$1 AND COALESCE(lead_source,'') IS DISTINCT FROM $3`, [id, clip(b.leadSource, 80) || null, clip(b.leadSource, 80)]);
+      if (x.rowCount) computeMql({ listIds: [id], force: true }).catch((e) => console.error("[mccall] リード元を変えたあとの MQL の付け直しができませんでした", e.message));
+    }
     res.json({ ok: true, talkFrom });
   }));
   // トークスクリプト（架電者も読む。管理者は上の PATCH で書く）
@@ -1718,7 +1738,7 @@ export function registerMcCall(app, deps) {
     if (!rows.length) return res.status(400).json({ error: "CSV に読める行がありません" });
     await banListOrStop();
     const fill = await csvFillFromSf(req, rows);
-    let added = 0, banned = 0, dup = 0, bad = 0, nolead = 0, nokey = 0, nophone = 0; const companies = []; const ex = dupSamples();
+    let added = 0, banned = 0, dup = 0, bad = 0, nolead = 0, nokey = 0, nophone = 0; const companies = []; const ex = dupSamples(); const newIds = [];
     for (const r of rows) {
       const company = clip(r.company, 200), phone = clip(r.phone, 40), person = clip(r.person, 100);
       const ph = digits(phone), ck = companyKey(company);
@@ -1731,9 +1751,11 @@ export function registerMcCall(app, deps) {
       if (x.banned) { banned++; continue; }
       if (x.bad) { bad++; continue; }
       if (!x.added) { dup++; ex.push(company, x.dup); continue; }
-      added++; if (!lid) nolead++; if (x.nokey) nokey++; if (ph.length < 9) nophone++; companies.push(company);
+      added++; if (!lid) nolead++; if (x.nokey) nokey++; if (ph.length < 9) nophone++; companies.push(company); newIds.push(x.id);
     }
     mynaviEnqueue(companies).catch((e) => console.error("[mccall] マイナビの調べを始められませんでした", e.message));
+    // MQL の印（SF のリードが分かっているものは SF の項目も読む）。立ち上げが有効なら SF に無いリードを SF に立ち上げる（2026-11-23）
+    sfActor(req).then((o) => afterImport(o, newIds, "CSV の取り込み")).catch(() => {});
     console.log(`[mccall] CSV から リスト${id} へ ${added}件（SFで電話を補った${fill.phone}・リードIDを補った${fill.lead}・電話なし${nophone}${fill.error ? `・SFエラー ${fill.error}` : ""}）by ${me(req)}`);
     res.json({ ok: true, added, banned, dup, bad, nolead, nokey, nophone, sfPhone: fill.phone, sfLead: fill.lead, sfError: fill.error || null, examples: ex.list });
   }));
@@ -1825,15 +1847,17 @@ export function registerMcCall(app, deps) {
     // 最後の活動が古いものから（kincall の「最後にかけた日が古い順」と同じ考え方）
     const recs = await sfQueryAll(owner, `SELECT ${SF_LEAD_FIELDS.join(", ")} FROM Lead WHERE ${where} ORDER BY LastActivityDate ASC NULLS FIRST, CreatedDate DESC LIMIT ${lim}`, lim);
     await banListOrStop();
-    let added = 0, banned = 0, dup = 0, bad = 0, nokey = 0; const ex = dupSamples(); const companies = [];
+    let added = 0, banned = 0, dup = 0, bad = 0, nokey = 0; const ex = dupSamples(); const companies = []; const newIds = [];
     for (const rec of recs) {
       const r = sfLeadRow(rec, judgeHot);
       if (r.ban || approachBanHitSync({ company: r.company, phone: r.phone, leadId: r.sf_lead_id })) { banned++; continue; }
       if (!r.company && digits(r.phone).length < 9) { bad++; continue; }
       const x = await addLeadUnique({ list_id: id, src: "sf", src_key: String(rec.Id).slice(0, 18), company: r.company, phone: r.phone, person: r.person, sf_lead_id: r.sf_lead_id, hot: r.hot, data: r.data }, { data: r.data });
-      if (x.added) { added++; if (x.nokey) nokey++; companies.push(r.company); } else if (x.banned) banned++; else if (x.bad) bad++; else { dup++; ex.push(r.company, x.dup); }
+      if (x.added) { added++; if (x.nokey) nokey++; companies.push(r.company); newIds.push(x.id); } else if (x.banned) banned++; else if (x.bad) bad++; else { dup++; ex.push(r.company, x.dup); }
     }
     mynaviEnqueue(companies).catch((e) => console.error("[mccall] マイナビの調べを始められませんでした", e.message));
+    // MQL の判定に使う SF の項目（オプトアウト・電話の除外など）を、足したリードの分だけ読む（2026-11-23）
+    afterImport(owner, newIds, "SF から足す").catch(() => {});
     console.log(`[mccall] SF から リスト${id} へ ${added}件（読んだ${recs.length}・重複${dup}・禁止${banned}）条件=${JSON.stringify(b.filters || {}).slice(0, 300)} by ${me(req)}`);
     res.json({ ok: true, total, read: recs.length, added, banned, dup, bad, nokey, examples: ex.list });
   }));
@@ -1920,13 +1944,14 @@ export function registerMcCall(app, deps) {
     await banListOrStop();
     const mv = (await P().query(`INSERT INTO mc_cross_moves (from_biz, to_biz, from_ref, from_name, to_list_id, count, reason, by_user) VALUES ('DOC',$1,$2,$3,$4,0,$5,$6) RETURNING id`,
       [BIZ, String(docId), dl.name, id, reason, me(req)])).rows[0];
-    let added = 0, banned = 0, dup = 0, bad = 0, nokey = 0; const ex = dupSamples();
+    let added = 0, banned = 0, dup = 0, bad = 0, nokey = 0; const ex = dupSamples(); const newIds = [];
     for (const t of ts) {
       if (approachBanHitSync({ company: t.company, phone: t.phone, leadId: t.lead_id })) { banned++; continue; }
       const x = await addLeadUnique({ list_id: id, src: "doc", src_key: String(t.id), company: t.company, phone: t.phone, person: t.person, sf_lead_id: t.lead_id || null, cross_from: "DOC", cross_id: mv.id }, { data: { email: t.email } });
-      if (x.added) { added++; if (x.nokey) nokey++; } else if (x.banned) banned++; else if (x.bad) bad++; else { dup++; ex.push(t.company, x.dup); }
+      if (x.added) { added++; if (x.nokey) nokey++; newIds.push(x.id); } else if (x.banned) banned++; else if (x.bad) bad++; else { dup++; ex.push(t.company, x.dup); }
     }
     await P().query(`UPDATE mc_cross_moves SET count=$2 WHERE id=$1`, [mv.id, added]);
+    sfActor(req).then((o) => afterImport(o, newIds, "DOC から写す")).catch(() => {});
     mynaviEnqueue(ts.map((t) => t.company)).catch((e) => console.error("[mccall] マイナビの調べを始められませんでした", e.message));
     res.json({ ok: true, added, banned, dup, bad, nokey, skipped: dup, examples: ex.list, moveId: mv.id });
   }));
@@ -2491,6 +2516,9 @@ export function registerMcCall(app, deps) {
     //   ただし「エラー」ではなく、なぜ止まっているか・どうすればよいかを画面に出し、画面は少しずつ読み直す
     try { await banListOrStop(); }
     catch { return res.json({ ok: true, items: [], later: 0, noTalk, researching: 0, stop: "ban", today }); }
+    // MQL（2026-11-23）：「かけてはいけない・かけても無駄」なリードは出さない（印は mcsfsync.js が付ける。外れたリードは消さない）。
+    //   環境変数 MCCALL_MQL_GATE=0 で外すのをやめられる
+    const mqlGate = mqlGateOn();
     // 今日かけるリストの人：今日の分（入れ先のリストで本人の担当・today_day が今日）＋時刻が来た本人の掛け直し（担当が本人か、担当なしで最後にかけたのが本人）。
     //   tid は数・day は日付の形なので、そのまま SQL に書く（ほかの問い合わせと $ の数を変えないため）
     // 検討時期待ちの会社（検討時期の2か月前まで）は出さない。ただし情報が1年以上前なら出す（whenHoldSql・2026-11-25 福井さん）
@@ -2501,18 +2529,18 @@ export function registerMcCall(app, deps) {
         OR (next_at IS NOT NULL AND (assigned_to = $2 OR (assigned_to IS NULL AND (SELECT g.caller FROM mc_call_logs g WHERE g.lead_id = mc_call_leads.id AND NOT g.undone ORDER BY g.created_at DESC LIMIT 1) = $2))))` : "";
     const base = `list_id = ANY($1) AND NOT done AND dup_of IS NULL AND (next_at IS NULL OR next_at <= now())
         AND (assigned_to IS NULL OR assigned_to=$2) AND (locked_by IS NULL OR locked_by=$2 OR locked_at < now() - interval '10 minutes')${todayW}
-        AND NOT EXISTS (SELECT 1 FROM mc_call_logs g WHERE g.lead_id=mc_call_leads.id AND NOT g.undone AND g.customer_quote IS NOT NULL AND NOT EXISTS (SELECT 1 FROM mc_call_logs a WHERE a.callback_for=g.id AND NOT a.undone)) AND NOT ${HOLD_Q}`;
+        AND NOT EXISTS (SELECT 1 FROM mc_call_logs g WHERE g.lead_id=mc_call_leads.id AND NOT g.undone AND g.customer_quote IS NOT NULL AND NOT EXISTS (SELECT 1 FROM mc_call_logs a WHERE a.callback_for=g.id AND NOT a.undone)) AND NOT ${HOLD_Q}${mqlGate ? ` AND ${MQL_OK_SQL}` : ""}`;
     const order = `(next_at IS NOT NULL) DESC, next_at, COALESCE(hot,0) DESC, attempts, id`;
     // 順番は mccadence.js の rankQueue で決める（約束の掛け直し → 時刻が来た掛け直し → ホット度・検討時期・在席時間の順）。SQL では候補を多め（300件）に絞るだけ
     //   候補の300件には、リスト管理で優先度を高にした会社を先に入れる（低は後ろ）（2026-11-25 福井さん）
     //   候補を選ぶときも、90日より前に過ぎた予定は「予定なし」と同じに数え、過ぎた予定は最近過ぎたものから選ぶ（rankQueue と同じ決まり。2026-11-25 福井さん）
     const rankOrder = `(next_at IS NOT NULL AND next_at > now() - interval '${STALE_NEXT_DAYS} days') DESC, COALESCE(next_why = $3, false) DESC, COALESCE(prio,2) DESC, next_at DESC NULLS LAST, COALESCE(hot,0) DESC, attempts, id`;
-    const cols = `id, list_id, company, person, hot, attempts, next_at, next_why, last_outcome, cross_from, miss_streak, hearing, gate, phone, info, sf_lead_id, prio, src, src_key, (research_at IS NOT NULL) AS researched`;
+    const cols = `id, list_id, company, person, hot, attempts, next_at, next_why, last_outcome, cross_from, miss_streak, hearing, gate, phone, info, sf_lead_id, prio, src, src_key, mql, (research_at IS NOT NULL) AS researched`;
     // 企業調査が終わった会社を先に出す（架電者が調べなくてよいように）。
     //   調べ終わった会社が足りないときは、まだの会社も後ろに足して出す（「調査中」と出すだけで、かけてよい）。
     //   以前は調べ終わるまで出さなかったので、8人が同時にかけると調べが追いつかず「かける」が空になって待つことがあった（2026-11-23）
     const gate = researchGate();
-    const cand0 = (await P().query(`SELECT ${cols} FROM mc_call_leads
+    let cand0 = (await P().query(`SELECT ${cols} FROM mc_call_leads
       WHERE ${base}${gate ? " AND research_at IS NOT NULL" : ""} ORDER BY ${rankOrder} LIMIT 300`, [use, u, WHY_HUMAN])).rows;
     let researching = 0;
     if (gate) {
@@ -2522,6 +2550,13 @@ export function registerMcCall(app, deps) {
         researching = +(await P().query(`SELECT count(*) FROM mc_call_leads WHERE ${base} AND research_at IS NULL`, [use, u])).rows[0].count;
         if (cand0.length < 60) cand0.push(...wait);
       }
+    }
+    // まだ MQL の印の無い（取り込んだばかり・計算のしかたが新しくなった）リードは、出す前にその場で判定する（2026-11-23）
+    const stale = cand0.filter((r) => !r.mql || (r.mql.v || 0) < MQL_V).map((r) => r.id);
+    if (stale.length) {
+      try { const { map } = await computeMql({ leadIds: stale }); cand0 = cand0.map((r) => (map.has(r.id) ? { ...r, mql: map.get(r.id) } : r)); }
+      catch (e) { console.error("[mccall] MQL をその場で判定できませんでした（夜に付け直します）", e.message); }
+      if (mqlGate) cand0 = cand0.filter((r) => mqlPass(r.mql));
     }
     // アプローチ禁止の会社は順番に出さない（取り込んだあとで禁止になった会社も、ここで毎回はじく）
     // BALES の所有者（kinbot で割り振った担当があればそちら）がほかの人の会社は出さない（2026-11-26 福井さん「所有者が大沢 瑛太の 親和電機株式会社 が
@@ -2539,8 +2574,8 @@ export function registerMcCall(app, deps) {
     const ranked = rankQueue(cand).map((r, i) => ({ r, i })).sort((a, b) => pv(b.r) - pv(a.r) || a.i - b.i).map((x) => x.r);
     const front = (r) => r.tier < 2 || r.researched;
     // 画面に渡すのは必要な項目だけ（受付で聞いた直通などを、順番の一覧に載せない）
-    const items = [...ranked.filter(front), ...ranked.filter((r) => !front(r))].slice(0, 60).map(({ hearing, gate: _g, phone: _p, info: _i, sf_lead_id: _s, src: _sr, src_key: _sk, ...x }) => x);
-    const later = (await P().query(`SELECT count(*) FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL AND next_at > now() AND next_at < $2${tm ? " AND assigned_to = $3" : ""}`, [use, jstAt(new Date(), 23, 59), ...(tm ? [u] : [])])).rows[0].count;
+    const items = [...ranked.filter(front), ...ranked.filter((r) => !front(r))].slice(0, 60).map(({ hearing, gate: _g, phone: _p, info: _i, sf_lead_id: _s, src: _sr, src_key: _sk, mql: _m, ...x }) => x);
+    const later = (await P().query(`SELECT count(*) FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL AND next_at > now() AND next_at < $2${mqlGate ? ` AND ${MQL_OK_SQL}` : ""}${tm ? " AND assigned_to = $3" : ""}`, [use, jstAt(new Date(), 23, 59), ...(tm ? [u] : [])])).rows[0].count;
     // 出せる会社が無いときは、残りがどこにあるか（ほかの人の担当・ほかの人が開いている）を返す
     let why = null;
     if (!items.length) {
@@ -2551,9 +2586,11 @@ export function registerMcCall(app, deps) {
           count(*) FILTER (WHERE assigned_to IS NOT NULL AND assigned_to <> $2 AND list_id = $3 AND today_day = $4) AS today_others,
           count(*) FILTER (WHERE (assigned_to IS NULL OR assigned_to = $2) AND locked_by IS NOT NULL AND locked_by <> $2 AND locked_at >= now() - interval '10 minutes') AS locked,
           count(*) FILTER (WHERE next_at > now()) AS waiting,
-          count(*) FILTER (WHERE (assigned_to IS NULL OR assigned_to = $2) AND ${HOLD_Q}) AS held
+          count(*) FILTER (WHERE (assigned_to IS NULL OR assigned_to = $2) AND ${HOLD_Q}) AS held,
+          count(*) FILTER (WHERE (assigned_to IS NULL OR assigned_to = $2) AND NOT ${MQL_OK_SQL}) AS not_mql
         FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL`, [use, u, tidNow || 0, todayDay()])).rows[0];
-      why = { others: +r.others, todayOthers: +r.today_others, locked: +r.locked, waiting: +r.waiting, held: +r.held };
+      // notMql：「かける」に出す条件（MQL）で外れている会社（2026-11-23）。理由は /api/mccall/mql/out で見られる
+      why = { others: +r.others, todayOthers: +r.today_others, locked: +r.locked, waiting: +r.waiting, held: +r.held, notMql: mqlGate ? +r.not_mql : 0 };
     }
     // 今日かけるリストの人は、今日の分のうち残り（今日まだ1回もかけていない会社）も返す
     //   前は「終わっていない会社」を数えていて、不在・受付で掛け直しになった会社も残りに入ったままだった。
@@ -2605,8 +2642,8 @@ export function registerMcCall(app, deps) {
       const talk = await listsWithTalk(ids);
       const use = ids.filter((x) => talk.has(x));
       const c = use.length ? (await P().query(`SELECT
-          count(*) FILTER (WHERE (assigned_to IS NULL OR assigned_to=$2) AND (next_at IS NULL OR next_at <= now())) AS now,
-          count(*) FILTER (WHERE (assigned_to IS NULL OR assigned_to=$2) AND (next_at IS NULL OR next_at <= now()) AND research_at IS NULL) AS unresearched,
+          count(*) FILTER (WHERE (assigned_to IS NULL OR assigned_to=$2) AND (next_at IS NULL OR next_at <= now())${mqlGateOn() ? ` AND ${MQL_OK_SQL}` : ""}) AS now,
+          count(*) FILTER (WHERE (assigned_to IS NULL OR assigned_to=$2) AND (next_at IS NULL OR next_at <= now()) AND research_at IS NULL${mqlGateOn() ? ` AND ${MQL_OK_SQL}` : ""}) AS unresearched,
           count(*) FILTER (WHERE assigned_to IS NOT NULL AND assigned_to <> $2) AS others
         FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL`, [use, p.email])).rows[0] : { now: 0, unresearched: 0, others: 0 };
       const n = { lists: ids.length, talkLists: use.length, now: +c.now, unresearched: +c.unresearched, others: +c.others };
@@ -2889,12 +2926,7 @@ export function registerMcCall(app, deps) {
   //   リードの状況を変えられない・活動が SF に残らない、をその場でなくすため。
   //   重複リードを作らないよう、先に SF の MOCHICA のリードを会社名・電話で探し、あれば「結びつける」を勧める。
   //   新しく作るときのレコードタイプは必ず「Mochica（リード）」（DOC のリードと混ざらないように）。業種は画面で候補を自動推定し、SF の選択肢から確定する。
-  const MC_RT = "Mochica（リード）";
-  async function mochicaRtId(owner) {
-    const d = await sfQuery(owner, `SELECT Id, Name FROM RecordType WHERE SobjectType = 'Lead' AND IsActive = true AND Name LIKE '%Mochica%'`);
-    const rs = d.records || []; const r = rs.find((x) => x.Name === MC_RT) || rs[0];
-    return r ? r.Id : "";
-  }
+  //   レコードタイプの探し方と作る中身は、まとめての SF 立ち上げ（mcsfsync.js・mcmql.js leadFields）と同じものを使う（作り方を2通りにしない・2026-11-27）
   const phDigits = (p) => String(p || "").replace(/[^0-9]/g, "");
   // 会社名のゆれ（株式会社の前後・かっこ書き）を落とした芯の部分。SOQL の LIKE で探すのに使う
   const coCore = (c) => String(c || "").replace(/[（(][^）)]*[）)]/g, "").replace(/株式会社|有限会社|合同会社|一般社団法人|一般財団法人|医療法人|社会福祉法人|学校法人|\s/g, "").trim();
@@ -2948,10 +2980,7 @@ export function registerMcCall(app, deps) {
       if (!rt) return res.status(400).json({ error: `SF に「${MC_RT}」のレコードタイプが見つからないので作れません。管理者に確かめてください` });
       const email = s(f.email, 80);
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: "メールアドレスの形が正しくありません" });
-      const fields = { RecordTypeId: rt, Company: company, LastName: s(f.person, 80) || "ご担当者", Industry: industry };
-      if (s(f.phone, 40)) fields.Phone = s(f.phone, 40);
-      if (email) fields.Email = email;
-      if (s(f.web, 255)) fields.Website = s(f.web, 255);
+      const fields = leadFields({ company, person: s(f.person, 80), phone: s(f.phone, 40), email, web: s(f.web, 255), industry }, rt);
       // 持ち主はかけた本人にする（代理アカウントのままだと、だれのリードか分からなくなるため）。見つからなければ SF の決まりに任せる
       const uid = await sfUserIdByEmail(owner, me(req)).catch(() => ""); if (uid) fields.OwnerId = uid;
       try { sfId = (await sfCreateRecord(owner, "Lead", fields)).id; }
@@ -2962,6 +2991,8 @@ export function registerMcCall(app, deps) {
     const u = await P().query(`UPDATE mc_call_leads SET sf_lead_id=$2 WHERE id=$1 AND (sf_lead_id IS NULL OR sf_lead_id !~ '^00Q') RETURNING id`, [id, sfId.slice(0, 18)]);
     if (!u.rowCount) return res.status(409).json({ error: `ほかの人が先に SF のリードと結びつけていました${made ? `（いま作ったリード ${sfId} は SF に残っています。重複なら SF で消してください）` : ""}` });
     console.log(`[mccall] SF のリードと結びつけた lead=${id} sf=${sfId} ${made ? "新しく作った" : "既存"} by ${me(req)}`);
+    //   結びつけた SF のリードの項目（オプトアウトなど）を読んで MQL の印を付け直す（夜を待たない。SF の呼び出しは1回）（2026-11-27）
+    afterImport(owner, [id], "SF のリードと結びつけたあと").catch(() => {});
     res.json({ ok: true, sfId, made });
   }));
   // ---- リードの状況の表記をそろえる（2026-11-24 福井さん「全て表記ゆれも7つの表記に統合および正規化」） ----

@@ -14,6 +14,7 @@
 //   ③の点の重みは経験則（★）。自分たちの記録で確かめて、合わなければ直す前提。
 //
 // DB も通信も使わない純粋な関数だけにして、node で直接試せるようにしている（mchot.js と同じ作り）。
+import { mqlPoints } from "./mcmql.js";   // 優先条件（失注の新しさ・前回の結果など）の点（2026-11-23）
 
 // ---- 掛け直しの型（ここの数字を変えると、全員の次の掛け直しから変わる） ----
 export const CADENCE = {
@@ -124,6 +125,8 @@ export function priorityOf(l, now = new Date()) {
   const hrs = String(((l.gate || {}).hours) || "").replace(/\s/g, "");
   if (SLOT[hrs]) { if (hrs === bandOf(jstHour(now))) { score += 20; reasons.push(`いる時間（${hrs}）に合う`); } else score -= 10; }
   score -= 3 * (l.miss_streak || 0);
+  // 優先条件（MQL の定義案 3-2）：SF の数字でアポにつながりやすいものに点を足す。並びの考え方（tier）は変えない
+  if (l.mql) { const m = mqlPoints(l.mql, l, now); score += m.score; reasons.push(...m.reasons); }
   return { tier: 2, score, reasons: reasons.slice(0, 3) };
 }
 // 約束（tier 0）は時刻の早い順。時刻が来た掛け直し（tier 1）は最近過ぎたものから（2026-11-25 福井さん「新しく過ぎた順に出す」）
