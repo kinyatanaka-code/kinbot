@@ -245,7 +245,7 @@ async function openCo(id) {
     } catch (e) { st.textContent = "変えられませんでした：" + e.message; }
   }));
 }
-$("kxQ").addEventListener("input", render);
+kxSearchWire($("kxQ"), render);
 $("kxCs").addEventListener("change", render);
 if ($("kxPast")) $("kxPast").addEventListener("change", render);
 $("kxSync").addEventListener("click", async () => {
@@ -574,7 +574,13 @@ function renderList() {
   { const shown = items.length; const live0 = d.items.filter((x) => !x.archived).length;
     $("lsSt").innerHTML = shown != null && shown !== live0 ? `<b style="color:#0E6B4E;font-size:13px">${shown}社</b> ／ 全${d.items.length}社` : `全${d.items.length}社`; }
 }
-$("lsQ").addEventListener("input", renderList);
+// 検索：日本語の変換中は描き直さない（変換が途中で消える）。打ち終わって少し待ってから描き直す（2026-11-26 田中さん「検索の変換が拒否られることがある」）
+function kxSearchWire(el, fn) {
+  if (!el) return; let tm = 0;
+  el.addEventListener("input", (e) => { if (e.isComposing) return; clearTimeout(tm); tm = setTimeout(fn, 180); });
+  el.addEventListener("compositionend", () => { clearTimeout(tm); tm = setTimeout(fn, 180); });
+}
+kxSearchWire($("lsQ"), renderList);
 document.querySelectorAll("[data-lstab]").forEach((b) => b.addEventListener("click", () => { window.__lsTab = b.dataset.lstab; renderList(); }));
 $("lsCs").addEventListener("change", renderList);
 
@@ -732,7 +738,8 @@ const _kxDetail = new Map();   // id -> { at, p（読み込み中の Promise）,
 function kxDetailGet(id, fresh) {
   const c = _kxDetail.get(id);
   if (!fresh && c && (c.p || Date.now() - c.at < 120000)) return c.p || Promise.resolve(c.d);
-  const p = api(`/api/kinxs/accounts/${encodeURIComponent(id)}/detail${fresh === "save" ? "?fresh=1" : ""}`).then((d) => { _kxDetail.set(id, { at: Date.now(), d }); return d; }).catch((e) => { _kxDetail.delete(id); throw e; });
+  //   保存のあとも、ふつうに読む（保存するとサーバーの覚えが捨てられるので、新しい中身が返る。一覧の読み直しと作り直しを1回にまとめられる）
+  const p = api(`/api/kinxs/accounts/${encodeURIComponent(id)}/detail`).then((d) => { _kxDetail.set(id, { at: Date.now(), d }); return d; }).catch((e) => { _kxDetail.delete(id); throw e; });
   _kxDetail.set(id, { at: Date.now(), p, d: c && c.d });
   return p;
 }
@@ -1380,7 +1387,7 @@ function renderBoard() {
   });
   paintB();
 }
-if ($("bdQ")) { $("bdQ").addEventListener("input", renderBoard); $("bdCs").addEventListener("change", renderBoard); }
+if ($("bdQ")) { kxSearchWire($("bdQ"), renderBoard); $("bdCs").addEventListener("change", renderBoard); }
 document.querySelectorAll("[data-bdtrack]").forEach((b) => b.addEventListener("click", () => { window.__bdTrack = b.dataset.bdtrack; window.__bdSel && window.__bdSel.clear(); renderBoard(); }));
 api("/api/me").then((me) => { window.__kxMe = (me && me.name) || ""; if (VIEW === "renew" && data) render(); if (VIEW === "home" && typeof lsData !== "undefined" && lsData) try { renderHomeV2(); } catch {} }).catch(() => {});
 
@@ -1547,7 +1554,7 @@ function renderMissing() {
     try { await navigator.clipboard.writeText(text); b.textContent = "コピーしました"; setTimeout(() => (b.textContent = lab0), 1500); } catch { prompt("コピーしてください", text); }
   }));
 }
-if ($("msQ")) { const st0 = document.querySelector(".kx-ms-set"); if (st0) st0.addEventListener("toggle", () => kxFitMissing()); $("msQ").addEventListener("input", renderMissing); $("msFs").addEventListener("change", renderMissing); $("msReload").addEventListener("click", () => loadMissing(true)); }
+if ($("msQ")) { const st0 = document.querySelector(".kx-ms-set"); if (st0) st0.addEventListener("toggle", () => kxFitMissing()); kxSearchWire($("msQ"), renderMissing); $("msFs").addEventListener("change", renderMissing); $("msReload").addEventListener("click", () => loadMissing(true)); }
 if (VIEW === "missing") loadMissing(true);   // 情報不足のページは、開くたびにSFを読み直す（2026-11-06）
 if (VIEW === "home") { if ($("kxPageName")) $("kxPageName").textContent = "ホーム"; }   // ホームは UI刷新（第1弾）の loadHomeV2 で描く
 if (VIEW === "list") loadList(); else if (VIEW === "renew") load(); else if (VIEW === "board") loadBoard();
