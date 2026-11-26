@@ -367,7 +367,8 @@ const kxHasSns = (x) => (x.prodLabels || []).some((t) => KX_SNS_L.includes(t));
 // 納品前の会社か（2026-11-17 田中さん「納品前の企業はタグ付けてほしい」）。納品＝検収書を回収した（または前からの契約）。解約・キャンセルの会社は付けない
 const kxPreDeliv = (x) => x && x.delivered === false && !x.archived && !["解約済み", "キャンセル"].includes(x.label);
 //   oVice などの DOC ではないツールだけの会社（nonDoc）は DOC にしない（2026-11-26 久野さん）
-const kxHasDoc = (x) => (x.groupParent && !x.nonDoc) || !x.nonDoc && ((x.prodLabels || []).some((t) => KX_DOC_L.includes(t)) || !(x.prodLabels || []).length);
+//   札が1つもない会社（取材費だけなど）は DOC にしない（2026-11-26 田中さん：NB の管理表の 195社と合わせる）
+const kxHasDoc = (x) => (x.groupParent && !x.nonDoc) || (!x.nonDoc && (x.prodLabels || []).some((t) => KX_DOC_L.includes(t)));
 function renderList() {
   const d = lsData; if (!d) return;
   const sel = $("lsCs"), cur = sel.value;
@@ -1666,7 +1667,8 @@ async function loadHomeV2() {
 function kxDocCounts(items, ym) {
   const E = kxYmEnd(ym), S = `${ym}-01`;
   const bk = (x) => x.docBooked || x.booked;
-  const docs = items.filter((x) => kxHasDoc(x) && bk(x) && bk(x) <= E);   // アーカイブも入れる
+  //   受注日が入っていない会社（CS 管理ボードから手で入れた会社など）も、受注済みとして数える（2026-11-26 田中さん：NB の管理表と合わせる）
+  const docs = items.filter((x) => kxHasDoc(x) && (!bk(x) || bk(x) <= E));   // アーカイブも入れる
   const churnOn = (x) => x.endOn || (x.renew ? `${x.renew}-01` : "");
   // 解約は、受注商品に「アチコチバース」が入っている会社だけ数える（2026-11-06 久野さん）
   //   2026-11-26 久野さん「ホームとフェーズ別で解約者数が合わない」：フェーズ別と同じく「解約済み」のDOCの会社を数える（アーカイブしただけの会社は入れない）。
