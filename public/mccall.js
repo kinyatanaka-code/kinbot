@@ -1760,13 +1760,23 @@
     return `<details class="mcc-script" id="mccScript" ${ls.get("mcc_script_open") === "0" ? "" : "open"}><summary>${head}</summary>${edit ? `<div class="mcc-tkedit-row">${edit}</div>` : ""}${tabs}<div class="body">${esc(body)}</div></details>`;
   }
   // トークの段階（2026-11-23 福井さん）。管理者は「リストの管理」のトークで段階ごとの欄に書く。
-  //   保存するときは「■架電→受付」のような見出しの行でつないだ1本の文にする（A/B・版の仕組みはそのまま使えるように）
-  const TALK_STAGES = ["架電→受付", "受付→採用担当者", "採用担当者→アポ"];
+  //   保存するときは「■受付」のような見出しの行でつないだ1本の文にする（A/B・版の仕組みはそのまま使えるように）
+  // 段階の名前を「受付／採用担当者（ヒヤリング）／採用担当者（アポ取り）」に変えた（2026-11-26 福井さん）。
+  //   前の名前（■架電→受付 など）で保存したトークもそのまま同じ段階に読めるよう、古い見出しも受け付ける
+  const TALK_STAGES = ["受付", "採用担当者（ヒヤリング）", "採用担当者（アポ取り）"];
+  const OLD_STAGES = ["架電→受付", "受付→採用担当者", "採用担当者→アポ"];
   const STAGE_RE = /^\s*[■【\[［]?\s*(架電|受付|採用担当者)\s*(?:→|->|⇒|＞|>)\s*(受付|採用担当者|アポ)\s*[】\]］]?\s*$/;
+  // 新しい見出しは「受付」だけの行が本文に紛れても見出しと取り違えないよう、■や【】が付いた行だけにする
+  const STAGE_NEW_RE = /^\s*[■【\[［]\s*(受付|採用担当者\s*[（(]\s*(?:ヒヤリング|ヒアリング)\s*[）)]|採用担当者\s*[（(]\s*アポ取り\s*[）)])\s*[】\]］]?\s*$/;
+  function stageOf(line) {
+    const m = line.match(STAGE_RE); if (m) return OLD_STAGES.indexOf(`${m[1]}→${m[2]}`);
+    const n = line.match(STAGE_NEW_RE); if (!n) return -1;
+    return n[1] === "受付" ? 0 : /アポ取り/.test(n[1]) ? 2 : 1;
+  }
   function splitTalk(text) {
     const out = { has: false, common: "", parts: ["", "", ""] }; let cur = -1; const buf = { "-1": [], 0: [], 1: [], 2: [] };
     for (const line of String(text || "").split(/\r?\n/)) {
-      const m = line.match(STAGE_RE); const i = m ? TALK_STAGES.indexOf(`${m[1]}→${m[2]}`) : -1;
+      const i = stageOf(line); const m = i >= 0;
       if (m && i >= 0) { cur = i; out.has = true; continue; }
       buf[cur].push(line);
     }
@@ -1776,7 +1786,7 @@
   }
   const joinTalk = (common, parts) => [common.trim(), ...parts.map((x, i) => (x.trim() ? `■${TALK_STAGES[i]}\n${x.trim()}` : ""))].filter(Boolean).join("\n\n");
   // トークの段階は通話の進み具合に合わせる（2026-11-23 福井さん「トークスクリプトの表示タイミングを最適化」）：
-  //   発信前・受付と話している間＝「架電→受付」／担当者につながった＝「受付→採用担当者」／アポ獲得を選んだ・日程を押した＝「採用担当者→アポ」。
+  //   発信前・受付と話している間＝「受付」／担当者につながった＝「採用担当者（ヒヤリング）」／アポ獲得を選んだ・日程を押した＝「採用担当者（アポ取り）」。
   //   手で切り替えたら、次に段階が進むまではその段階のまま
   function talkStage() {
     const f = S.f; if (!f) return 0; if (f.talkManual != null) return f.talkManual;
@@ -2029,14 +2039,14 @@
     const cur = new Map(j.talks.map((t) => [t.label, t]));
     const hist = (lb) => j.history.filter((h) => h.label === lb).map((h) => `第${h.ver}版${h.active ? "（使用中）" : ""} ${h.calls}コール`).join("・");
     // 段階ごとに欄を分ける（2026-11-23 福井さん）。架電中は、いまの段階の欄に書いた分だけが出る。
-    //   前に段階を分けずに書いたトークは「段階に分けていない分」の欄に残す（架電中は「架電→受付」の段階で出る）。中身を段階の欄へ移せば分かれる
-    const PH = ["{担当者}様はいらっしゃいますか。株式会社ネオキャリアの〇〇と申します。", "採用のご担当者様につないでいただけますか。（断られたら）新卒採用のご案内で、1分ほどで終わります。", "{担当者}様、突然のお電話失礼いたします。（事例→アポ打診）"];
+    //   前に段階を分けずに書いたトークは「段階に分けていない分」の欄に残す（架電中は「受付」の段階で出る）。中身を段階の欄へ移せば分かれる
+    const PH = ["株式会社ネオキャリアの〇〇と申します。採用ご担当の{担当者}様はいらっしゃいますか。（断られたら）新卒採用のご案内で、1分ほどで終わります。", "{担当者}様、突然のお電話失礼いたします。（今の採用の状況を聞く：採用人数・使っている媒体・困りごと）", "（事例を伝えて）一度15分ほどお時間をいただけませんか。〇日と〇日でしたらどちらがご都合よろしいでしょうか。"];
     const pane = (lb, i) => { const sp = splitTalk((cur.get(lb) || {}).body || ""); const legacy = sp.has ? sp.common : [sp.common, ...sp.parts].join("\n").trim();
       return `<div class="mcc-field" data-tkp="${lb}" style="margin-top:8px;gap:8px" ${i ? "hidden" : ""}><span>トーク ${lb}${hist(lb) ? `<small style="font-weight:600;color:var(--c-muted)">　${esc(hist(lb))}</small>` : ""}${i ? '<small style="font-weight:600;color:var(--c-muted)">（比べたいときだけ書く。空なら使いません）</small>' : ""}</span>
         ${TALK_STAGES.map((st, k) => `<label class="mcc-field">${k + 1}. ${esc(st)}<textarea data-tk="${lb}" data-st="${k}" style="min-height:96px" placeholder="${esc(PH[k])}">${esc(sp.parts[k])}</textarea></label>`).join("")}
         ${legacy ? `<label class="mcc-field">段階に分けていない分（前に書いたトーク。上の欄へ移すと段階ごとに出ます）<textarea data-tk="${lb}" data-st="c" style="min-height:96px">${esc(legacy)}</textarea></label>` : ""}</div>`; };
     const bodyOf = (w, lb) => { const v = (k) => { const e = w.querySelector(`[data-tk="${lb}"][data-st="${k}"]`); return e ? e.value : ""; }; return joinTalk(v("c"), [0, 1, 2].map(v)); };
-    const w = dialog(`「${l.name}」のトーク`, "トークが1本も無いリストはかけられません（売り先と売り方はセット）。架電中は、段階（架電→受付／受付→採用担当者／採用担当者→アポ）ごとに、その段階の欄に書いた分だけが出ます。2本以上書くと、会社ごとにどれか1本に決まり、施策のタブでアポ率を比べられます。{会社名} {担当者} はその会社のものに差し替わります。", "保存する", async (w) => {
+    const w = dialog(`「${l.name}」のトーク`, "トークが1本も無いリストはかけられません（売り先と売り方はセット）。架電中は、段階（受付／採用担当者（ヒヤリング）／採用担当者（アポ取り））ごとに、その段階の欄に書いた分だけが出ます。2本以上書くと、会社ごとにどれか1本に決まり、施策のタブでアポ率を比べられます。{会社名} {担当者} はその会社のものに差し替わります。", "保存する", async (w) => {
       const talks = j.labels.map((lb) => ({ label: lb, body: bodyOf(w, lb) }));
       if (!talks.some((t) => t.body.trim())) throw new Error("トークを1本は書いてください（トークが無いとこのリストはかけられません）");
       await api(`/api/mccall/lists/${l.id}/talks`, { method: "PUT", body: JSON.stringify({ talks }) });
