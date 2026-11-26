@@ -8383,8 +8383,9 @@ function nmRenderCards() {
       // すべてのリスト（2026-11-25 田中さん「kincall に入っている全てのリストをまとめたリストカードを作って」）
       //   「全リスト」はかける画面に出ているリストだけ。こちらは非表示にしたリスト・アーカイブ・リサイクルも入れた、kincall にあるリストの全部
       const ev = [..._nmLists, ..._nmHiddenLists];
-      const zanE = ev.reduce((s0, x) => s0 + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0);
-      return `<button type="button" class="nm-card nm-allcard nm-everycard" data-owner="__every__" title="非表示にしたリストも含めた、kincall にあるリストの全部"><div class="nm-card-name">すべてのリスト</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zanE.toLocaleString()}</span></div><div class="nm-card-sub">${ev.length} リスト（表示 ${_nmLists.length}・非表示 ${_nmHiddenLists.length}）</div></button>`;
+      //   件数は、リストに入っているリードの全部（残りだけでなく、かけ終わったもの・リサイクル・アーカイブも）（2026-11-26 田中さん「すべてのリストはそこにある全ての件数で」）
+      const allE = ev.reduce((s0, x) => s0 + Number(x.全部 || 0), 0);
+      return `<button type="button" class="nm-card nm-allcard nm-everycard" data-owner="__every__" title="非表示にしたリストも含めた、kincall にあるリストの全部"><div class="nm-card-name">すべてのリスト</div><div class="nm-card-zan"><span class="nm-zan-lb">全</span><span class="nm-zan-n">${allE.toLocaleString()}</span></div><div class="nm-card-sub">${ev.length} リスト（表示 ${_nmLists.length}・非表示 ${_nmHiddenLists.length}）</div></button>`;
     })()}<button type="button" class="nm-card nm-allcard" data-owner="__all__"><div class="nm-card-name">全リスト</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zanA.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nurA.toLocaleString()}・${allLs.length} リスト</div>${_nmRates && _nmRates.byCaller ? `<div class="nm-rates">${nmRatePill(Object.values(_nmRates.byCaller).reduce((s, o) => ({ calls: s.calls + Number((o && o.calls) || 0), apos: s.apos + Number((o && o.apos) || 0) }), { calls: 0, apos: 0 }), "全体のアポ率（直近3か月・全員）")}</div>` : ""}</button>${_nmTree ? _nmTree.map((f) => f.name === "リサイクル" ? nmSpecialCard("recycle", "リサイクル", _nmStage.recycle, "ステージ＝リサイクル（全体）") : f.name === "アーカイブ" ? nmSpecialCard("archive", "アーカイブ", _nmStage.archive, "ステージ＝アーカイブ・使われていない番号（全体）") : nmTypeCardHtml(f)).join("") : ""}</div></div>`;
     // ステージ別（すべてのリストから）（2026-11-26 田中さん「ステージ別のリストを作りたい。かける（ステージが空白・-・NEW・担当者未接触・コネクト情報獲得・ジャッジ）、リサイクル、アーカイブ。すべてのリストから」）
     //   押すと、そのステージのリードを1つの表で開く（リストそのものは動かさない）
