@@ -3861,7 +3861,7 @@ function kxNowCard(d) {
   const nd = x.naDetail || {}; const sm = x.mtgSummary || {};
   // 宿題：済み・消すをその場で（2026-11-20 田中さん「この辺が手で直しにくい」）。元の並び（hwAll の番号）を持っておき、押したらそこだけ変える
   const hwAll = Array.isArray(nd.homework) ? nd.homework : (sm.homework || []);
-  window.__kxNow = { id: x.id, nd, hwAll, kickoffManual: !!x.kickoffManual, planYm: x.kenshuMonth || x.deliveryMonth || "" };
+  window.__kxNow = { id: x.id, nd, hwAll, kickoffManual: !!x.kickoffManual, stageManual: x.stageManual || "", planYm: x.kenshuMonth || x.deliveryMonth || "" };
   hwAll.forEach((h, hi) => { if (!h || h.state === "完了" || !(h.task || h.t) || todo.filter((t0) => t0.tag === "宿題").length >= 6) return;
     const l = h.due ? daysTo(h.due) : null;
     todo.push({ lv: l != null && l < 0 ? 1 : 3, t: h.task || h.t, s: `${h.who || ""}の宿題${h.due ? `　${md(h.due)}まで` : ""}`, right: l != null && l < 0 ? `${-l}日過ぎ` : "", tag: "宿題", act: "hw", hw: hi }); });
@@ -3939,6 +3939,10 @@ function kxNowMount(bg) {
     pane.querySelectorAll("[data-step-ed]").forEach((o) => o.setAttribute("aria-expanded", "false"));
     if (open) { edBox.hidden = true; return; }
     edBox.dataset.k = k; edBox.innerHTML = edOf(k, (b.querySelector("small") || {}).textContent || ""); edBox.hidden = false; b.setAttribute("aria-expanded", "true");
+    // どの段からも「この段階にする」で段階を手で動かせる（戻すこともできる）（2026-11-26 田中さん「ステージ戻せないよ」）
+    const toSt = { キックオフ設定: [["s1", "キックオフ未設定"], ["s2", "キックオフ設定済"]], キックオフ: [["s3", "キックオフ実施済"]], 利用スケジュール: [["s4", "利用スケジュール確定"]], 検収書: [["s5", "検収書回収済"]], 納品メール: [["s6", "納品メール回収済"]], 活用: [["s7", "要確認"]], 掲載スケジュール: [["s8", "オンボーディング中"]], 掲載: [["s9", "掲載・利用中"]] }[k] || [];
+    if (toSt.length) edBox.insertAdjacentHTML("beforeend", `<div class="kx-a-edr" style="border-top:1px dashed #D5E2DB;padding-top:8px;margin-top:8px"><span class="kx-note">段階を手で動かす：</span>${toSt.map(([v, l]) => `<button type="button" class="kx-a-sec" data-to-stage="${v}">「${esc(l)}」にする</button>`).join("")}${now0.stageManual ? '<button type="button" class="kx-a-sec" data-to-stage="">自動の判定に戻す</button>' : ""}</div>`);
+    edBox.querySelectorAll("[data-to-stage]").forEach((t) => t.addEventListener("click", () => { const v = t.dataset.toStage; put({ stage_manual: v }, v ? `段階を「${(KX_STAGES.find((g) => g.k === v) || {}).l}」にしました` : "段階を自動の判定に戻しました"); }));
     const dIn = edBox.querySelector("[data-ed-d]"); if (dIn && !dIn.value && !dIn.hasAttribute("data-keep-empty")) dIn.value = today;
     edBox.querySelector("[data-ed-x]").addEventListener("click", () => { edBox.hidden = true; b.setAttribute("aria-expanded", "false"); });
     edBox.querySelectorAll("[data-ed-a]").forEach((e1) => e1.addEventListener("click", async () => {
