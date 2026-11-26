@@ -2666,8 +2666,9 @@ const KX_STAGES = [
   { k: "s4", l: "利用スケジュール確定", c: "#2E8FB0" },
   { k: "s5", l: "検収書回収済", c: "#3F72C9" }, { k: "s6", l: "納品メール回収済", c: "#6B4FB8" },
   { k: "s7", l: "要確認", c: "#B4441F" },
-  // 掲載スケジュール確定（2026-11-26 田中さん。前は「利用スケジュール確定」と呼んでいた）：掲載・利用を始める予定日が決まった会社。要確認にはしない
-  { k: "s8", l: "掲載スケジュール確定", c: "#1E7A8C" }, { k: "s9", l: "掲載・利用中", c: "#1d9e75" },
+  // オンボーディング中（2026-11-26 田中さん「掲載スケジュール確定ではなくオンボーディング中の表記に。定義は掲載スケジュールが確定していて、かつ2か月の間に接点がある。
+  //   スケジュールが確定していて過ぎているものは要確認に入れる」）。前は「掲載スケジュール確定」：掲載・利用を始める予定日が決まった会社。要確認にはしない
+  { k: "s8", l: "オンボーディング中", c: "#1E7A8C" }, { k: "s9", l: "掲載・利用中", c: "#1d9e75" },
 ];
 function kxStageInfo(x) {
   const pub = !!(x.published || x.publishedOn || (x.places || []).length) || /^活用：(公開掲載|限定公開)/.test(String(x.usage || ""));
@@ -2691,8 +2692,11 @@ function kxStageInfo(x) {
   let i = done.findIndex((v) => !v);
   const mOn = x.mailOn || (mail ? x.deliveredOn : "");   // 送った日が分からないときは納品日をめやすに
   const mailDays = mOn ? Math.floor((Date.now() - Date.parse(String(mOn).slice(0, 10) + "T00:00:00+09:00")) / 86400000) : null;
-  if (i < 0) i = pub ? 9 : x.usePlanOn ? 8 : mailDays != null && mailDays >= 60 ? 7 : 6;
-  return { i, done, pub, mailDays, kenSkip };
+  //   掲載の予定日が過ぎてもまだ掲載していない → 要確認。予定日がまだ先で、2か月（60日）以内に接点がある → オンボーディング中
+  const planPast = !!x.usePlanOn && String(x.usePlanOn).slice(0, 10) < today0;
+  const touch60 = !!x.lastTouch && x.sinceTouch != null && x.sinceTouch <= 60;
+  if (i < 0) i = pub ? 9 : planPast ? 7 : (x.usePlanOn && touch60) ? 8 : mailDays != null && mailDays >= 60 ? 7 : 6;
+  return { i, done, pub, mailDays, kenSkip, planPast, touch60 };
 }
 const kxStageOf = (x) => kxStageInfo(x).i;
 // 一覧の会社の下に出す一言（その段で何を待っているか）
@@ -2706,8 +2710,9 @@ function kxStageNote(x, gi) {
   if (gi === 4) return `検収書：${x.kenshuSt || x.kenshu || "未回収"}${x.ksMonth ? `・回収予定 ${Number(x.ksMonth.slice(5))}月` : ""}`;
   if (gi === 5) return `納品メール：${x.mail || "未送付"}`;
   if (gi === 6) return `納品メールから${si.mailDays != null ? `${si.mailDays}日` : "—"}・掲載・利用はまだ確認できていません`;
+  if (gi === 7 && si.planPast) return `掲載の予定日（${String(x.usePlanOn).slice(5, 10).replace("-", "/")}）を過ぎても、掲載・利用が確認できていません`;
   if (gi === 7) return `納品メールから${si.mailDays}日たっても、掲載・利用が確認できていません`;
-  if (gi === 8) return `掲載開始の予定 ${x.usePlanOn ? x.usePlanOn.slice(5).replace("-", "/") : "—"}`;
+  if (gi === 8) return `オンボーディング中・最後の接点 ${x.sinceTouch}日前・掲載開始の予定 ${x.usePlanOn ? x.usePlanOn.slice(5).replace("-", "/") : "—"}`;
   return `掲載 ${x.publishedOn || "日付なし"}${(x.places || []).length ? `・${x.places.map((p) => p.where).filter(Boolean).slice(0, 2).join("・")}` : ""}`;
 }
 function kxMineBig() {
@@ -2787,7 +2792,7 @@ async function renderMine(boxArg, opts = {}) {
         // キックオフ未設定と要確認は、1社でもあれば大きく・点滅させて目立たせる（2026-11-25 田中さん「でっかく強調して、ピコピコしてほしい」）
         const n0 = mine.filter(f).length; const hot = (k === "s1" || k === "s7") && n0 > 0;
         // 要確認は、どんな会社かを名前の下に書いておく（2026-11-25 田中さん「要確認のところに定義を」）
-        const def = k === "s7" ? '<small class="mi-def">納品メールから2か月たっても、掲載・利用が確認できていない会社</small>' : "";
+        const def = k === "s7" ? '<small class="mi-def">納品メールから2か月たっても、または掲載の予定日を過ぎても、掲載・利用が確認できていない会社</small>' : k === "s8" ? '<small class="mi-def">掲載の予定日が決まっていて、2か月以内に接点がある会社</small>' : "";
         return `<button type="button" class="mi-kpi ${st.k === k ? "on" : ""}${hot ? " hot" : ""}" style="--c:${c}" data-mk="${k}" title="${k === "s7" ? "納品メールから2か月（60日）たっても、掲載・利用（掲載日・掲載先・活用が公開掲載／限定公開）が確認できていない会社" : ""}"><span class="l"><i></i><span class="mi-nm">${esc(l)}${def}</span></span><span class="v">${n0}<small>社</small></span>${sub}</button>`; }).join('<span class="mi-arr" aria-hidden="true"><i><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5.5l6.5 6.5L9 18.5"/></svg></i></span>')}</div>
       ${st.k === "tk" ? `<div class="mi-h">タスク（ホームと同じもの・期日の近い順）</div><div data-mtk><div class="kx-note">読み込み中…</div></div>`
         : `<div class="mi-h">${esc(cur ? cur[1] : "")}<span class="kx-note">${list.length}社</span></div><div class="mi-list">${list.length ? list.map((x) => `<div class="mi-co" role="button" tabindex="0" data-mopen="${esc(x.id)}">${kxLogoMini(x)}<span class="t"><b>${esc(x.name)}</b><small>${esc(cur[4](x) || "")}</small></span><span class="lb">${esc(x.label)}</span></div>`).join("") : '<div class="kx-empty" style="grid-column:1/-1">ありません</div>'}</div>`}`;
@@ -3833,13 +3838,13 @@ function kxNowCard(d) {
     { k: "検収書回収", ed: "検収書", ok: si.done[4], skipNote: si.kenSkip ? "不要（初期なし）" : "", sub: si.kenSkip ? "不要（初期なし）" : x.kenshuNa ? "対象外" : si.done[4] ? "✓" : String(x.kenshu || "").startsWith("依頼済み") ? "依頼済み" : "まだ" },
     { k: "納品メール回収", ed: "納品メール", ok: si.done[5], sub: si.done[5] ? (x.mailOn ? `${md(x.mailOn)} ✓` : "✓") : "まだ" },
     { k: "要確認", ed: "活用", ok: si.i >= 8, sub: si.i === 7 ? `${si.mailDays}日たった` : si.i >= 8 ? "—" : si.i === 6 && si.mailDays != null ? `あと${Math.max(0, 60 - si.mailDays)}日` : "2か月で" },
-    { k: "掲載スケジュール確定", ed: "掲載スケジュール", ok: si.i >= 8, sub: x.usePlanOn ? `${md(x.usePlanOn)}${si.i >= 8 ? " ✓" : ""}` : si.i === 9 ? "—" : "まだ" },
+    { k: "オンボーディング中", ed: "掲載スケジュール", ok: si.i === 9, sub: x.usePlanOn ? `掲載予定 ${md(x.usePlanOn)}${si.planPast && si.i !== 9 ? "（過ぎた）" : ""}` : si.i === 9 ? "—" : "掲載予定まだ" },
     { k: "掲載・利用中", ed: "掲載", ok: si.i === 9, sub: si.i === 9 ? (x.publishedOn ? md(x.publishedOn) : "✓") : (x.renew ? `更新 ${x.renew.replace("-", "/")}` : "まだ") },
   ];
   // 道のりの「いまここ」：納品メールのあとは、2か月までは掲載・利用中を待つ、過ぎたら要確認（オンボーディング中の段はなくした）
   //   利用スケジュールが決まったら、次は掲載・利用中を待つ（2026-11-26）
   const cur = si.i <= 5 ? si.i : si.i === 6 ? 7 : si.i === 7 ? 6 : si.i === 8 ? 8 : 9;
-  const head = { 0: "受注の手続き中", 1: "キックオフの設定待ち", 2: "キックオフの実施待ち", 3: "利用（納品）スケジュールの確認待ち", 4: "納品の手前（検収書の回収待ち）", 5: "納品メールを送る段階", 6: "納品メール回収済（掲載・利用の確認待ち）", 7: "要確認（納品メールから2か月、掲載・利用が未確認）", 8: `掲載スケジュール確定（${x.usePlanOn ? md(x.usePlanOn) : ""}から掲載予定）`, 9: "掲載・利用中" }[si.i];
+  const head = { 0: "受注の手続き中", 1: "キックオフの設定待ち", 2: "キックオフの実施待ち", 3: "利用（納品）スケジュールの確認待ち", 4: "納品の手前（検収書の回収待ち）", 5: "納品メールを送る段階", 6: "納品メール回収済（掲載・利用の確認待ち）", 7: si.planPast ? `要確認（掲載の予定日 ${md(x.usePlanOn)} を過ぎても、掲載・利用が未確認）` : "要確認（納品メールから2か月、掲載・利用が未確認）", 8: `オンボーディング中（${x.usePlanOn ? md(x.usePlanOn) : ""}から掲載予定・最後の接点 ${x.sinceTouch}日前）`, 9: "掲載・利用中" }[si.i];
   const since = info.booked ? Math.max(0, Math.floor((Date.now() - Date.parse(info.booked + "T00:00:00+09:00")) / 86400000)) : null;
   // 対応事項（急ぐ順）。act＝その場で片づけるボタンの種類
   const todo = [];
