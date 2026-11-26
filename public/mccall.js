@@ -810,8 +810,9 @@
         ${f.outcome === "apo" ? `<div id="mccApoNeed">${apoNeedHtml()}</div>` : ""}
         ${f.outcome === "doc_send" ? `<div class="mcc-next">資料はまだ送っていません。<button class="mcc-chip" id="mccDocNow">資料を送る</button></div>` : ""}
         ${f.outcome === "inquiry" ? `<div class="mcc-next">${f.formSent ? `問い合わせフォームから<b>${esc(f.formSent)}</b>。` : "問い合わせフォームからは、まだ送っていません。"}<button class="mcc-chip" id="mccFormNow">${f.formSent ? "もう一度開く" : "フォームから送る"}</button></div>` : ""}
-        ${f.step === "ready" ? `<div class="mcc-next" id="mccNextTx">${nextText()}${AUTO.has(f.outcome) && !f.noRetry && !f.nextAt ? ` <button class="mcc-chip" id="mccNoRetry">自動の掛け直しをやめる</button>` : ""}</div>
-          ${f.outcome !== "callback_req" ? `<div class="mcc-chips">${laterChips().map(([l, dd]) => `<button class="mcc-chip" data-later="${dd.toISOString()}" data-ll="${esc(l)}" aria-pressed="${f.nextAt === dd.toISOString()}">${esc(l)}</button>`).join("")}${f.nextAt ? `<button class="mcc-chip" data-later="">時刻を外す</button>` : ""}</div>` : ""}` : ""}
+        ${f.step === "ready" ? `<div class="mcc-next" id="mccNextTx"><span id="mccNextMsg">${nextText()}</span>${AUTO.has(f.outcome) && !f.noRetry ? ` <button class="mcc-chip" id="mccNoRetry" ${f.nextAt ? "hidden" : ""}>自動の掛け直しをやめる</button>` : ""}</div>
+          ${f.outcome !== "callback_req" ? `<div class="mcc-chips">${laterChips().map(([l, dd]) => `<button class="mcc-chip" data-later="${dd.toISOString()}" data-ll="${esc(l)}" aria-pressed="${f.nextAt === dd.toISOString()}">${esc(l)}</button>`).join("")}${f.nextAt ? `<button class="mcc-chip" data-later="">時刻を外す</button>` : ""}</div>` : ""}
+          ${f.outcome !== "apo" ? whenManualHtml(f) : ""}` : ""}
         ${P === "person" ? "" : '<div id="mccMemoSlot"></div>'}
         <div id="mccFill"></div>
         <div class="mcc-foot"><button class="mcc-btn primary big" id="mccRec" ${ready() ? "" : "disabled"} aria-keyshortcuts="Enter">記録して次へ<span class="mcc-key" style="background:rgba(255,255,255,.18);color:#fff;border-color:transparent">Enter</span></button>
@@ -854,7 +855,9 @@
       if (times) times.selectedIndex = 0;
       refreshFoot();
     }); apo.addEventListener("keydown", (e) => { if (e.key === "Enter" && ready()) { e.preventDefault(); record(); } }); if (!memoFocus) setTimeout(() => apo.focus(), 0); }
-    const na = $("mccNextAt"); if (na) { na.addEventListener("input", () => pickManual(na.value)); na.addEventListener("keydown", (e) => { if (e.key === "Enter" && S.f.nextAt && ready()) { e.preventDefault(); record(); } }); }
+    // 欄のどこを押してもカレンダーが開くようにする（2026-11-26 福井さん「追いかけ時間はすべてカレンダーから選べるように」。
+    //   Chrome は右端の小さな印を押さないと開かないため。開けないブラウザでは今までどおり手で打てる）
+    const na = $("mccNextAt"); if (na) { na.addEventListener("click", () => { try { na.showPicker && na.showPicker(); } catch { /* 開けないときは手入力のまま */ } }); na.addEventListener("input", () => pickManual(na.value)); na.addEventListener("keydown", (e) => { if (e.key === "Enter" && S.f.nextAt && ready()) { e.preventDefault(); record(); } }); }
     const nr = $("mccNoRetry"); if (nr) nr.addEventListener("click", () => { S.f.noRetry = true; drawCenter(); });
     c.querySelectorAll("[data-later]").forEach((b) => b.addEventListener("click", () => { S.f.nextAt = b.dataset.later; S.f.nextLabel = b.dataset.ll || ""; S.f.noRetry = !b.dataset.later ? S.f.noRetry : false; drawCenter(); }));
     drawFill(); queueFill();
@@ -1217,13 +1220,23 @@
       <p class="mcc-note full" id="mccNextNote">${manualNote(f)}</p></div>`;
   }
   const MANUAL = "指定した日時";
-  const manualNote = (f) => (f.nextAt && f.nextLabel === MANUAL ? `次は <b>${esc(tm(f.nextAt))}</b> に掛け直します。Enter で記録` : "例：受付で「15時に戻る」と聞いたら、その時刻を入れる");
+  const manualNote = (f) => (f.nextAt && f.nextLabel === MANUAL ? `次は <b>${esc(tm(f.nextAt))}</b> に掛け直します。Enter で記録`
+    : f.step === "ready" ? "候補にない日時は、欄を押してカレンダーから選べます" : "例：受付で「15時に戻る」と聞いたら、その時刻を入れる");
   function pickManual(val) {
     const f = S.f; const d = val ? new Date(val) : null; const note = $("mccNextNote");
     if (!d || isNaN(d)) { if (f.nextLabel === MANUAL) { f.nextAt = ""; f.nextLabel = ""; } }
-    else if (d.getTime() < Date.now() - 60e3) { f.nextAt = ""; f.nextLabel = ""; refreshFoot(); if (note) note.innerHTML = "過去の日時は選べません。これから先の日時を入れてください"; return; }
+    else if (d.getTime() < Date.now() - 60e3) { f.nextAt = ""; f.nextLabel = ""; refreshFoot(); syncNextTx(); if (note) note.innerHTML = "過去の日時は選べません。これから先の日時を入れてください"; return; }
     else { f.nextAt = d.toISOString(); f.nextLabel = MANUAL; f.noRetry = false; }
     refreshFoot(); if (note) note.innerHTML = manualNote(f);
+    syncNextTx();
+  }
+  // 記録の前の段（明日の午前などの候補の下）でカレンダーから選んだとき、画面を描き直さずに「次は〜」と候補の押し具合だけ合わせる
+  //   （描き直すと日時を打っている途中の欄が消えるため）
+  function syncNextTx() {
+    const f = S.f; const m = $("mccNextMsg"); if (!m) return;
+    m.innerHTML = nextText();
+    const nr = $("mccNoRetry"); if (nr) nr.hidden = !!f.nextAt;
+    $("mccCenter").querySelectorAll("[data-later]").forEach((b) => { if (b.dataset.later) b.setAttribute("aria-pressed", String(f.nextAt === b.dataset.later)); });
   }
   async function saveGate() {
     if (!S.d) return; const L = S.d.lead; const g = { name: S.f.gate.name || (L.gate && L.gate.name) || "", hours: S.f.gate.hours || (L.gate && L.gate.hours) || "", direct: S.f.gate.direct || (L.gate && L.gate.direct) || "", biz: S.f.gate.biz || (L.gate && L.gate.biz) || "" };
