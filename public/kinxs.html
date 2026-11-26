@@ -11,7 +11,7 @@
     <link rel="manifest" href="/kinxs.webmanifest" />
     <meta name="theme-color" content="#0B3B2E" />
     <meta name="apple-mobile-web-app-title" content="kinXs" />
-    <link rel="stylesheet" href="style.css?v=20261125zh" />
+    <link rel="stylesheet" href="style.css?v=20261126a" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -869,7 +869,7 @@
   /* ステータス：道のり型（案A）（2026-11-10） */
   .kx-a-where,.kx-a-todo{background:#fff;border:1px solid #DCE7E1;border-radius:16px;padding:18px 20px;display:flex;flex-direction:column;gap:14px;}
   .kx-a-row{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;} .kx-a-q{font-size:12.5px;font-weight:800;color:#4F6158;} .kx-a-head{font-size:17px;font-weight:800;color:#14231D;} .kx-a-since{margin-left:auto;font-size:12px;color:#4F6158;}
-  .kx-a-steps{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;}
+  .kx-a-steps{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:5px;}
   .kx-a-st.na i{background:repeating-linear-gradient(135deg,#D9E3DE 0 5px,#EEF3F0 5px 10px) !important}.kx-a-st.na b{color:#8FA39A !important;text-decoration:line-through}.kx-a-st.na small{color:#8FA39A !important}
   .kx-a-st.warn i{background:#B4441F !important}.kx-a-st.warn b,.kx-a-st.warn small{color:#B4441F !important}
   .kx-a-st{display:flex;flex-direction:column;gap:5px;min-width:0;} .kx-a-st i{height:8px;border-radius:4px;background:#DCE7E1;} .kx-a-st b{font-size:12px;font-weight:700;color:#4F6158;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;} .kx-a-st small{font-size:11px;color:#6A7A72;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -1316,7 +1316,7 @@
 .mi-sub b{color:var(--c,#0d5b47);}
 #kh2 .h2-mine .mi-sub{display:none;}
 /* 段階が7つになったので、横一列に7枚＋矢印6つで並べる（9列のままだと2段目にずれて崩れていた）（2026-11-25 田中さん「崩れてる」） */
-.mi-flow{grid-template-columns:repeat(6,minmax(0,1fr) auto) minmax(0,1fr);}
+.mi-flow{grid-template-columns:repeat(7,minmax(0,1fr) auto) minmax(0,1fr);}   /* 利用スケジュール確定を足して8枚（2026-11-26） */
 .mi-flow .mi-kpi{min-width:0;}
 .mi-flow .mi-kpi .l{flex-wrap:wrap;}
 .mi-flow .mi-def{display:block;font-size:10.5px;line-height:1.4;font-weight:600;}
@@ -1669,8 +1669,8 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261125zh" defer></script>
-    <script src="kinxs.js?v=20261125zh"></script>
+    <script src="kbchat.js?v=20261126a" defer></script>
+    <script src="kinxs.js?v=20261126a"></script>
   <script>
   // スマホのメニューの開け閉め。項目を押したら閉じる（2026-11-24）
   (function () {

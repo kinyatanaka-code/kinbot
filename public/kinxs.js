@@ -2654,7 +2654,9 @@ const KX_STAGES = [
   // 名前は「いまどこまで済んだか」で呼ぶ（2026-11-25 田中さん「キックオフ未設定／設定済／実施済／検収書回収済／納品メール回収済／要確認／掲載・利用中」「オンボーディングいらないか」）
   { k: "s0", l: "受注", c: "#0d5b47" }, { k: "s1", l: "キックオフ未設定", c: "#E0A100" }, { k: "s2", l: "キックオフ設定済", c: "#D08A00" },
   { k: "s3", l: "キックオフ実施済", c: "#C43D3D" }, { k: "s4", l: "検収書回収済", c: "#3F72C9" }, { k: "s5", l: "納品メール回収済", c: "#6B4FB8" },
-  { k: "s6", l: "要確認", c: "#B4441F" }, { k: "s7", l: "掲載・利用中", c: "#1d9e75" },
+  { k: "s6", l: "要確認", c: "#B4441F" },
+  // 利用スケジュール確定（2026-11-26 田中さん「利用スケジュール確定というステータスを追加してほしい」）：掲載・利用を始める予定日が決まった会社。要確認にはしない
+  { k: "s7", l: "利用スケジュール確定", c: "#2E8FB0" }, { k: "s8", l: "掲載・利用中", c: "#1d9e75" },
 ];
 function kxStageInfo(x) {
   const pub = !!(x.published || x.publishedOn || (x.places || []).length) || /^活用：(公開掲載|限定公開)/.test(String(x.usage || ""));
@@ -2675,7 +2677,7 @@ function kxStageInfo(x) {
   let i = done.findIndex((v) => !v);
   const mOn = x.mailOn || (mail ? x.deliveredOn : "");   // 送った日が分からないときは納品日をめやすに
   const mailDays = mOn ? Math.floor((Date.now() - Date.parse(String(mOn).slice(0, 10) + "T00:00:00+09:00")) / 86400000) : null;
-  if (i < 0) i = pub ? 7 : mailDays != null && mailDays >= 60 ? 6 : 5;
+  if (i < 0) i = pub ? 8 : x.usePlanOn ? 7 : mailDays != null && mailDays >= 60 ? 6 : 5;
   return { i, done, pub, mailDays, kenSkip };
 }
 const kxStageOf = (x) => kxStageInfo(x).i;
@@ -2690,6 +2692,7 @@ function kxStageNote(x, gi) {
   if (gi === 4) return `納品メール：${x.mail || "未送付"}`;
   if (gi === 5) return `納品メールから${si.mailDays != null ? `${si.mailDays}日` : "—"}・掲載・利用はまだ確認できていません`;
   if (gi === 6) return `納品メールから${si.mailDays}日たっても、掲載・利用が確認できていません`;
+  if (gi === 7) return `利用開始の予定 ${x.usePlanOn ? x.usePlanOn.slice(5).replace("-", "/") : "—"}`;
   return `掲載 ${x.publishedOn || "日付なし"}${(x.places || []).length ? `・${x.places.map((p) => p.where).filter(Boolean).slice(0, 2).join("・")}` : ""}`;
 }
 function kxMineBig() {
@@ -3813,12 +3816,14 @@ function kxNowCard(d) {
     { k: "キックオフ実施", ed: "キックオフ", ok: si.done[2], sub: si.done[2] ? (koOk && koAt ? `${koAt} ✓` : "✓") : "まだ" },
     { k: "検収書回収", ed: "検収書", ok: si.done[3], skipNote: si.kenSkip ? "不要（初期なし）" : "", sub: si.kenSkip ? "不要（初期なし）" : x.kenshuNa ? "対象外" : si.done[3] ? "✓" : String(x.kenshu || "").startsWith("依頼済み") ? "依頼済み" : "まだ" },
     { k: "納品メール回収", ed: "納品メール", ok: si.done[4], sub: si.done[4] ? (x.mailOn ? `${md(x.mailOn)} ✓` : "✓") : "まだ" },
-    { k: "要確認", ed: "活用", ok: si.i === 7, sub: si.i === 6 ? `${si.mailDays}日たった` : si.i === 7 ? "—" : si.i === 5 && si.mailDays != null ? `あと${Math.max(0, 60 - si.mailDays)}日` : "2か月で" },
-    { k: "掲載・利用中", ed: "掲載", ok: si.i === 7, sub: si.i === 7 ? (x.publishedOn ? md(x.publishedOn) : "✓") : (x.renew ? `更新 ${x.renew.replace("-", "/")}` : "まだ") },
+    { k: "要確認", ed: "活用", ok: si.i >= 7, sub: si.i === 6 ? `${si.mailDays}日たった` : si.i >= 7 ? "—" : si.i === 5 && si.mailDays != null ? `あと${Math.max(0, 60 - si.mailDays)}日` : "2か月で" },
+    { k: "利用スケジュール確定", ed: "利用スケジュール", ok: si.i >= 7, sub: x.usePlanOn ? `${md(x.usePlanOn)}${si.i >= 7 ? " ✓" : ""}` : si.i === 8 ? "—" : "まだ" },
+    { k: "掲載・利用中", ed: "掲載", ok: si.i === 8, sub: si.i === 8 ? (x.publishedOn ? md(x.publishedOn) : "✓") : (x.renew ? `更新 ${x.renew.replace("-", "/")}` : "まだ") },
   ];
   // 道のりの「いまここ」：納品メールのあとは、2か月までは掲載・利用中を待つ、過ぎたら要確認（オンボーディング中の段はなくした）
-  const cur = si.i <= 4 ? si.i : si.i === 5 ? 6 : si.i === 6 ? 5 : 7;
-  const head = { 0: "受注の手続き中", 1: "キックオフの設定待ち", 2: "キックオフの実施待ち", 3: "納品の手前（検収書の回収待ち）", 4: "納品メールを送る段階", 5: "納品メール回収済（掲載・利用の確認待ち）", 6: "要確認（納品メールから2か月、掲載・利用が未確認）", 7: "掲載・利用中" }[si.i];
+  //   利用スケジュールが決まったら、次は掲載・利用中を待つ（2026-11-26）
+  const cur = si.i <= 4 ? si.i : si.i === 5 ? 6 : si.i === 6 ? 5 : si.i === 7 ? 7 : 8;
+  const head = { 0: "受注の手続き中", 1: "キックオフの設定待ち", 2: "キックオフの実施待ち", 3: "納品の手前（検収書の回収待ち）", 4: "納品メールを送る段階", 5: "納品メール回収済（掲載・利用の確認待ち）", 6: "要確認（納品メールから2か月、掲載・利用が未確認）", 7: `利用スケジュール確定（${x.usePlanOn ? md(x.usePlanOn) : ""}から利用予定）`, 8: "掲載・利用中" }[si.i];
   const since = info.booked ? Math.max(0, Math.floor((Date.now() - Date.parse(info.booked + "T00:00:00+09:00")) / 86400000)) : null;
   // 対応事項（急ぐ順）。act＝その場で片づけるボタンの種類
   const todo = [];
@@ -3891,6 +3896,7 @@ function kxNowMount(bg) {
     if (k === "キックオフ") return row(`<label>実施日 <input type="date" class="kx-in" data-ed-d value="${esc((sub.match(/^\d/) ? "" : ""))}"></label><button type="button" class="kx-a-pri" data-ed-a="ko">この日で実施済みにする</button>${now0.kickoffManual ? '<button type="button" class="kx-a-sec kx-a-del" data-ed-a="ko-clear">手で入れた日を消す</button>' : ""}<small>議事録・CS連携から読んだ日より、手で入れた日を使います</small>`);
     if (k === "検収書") return row(`<label>回収日 <input type="date" class="kx-in" data-ed-d value="${today}"></label><button type="button" class="kx-a-pri" data-ed-a="ken-on">この日で回収済みにする</button><button type="button" class="kx-a-sec" data-ed-a="ken-na">対象外にする</button><button type="button" class="kx-a-sec kx-a-del" data-ed-a="ken-undo">未回収に戻す</button>`);
     if (k === "納品メール") return row(`<button type="button" class="kx-a-pri" data-ed-a="mail-done">送付済みにする</button><button type="button" class="kx-a-sec kx-a-del" data-ed-a="mail-undo">未送付に戻す</button>`);
+    if (k === "利用スケジュール") return row(`<label>利用開始の予定日 <input type="date" class="kx-in" data-ed-d value=""></label><button type="button" class="kx-a-pri" data-ed-a="plan-on">この日で確定にする</button><button type="button" class="kx-a-sec kx-a-del" data-ed-a="plan-undo">確定を取り消す</button>`);
     if (k === "掲載") return row(`<label>掲載日 <input type="date" class="kx-in" data-ed-d value="${today}"></label><button type="button" class="kx-a-pri" data-ed-a="pub-on">この日で掲載済みにする</button><button type="button" class="kx-a-sec kx-a-del" data-ed-a="pub-undo">未掲載に戻す</button>`);
     if (k === "活用") return row(`<select class="kx-in" data-ed-u>${USAGES.map((u) => `<option ${sub && u.replace(/^活用：/, "") === sub ? "selected" : ""}>${esc(u)}</option>`).join("")}</select><button type="button" class="kx-a-pri" data-ed-a="usage">保存</button>`);
     if (k === "更新") return row(`<label>更新月 <input type="month" class="kx-in" data-ed-m value="${esc(/^\d{4}\/\d{2}$/.test(sub) ? sub.replace("/", "-") : "")}"></label><button type="button" class="kx-a-pri" data-ed-a="renew-m">更新月を保存</button><button type="button" class="kx-a-sec" data-ed-a="renew-rank">確度を決める</button>`);
@@ -3912,6 +3918,8 @@ function kxNowMount(bg) {
       if (a === "ken-undo") { if (confirm("検収書を未回収に戻しますか？")) return put({ kenshu_done: null, kenshu_on: "", kenshu_na: false }, "検収書を未回収に戻しました"); return; }
       if (a === "mail-done") return put({ mail_done: true }, "納品メールを送付済みにしました");
       if (a === "mail-undo") { if (confirm("納品メールを未送付に戻しますか？")) return put({ mail_done: false }, "納品メールを未送付に戻しました"); return; }
+      if (a === "plan-on") { if (!dv) return alert("利用開始の予定日を入れてください"); return put({ use_plan_on: dv }, "利用スケジュールを確定にしました"); }
+      if (a === "plan-undo") { if (confirm("利用スケジュールの確定を取り消しますか？")) return put({ use_plan_on: "" }, "利用スケジュールの確定を取り消しました"); return; }
       if (a === "pub-on") { if (!dv) return alert("掲載日を入れてください"); return put({ published_on: dv }, "掲載済みにしました"); }
       if (a === "pub-undo") { if (confirm("掲載を未掲載に戻しますか？（掲載日も消します）")) return put({ published: false, published_on: "" }, "未掲載に戻しました"); return; }
       if (a === "usage") return put({ usage_status: (edBox.querySelector("[data-ed-u]") || {}).value || "" }, "活用を保存しました");
