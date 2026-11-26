@@ -2639,6 +2639,7 @@ async function renderPub() {
         const rs = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ info: { places: rows, ...(rows.length && x.noPlace ? { no_place: false } : {}) } }) });
         // 掲載先を初めて入れたら、サーバーが手前の段（キックオフ・検収書・納品メール）も済みにする。そのことを知らせる（2026-11-20）
         const adv = (rs && rs.advanced) || [];
+        lsData = null;   // ホーム・担当企業の段階も、次に開いたとき読み直す（掲載・利用中に進んだのが出るように）
         x.places = rows; if (rows.length) x.noPlace = false; if (adv.length) { x.published = true; if (!x.publishedOn) x.publishedOn = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); }
         if (window.kbToast) window.kbToast(adv.length ? (adv.some((k) => k !== "掲載") ? `${x.name} を掲載済みにして、${adv.filter((k) => k !== "掲載").join("・")}も済みにしました` : `${x.name} を掲載済みにしました`) : `${x.name} の掲載先を保存しました`);
         draw();
