@@ -1821,7 +1821,7 @@
     const rows = gs.map(({ t, n, last }, i) => {
       const h = dayHead(t.at); const dh = h !== lastDay ? `<div class="mcc-tday">${esc(h)}</div>` : ""; lastDay = h;
       return `${dh}<div class="mcc-ti ${esc(t.src)}"><div class="h"><span class="tm">${n > 1 ? `${esc(when(last))}〜${esc(when(t))}` : esc(when(t))}</span><span class="who">${esc(t.who || "")}</span><b>${esc(t.title)}${n > 1 ? `×${n}` : ""}</b><span class="src">${esc(t.src)}</span>${t.cross ? '<span class="mcc-badge doc">部署をまたぐ</span>' : ""}</div>
-        ${t.text && n === 1 ? `<div class="t" data-ti="${i}">${esc(t.text)}</div>${t.text.length > 160 || t.text.split("\n").length > 6 ? `<button data-more="${i}">全部見る</button>` : ""}` : ""}${t.mine ? ` <button data-undo="${t.logId}">この記録を取り消す</button>` : ""}</div>`;
+        ${t.text && n === 1 ? `<div class="t" data-ti="${i}">${esc(t.text)}</div>${t.text.length > 160 || t.text.split("\n").length > 6 ? `<button data-more="${i}">全部見る</button>` : ""}` : ""}${t.apoEv ? ` <button data-apoev="${t.logId}">予定を直す</button>` : ""}${t.mine ? ` <button data-undo="${t.logId}">この記録を取り消す</button>` : ""}</div>`;
     }).join("");
     // これまでは残りの高さの中でスクロールする（メモとトークを読むのにスクロールが要らないように）
     box.innerHTML = `${closeHistory ? "" : `<div class="mcc-tlh"><h3>これまで（${d.timeline.length}件）</h3>${d.timeline.length ? `<button class="mcc-chip" id="mccTlMemo" aria-pressed="${memoOnly}">メモのあるものだけ</button>` : ""}</div>`}${histNote(d)}
@@ -1832,6 +1832,25 @@
       closeHistory?.();
       dialog("この記録を取り消しますか", "SF に書いた活動も消します。取り消すと、この会社は記録する前の状態に戻ります。", "取り消す", () => undo(b.dataset.undo));
     }));
+    box.querySelectorAll("[data-apoev]").forEach((b) => b.addEventListener("click", () => { closeHistory?.(); editApoEvent(b.dataset.apoev); }));
+  }
+  // アポの予定をあとから直す（2026-11-26 福井さん）。カレンダーの今の中身を読んで窓に出し、保存するとアポ獲得者と FS の両方の予定を同じ中身に書き換える
+  async function editApoEvent(logId) {
+    let ev;
+    try { ev = await api(`/api/mccall/logs/${logId}/apo-event`); } catch (e) { toast(`予定を開けませんでした：${e.message}`); return; }
+    const mins = Math.max(15, Math.round((new Date(ev.end) - new Date(ev.start)) / 60e3) || 60);
+    const w = dialog("アポの予定を直す", `保存すると、${ev.where.join("・")}のカレンダーの予定を書き換えます（先方には何も送りません）。日時を変えたときは、担当の FS に Chat で知らせます。`, "保存する", async (w) => {
+      const v = (s) => w.querySelector(s).value;
+      if (!v("#mccAeAt")) throw new Error("日時を入れてください");
+      const r = await post(`/api/mccall/logs/${logId}/apo-event`, { summary: v("#mccAeSum").trim(), start: new Date(v("#mccAeAt")).toISOString(), minutes: v("#mccAeMin"), description: v("#mccAeBody") });
+      toast(`予定を直しました（${r.done.join("・")}）${r.fail.length ? `。直せなかった予定：${r.fail.join("・")}` : ""}${r.told ? `。${r.told}` : ""}`);
+      if (r.moved && S.d) { const id = S.d.lead.id; S.cache.delete(id); try { const d = await api(`/api/mccall/leads/${id}`); if (S.d && S.d.lead.id === id) { S.d = d; drawRight(); } } catch {} }
+    }, `<div style="display:grid;gap:8px;margin-top:12px">
+        <label class="mcc-field">予定名<input id="mccAeSum" value="${esc(ev.summary)}" /></label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><label class="mcc-field" style="flex:1;min-width:200px">日時<input id="mccAeAt" type="datetime-local" value="${esc(toLocalInput(ev.start))}" /></label>
+        <label class="mcc-field">長さ<select class="mcc-sel" id="mccAeMin">${[30, 45, 60, 90, 120].concat([30, 45, 60, 90, 120].includes(mins) ? [] : [mins]).map((m) => `<option value="${m}"${m === mins ? " selected" : ""}>${m}分</option>`).join("")}</select></label></div>
+        <label class="mcc-field">本文<textarea id="mccAeBody" style="min-height:320px">${esc(ev.description)}</textarea></label></div>`);
+    w.firstElementChild.classList.add("wide");
   }
   // 続いた「応答なし」などは「応答なし×4」の1行にまとめる（同じ行が並んで、中身のある記録が下に隠れていた。2026-11-23 福井さん）。
   //   まとめるのは、届かなかった結果で、本文が自動で足した「次回 〇/〇」だけのもの。並びは新しい順なので、t が最新・last が最古

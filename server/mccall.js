@@ -14,7 +14,7 @@
 //   結果は「どこまで届いたか → 中身」の2段。不在でも受付で聞けたこと（担当者名・在席時間・直通）を残す。
 //   担当者に届かなかった不在は、1〜2営業日あけて前回と違う時間帯に自動で掛け直しに回し、8回続いたら一度休ませる（mccadence.js。解除できる）。記録の取り消しは「元に戻す」で行う。
 import { dbPool, listUsers, approachBanHit, approachBanHitSync, approachBanHitLead, approachBanHitLeadSync, loadApproachBans, listMembers, getSettings, saveSettings, mcBalesToday, mcBalesValues, mcBalesOwnerIndex, mcOwnedByOther, mcNurtureTargets, BALES_MCU, TODAY_MODES, HOLD_N } from "./db.js";
-import { freeBusy, gmailSend, isConnected as googleConnected, createCalendarEvent, deleteCalendarEvent } from "./google.js";
+import { freeBusy, gmailSend, isConnected as googleConnected, createCalendarEvent, deleteCalendarEvent, getCalendarEventState, patchCalendarEvent } from "./google.js";
 import { notifyPerson } from "./chat.js";
 import { teamOf, teamLabel, splitFree, slotScore, pickFs } from "./mcteam.js";   // IS と FS のチーム（2026-11-23）
 import { fixMojibake } from "./docs.js";
@@ -2564,7 +2564,10 @@ export function registerMcCall(app, deps) {
     // これまで：MOCHICA の架電・Bales の活動・SF の商談を1本の時系列に
     const tl = logs.map((g) => ({ at: g.created_at, src: "kinbot", who: names.get(String(g.caller || "").toLowerCase()) || g.caller, title: outcomeLabel(g.outcome) + (g.reason ? `（${g.reason}）` : ""),
       text: [g.memo, g.gate && (g.gate.name || g.gate.hours || g.gate.direct) ? `受付で聞けたこと：${[g.gate.name && `担当 ${g.gate.name}`, g.gate.hours && `在席 ${g.gate.hours}`, g.gate.direct && `直通 ${g.gate.direct}`].filter(Boolean).join("・")}` : "", g.next_at ? `次回 ${jstText(g.next_at)}` : "", g.apo_at ? `アポ ${jstText(g.apo_at)}${g.apo_who ? `（空いていたクローザー：${g.apo_who}）` : ""}` : ""].filter(Boolean).join("\n"),
-      memo: g.memo || "", reach: g.reach, cross: !!g.cross_from, logId: g.id, mine: String(g.caller || "").toLowerCase() === u && Date.now() - new Date(g.created_at).getTime() < 15 * 60e3 }));
+      memo: g.memo || "", reach: g.reach, cross: !!g.cross_from, logId: g.id, mine: String(g.caller || "").toLowerCase() === u && Date.now() - new Date(g.created_at).getTime() < 15 * 60e3,
+      // kinbot が作ったアポの予定があり、直せる人（取った本人・担当 FS・管理者）にだけ「予定を直す」を出す（/api/mccall/logs/:id/apo-event）
+      apoEv: g.outcome === "apo" && !!g.apo_flow && !!((g.apo_flow.isEv && g.apo_flow.isEv.ok) || (g.apo_flow.fsEv && g.apo_flow.fsEv.ok))
+        && (String(g.caller || "").toLowerCase() === u || (g.apo_flow.fs && g.apo_flow.fs.email === u) || isAdmin(req)) }));
     // このリード自身の BALES の行（BALES から入れたリードだけ）
     if (!blind) tl.push(...balesItems(detail, data, sf));
     // 資料送付も同じ時系列に出す（SF に書いた活動は下の SF の読み込みで二重にならないよう外す）
@@ -3726,6 +3729,64 @@ export function registerMcCall(app, deps) {
     }
     return out.join("。");
   }
+  // ===== アポの予定をあとから直す（2026-11-26 福井さん「アポとった後のカレンダーをあとから編集できるようにしたい」）=====
+  //   afterApo で作った IS と FS の予定は別々の予定なので、カレンダーで片方だけ直すと中身がずれる。
+  //   kinbot から直したときは、apo_flow に残した予定の番号を使って両方を同じ中身に書き換える（ほかの予定には触らない）。
+  //   直せるのは、アポを取った本人・担当の FS・管理者だけ。先方（お客様）には何も送らない（sendUpdates=none）
+  const APO_MARK = "kinbotが自動作成した商談予定です";
+  // カレンダーの本文は、カレンダーの画面で直されると HTML（改行が <br>・リンクが <a>）になる。編集の窓には文字だけで出す
+  const calText = (s) => String(s || "").replace(/<br\s*\/?>/gi, "\n").replace(/<\/(p|div|li)>/gi, "\n").replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&").replace(/\n{3,}/g, "\n\n").trim();
+  async function apoEvLoad(req, id) {
+    const g = (await P().query(`SELECT * FROM mc_call_logs WHERE id=$1`, [id])).rows[0];
+    if (!g || g.undone || g.outcome !== "apo") return { status: 404, error: "このアポの記録は見つからないか、取り消されています" };
+    const f = g.apo_flow || {};
+    const evs = ["isEv", "fsEv"].map((k) => f[k] && f[k].ok && f[k].id ? { k, ...f[k] } : null).filter(Boolean);
+    if (!evs.length) return { status: 404, error: "このアポには kinbot が作った予定がありません（予定を作れなかったアポです）。カレンダーで直接直してください" };
+    const u = me(req);
+    if (!(String(g.caller || "").toLowerCase() === u || (f.fs && f.fs.email === u) || isAdmin(req))) return { status: 403, error: "このアポの予定を直せるのは、アポを取った本人・担当の FS・管理者だけです" };
+    return { g, f, evs };
+  }
+  app.get("/api/mccall/logs/:id/apo-event", guard(async (req, res) => {
+    const r = await apoEvLoad(req, parseInt(req.params.id, 10)); if (r.error) return res.status(r.status).json({ error: r.error });
+    // 今の中身は、読めた予定から取る（だれかがカレンダーで直していれば、その中身から直せるように）
+    let cur = null;
+    for (const e of r.evs) { try { const s = await getCalendarEventState(e.owner, e.id, e.cal); if (s && s.status !== "cancelled") { cur = s; break; } } catch {} }
+    if (!cur) return res.status(404).json({ error: "予定を読めませんでした（カレンダーで消されたか、Google 連携が切れています）" });
+    res.json({ ok: true, summary: cur.title, description: calText(cur.description), start: cur.start, end: cur.end,
+      where: r.evs.map((e) => e.k === "isEv" ? "アポ獲得者" : `${(r.f.fs && r.f.fs.name) || "FS"}さん`) });
+  }));
+  app.post("/api/mccall/logs/:id/apo-event", guard(async (req, res) => {
+    const r = await apoEvLoad(req, parseInt(req.params.id, 10)); if (r.error) return res.status(r.status).json({ error: r.error });
+    const b = req.body || {};
+    const summary = String(b.summary || "").trim().slice(0, 300);
+    let description = String(b.description || "").replace(/\r\n/g, "\n").trim().slice(0, 7000);
+    const start = new Date(b.start), mins = Math.max(15, Math.min(240, parseInt(b.minutes, 10) || 60));
+    if (!summary) return res.status(400).json({ error: "予定名を入れてください" });
+    if (isNaN(start)) return res.status(400).json({ error: "日時が正しくありません。選び直してください" });
+    // 先頭の目印は消さない（消えると DOC のアポの自動スキャンが、この予定を新しいアポとして拾ってしまう。afterApo のコメント参照）
+    if (!description.includes(APO_MARK)) description = `${APO_MARK}（SHOWIN の MOCHICALL のアポ獲得から）\n\n${description}`;
+    const end = new Date(start.getTime() + mins * 60e3);
+    const patch = { summary, description, start: { dateTime: start.toISOString(), timeZone: "Asia/Tokyo" }, end: { dateTime: end.toISOString(), timeZone: "Asia/Tokyo" } };
+    const done = [], fail = [];
+    for (const e of r.evs) {
+      const who = e.k === "isEv" ? "アポ獲得者" : `${(r.f.fs && r.f.fs.name) || "FS"}さん`;
+      try { await patchCalendarEvent(e.owner, e.id, patch, e.cal); done.push(who); }
+      catch (err) { fail.push(`${who}（${String(err.message || err).slice(0, 80)}）`); }
+    }
+    if (!done.length) return res.status(502).json({ error: `予定を書き換えられませんでした：${fail.join("・")}。カレンダーで直接直してください` });
+    const moved = !r.g.apo_at || new Date(r.g.apo_at).getTime() !== start.getTime();
+    // 日時を変えたら記録の日時も合わせる（レポート・SF に出す「アポ：〇/〇」がずれないように）
+    if (moved) await P().query(`UPDATE mc_call_logs SET apo_at=$2 WHERE id=$1`, [r.g.id, start.toISOString()]).catch(() => {});
+    // 日時を変えたら担当の FS に知らせる（直したのが FS 本人なら送らない）
+    let told = "";
+    if (moved && r.f.fs && r.f.fs.email && r.f.fs.email !== me(req)) {
+      const n = await notifyPerson(r.f.fs.email, `🔁 *アポの日時が変わりました（MOCHICALL）*\n　${summary}\n🕐 ${r.g.apo_at ? `${dayText(r.g.apo_at)} → ` : ""}${dayText(start)}〜${hhmm(end)}\nカレンダーの予定も書き換えています。`).catch(() => null);
+      told = n && n.ok ? `${r.f.fs.name}さんに日時の変更を知らせました` : `${r.f.fs.name}さんに Chat で知らせられませんでした。直接伝えてください`;
+    }
+    console.log(`[mccall] アポの予定を直した：記録 ${r.g.id} ${dayText(start)} by ${me(req)} 書けた ${done.join("・")}${fail.length ? ` 書けない ${fail.join("・")}` : ""}`);
+    res.json({ ok: true, done, fail, moved, told });
+  }));
   // 通話の録音（予定・SF・知らせに載せるリンク）。録音は記録の数分後に結びつくので、リンクは記録の番号で作っておき、開いたときに探す
   app.get("/api/mccall/logs/:id/rec", guard(async (req, res) => {
     const g = (await P().query(`SELECT rec FROM mc_call_logs WHERE id=$1 AND NOT undone`, [parseInt(req.params.id, 10)])).rows[0];
