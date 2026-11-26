@@ -2738,6 +2738,25 @@ function kxRefreshAll() {
     else if (VIEW === "board") loadBoard();
   }, 150);
 }
+// 会社カードの右の札で段階を変える（2026-11-26 田中さん「企業カードからステージ変更できるように。利用中みたいなタグで変えられるように」）
+//   選ぶと「段階を手で決める」（stage_manual）に入る。「自動」で自動の判定に戻る
+function kxStageSel(x) {
+  const si = kxStageInfo(x); const g = KX_STAGES[si.i] || {};
+  return `<select class="mi-stsel" data-stsel="${esc(x.id)}" style="--c:${g.c || "#0d5b47"}" title="押すと段階を変えられます${si.manual ? "（手で決めた段階）" : ""}">
+    <option value="" ${si.manual ? "" : "selected"}>${si.manual ? "自動に戻す" : esc(g.l || "")}</option>${KX_STAGES.slice(1).map((s0) => `<option value="${s0.k}" ${si.manual && x.stageManual === s0.k ? "selected" : ""}>${esc(s0.l)}${si.manual && x.stageManual === s0.k ? "（手で）" : ""}</option>`).join("")}</select>`;
+}
+function kxStageSelWire(box) {
+  box.querySelectorAll("[data-stsel]").forEach((sel) => {
+    ["click", "keydown", "mousedown"].forEach((ev) => sel.addEventListener(ev, (e) => e.stopPropagation()));
+    sel.addEventListener("change", async () => {
+      const id = sel.dataset.stsel, v = sel.value; sel.disabled = true;
+      try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ stage_manual: v }) });
+        if (window.kbToast) window.kbToast(v ? `段階を「${(KX_STAGES.find((g) => g.k === v) || {}).l}」にしました` : "段階を自動の判定に戻しました");
+        _kxDetail.delete(id); kxRefreshAll();
+      } catch (e) { sel.disabled = false; alert(`変えられませんでした：${e.message}`); }
+    });
+  });
+}
 function kxMineBig() {
   const bg = document.createElement("div"); bg.className = "kx-drawer-bg";
   bg.innerHTML = `<aside class="kx-drawer kx-mine-big" role="dialog" aria-label="担当企業"><div class="kx-mine-big-h"><h2>担当企業</h2><button type="button" class="kx-btn" data-x style="margin-left:auto">閉じる</button></div><div data-mine-big></div></aside>`;
@@ -2818,13 +2837,14 @@ async function renderMine(boxArg, opts = {}) {
         const def = k === "s7" ? '<small class="mi-def">納品メールから2か月、または掲載の予定日を過ぎても掲載・利用が確認できない会社。URL なし・2か月接点なしも</small>' : k === "s8" ? '<small class="mi-def">掲載の予定日が決まっている・掲載先一覧に URL がまだない会社で、2か月以内に接点がある</small>' : "";
         return `<button type="button" class="mi-kpi ${st.k === k ? "on" : ""}${hot ? " hot" : ""}" style="--c:${c}" data-mk="${k}" title="${k === "s7" ? "要確認：納品メールから2か月（60日）たっても、または掲載の予定日を過ぎても、掲載・利用が確認できていない会社。掲載先一覧に URL がなく、2か月接点がない会社も" : k === "s8" ? "オンボーディング中：掲載の予定日が決まっている、または掲載したが掲載先一覧に URL がまだない会社で、2か月以内に接点がある" : ""}"><span class="l"><i></i><span class="mi-nm">${esc(l)}${def}</span></span><span class="v">${n0}<small>社</small></span>${sub}</button>`; }).join('<span class="mi-arr" aria-hidden="true"><i><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5.5l6.5 6.5L9 18.5"/></svg></i></span>')}</div>
       ${st.k === "tk" ? `<div class="mi-h">タスク（ホームと同じもの・期日の近い順）</div><div data-mtk><div class="kx-note">読み込み中…</div></div>`
-        : `<div class="mi-h">${esc(cur ? cur[1] : "")}<span class="kx-note">${list.length}社</span></div><div class="mi-list">${list.length ? list.map((x) => `<div class="mi-co" role="button" tabindex="0" data-mopen="${esc(x.id)}">${kxLogoMini(x)}<span class="t"><b>${esc(x.name)}</b><small>${esc(cur[4](x) || "")}</small></span><span class="lb">${esc(x.label)}</span></div>`).join("") : '<div class="kx-empty" style="grid-column:1/-1">ありません</div>'}</div>`}`;
+        : `<div class="mi-h">${esc(cur ? cur[1] : "")}<span class="kx-note">${list.length}社</span></div><div class="mi-list">${list.length ? list.map((x) => `<div class="mi-co" role="button" tabindex="0" data-mopen="${esc(x.id)}">${kxLogoMini(x)}<span class="t"><b>${esc(x.name)}</b><small>${esc(cur[4](x) || "")}</small></span>${kxStageSel(x)}</div>`).join("") : '<div class="kx-empty" style="grid-column:1/-1">ありません</div>'}</div>`}`;
     const wsel = box.querySelector("[data-mwho]"); if (wsel) wsel.addEventListener("change", (e) => { st.who = e.target.value; draw(); });
     // ホームでは、段や納品待ちを押すと、その会社の一覧をモーダルで出す（2026-11-25 田中さん「それぞれクリックしたらモーダルで企業一覧が出てくるように」）
     box.querySelectorAll("[data-mk]").forEach((b) => b.addEventListener("click", (e) => {
       if (home) { e.stopPropagation(); const k0 = KS.find((x) => x[0] === b.dataset.mk); if (k0) kxCoListPopup(`${k0[1]}${st.who ? `（${st.who}）` : ""}`, mine.filter(k0[3]).sort(k0[5] || ((a, c) => String(c.booked || "").localeCompare(String(a.booked || ""))))); return; }
       st.k = b.dataset.mk; draw(); }));
-    box.querySelectorAll("[data-mopen]").forEach((el) => { const go = () => openDetail(el.dataset.mopen); el.addEventListener("click", go); el.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); }); });
+    kxStageSelWire(box);
+    box.querySelectorAll("[data-mopen]").forEach((el) => { const go = (e) => { if (e && e.target && e.target.closest && e.target.closest("[data-stsel]")) return; openDetail(el.dataset.mopen); }; el.addEventListener("click", go); el.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); }); });
     if (!home) loadTasks();
   };
   // タスク：ホームのタスクと同じ（その人のもの）。数は先に出し、タスクを選んだら並べる
