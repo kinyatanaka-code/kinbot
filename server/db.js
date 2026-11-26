@@ -13489,7 +13489,9 @@ export const BALES_TODAY_N = 150, BALES_TODAY_MIN = 100;   // 多くて150件・
 export const BALES_TODAY_PL = 50;
 //   人に足したリストから1日に入れる件数（2026-11-25 福井さん）。足したリストだけで今日の分が埋まらないよう、過去失注の枠と同じ50件にする
 export const BALES_TODAY_EXT = 50;
-const BALES_TODAY_V = 8;   // 作り方を変えたら上げる（その日の保存が古い作り方なら作り直す）。8＝優先度と人に足したリスト（2026-11-25）
+const BALES_TODAY_V = 9;   // 作り方を変えたら上げる（その日の保存が古い作り方なら作り直す）。8＝優先度と人に足したリスト（2026-11-25）
+//   9＝手持ち300件から選び方で100件（2026-11-26）。上げ忘れて、朝に前の作り方（過去失注50件の枠＋アポ率の高い順）で作った分が
+//   その日ずっと使われ、コールド育成にしても過去失注の多いアポ率の高いリストのままだった（2026-11-26 福井さん）
 const jstDay = (t = Date.now()) => new Date(t).toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
 let _mcTodayInit = false;
 async function ensureMcToday() {
