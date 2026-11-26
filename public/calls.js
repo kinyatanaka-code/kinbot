@@ -9772,15 +9772,18 @@ async function edEnrichEmployees(mode) {
   let totalGot = 0;
   try {
     const MAX_ROUND = 6;   // 取れなくても最大6周まで（時間切れ・レート制限の取りこぼしを拾い直す）
-    for (let round = 1; round <= MAX_ROUND && !_edEnrichStop; round++) {
+    // Web（Gemini の検索）は最終手段（2026-11-26 田中さん「web からとりすぎ。web は最終手段」）：
+    //   まず SF・gBiz・公式サイト・Brave だけで周を回し、増えなくなってから最後の1周だけ Web も使う
+    let useWeb = false;
+    for (let round = 1; round <= MAX_ROUND + 1 && !_edEnrichStop; round++) {
       const targets = blanks();
       if (!targets.length) break;               // 全部埋まった
       let done = 0, roundGot = 0;
       for (let i = 0; i < targets.length && !_edEnrichStop; i += 20) {
         const batch = targets.slice(i, i + 20);
-        if (st) st.textContent = `${round}周目 取得中… ${done}/${targets.length}　入った ${totalGot}（${srcStr(bySrc)}）`;
+        if (st) st.textContent = `${round}周目${useWeb ? "（最後の手段：Web）" : ""} 取得中… ${done}/${targets.length}　入った ${totalGot}（${srcStr(bySrc)}）`;
         try {
-          const r = await fetch("/api/calls/enrich-employees", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: batch.map((x) => ({ id: x.id, company: g(x, "会社名", "company"), lead_id: x.leadId || x.lead_id || "" })), max: 20 }) });
+          const r = await fetch("/api/calls/enrich-employees", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: batch.map((x) => ({ id: x.id, company: g(x, "会社名", "company"), lead_id: x.leadId || x.lead_id || "" })), max: 20, mode: useWeb ? "" : "brave" }) });
           const d = await r.json();
           for (const res of (d.results || [])) {
             done++;
@@ -9789,7 +9792,8 @@ async function edEnrichEmployees(mode) {
           edRender();
         } catch { /* この塊は失敗＝次の周で拾い直す */ }
       }
-      if (roundGot === 0) break;                 // この周で1件も増えなかった＝これ以上は取れない
+      if (useWeb) break;                         // Web も使った最後の周が終わった
+      if (roundGot === 0 || round >= MAX_ROUND) useWeb = true;   // 安い調べ方で増えなくなった → 最後に1周だけ Web で残りを調べる
     }
     // 数周試してもダメだった空欄は「-」で確定（＝もう調べ済みの印。止めていないときだけ）
     if (!_edEnrichStop) {
