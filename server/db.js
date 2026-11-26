@@ -13489,7 +13489,7 @@ export const BALES_TODAY_N = 150, BALES_TODAY_MIN = 100;   // 多くて150件・
 export const BALES_TODAY_PL = 50;
 //   人に足したリストから1日に入れる件数（2026-11-25 福井さん）。足したリストだけで今日の分が埋まらないよう、過去失注の枠と同じ50件にする
 export const BALES_TODAY_EXT = 50;
-const BALES_TODAY_V = 9;   // 作り方を変えたら上げる（その日の保存が古い作り方なら作り直す）。8＝優先度と人に足したリスト（2026-11-25）
+const BALES_TODAY_V = 10;   // 10＝BALES の所有者がほかの人の会社を手持ち・補充から外す（2026-11-26 福井さん）。作り方を変えたら上げる（その日の保存が古い作り方なら作り直す）。8＝優先度と人に足したリスト（2026-11-25）
 //   9＝手持ち300件から選び方で100件（2026-11-26）。上げ忘れて、朝に前の作り方（過去失注50件の枠＋アポ率の高い順）で作った分が
 //   その日ずっと使われ、コールド育成にしても過去失注の多いアポ率の高いリストのままだった（2026-11-26 福井さん）
 const jstDay = (t = Date.now()) => new Date(t).toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
@@ -13523,8 +13523,49 @@ async function ensureMcHold() {
   if (!pool || _mcHoldInit) return; _mcHoldInit = true;
   await pool.query(`CREATE TABLE IF NOT EXISTS mochica_bales_hold (list_key TEXT, row_key TEXT, member TEXT, src TEXT, added_at TIMESTAMPTZ DEFAULT now(), PRIMARY KEY (list_key, row_key))`).catch(() => {});
 }
+// BALES の所有者がほかの人の会社を見分ける（2026-11-26 福井さん「足立くんが過去に架電している 株式会社都筑製作所 が僕のリストに紛れていた。
+//   混乱を招くので、BALES の所有者をそのまま MOCHICALL に移して、ほかの人が架電しないように」）。
+//   11/23 に過去失注を kinbot の中で「未割り振り」にしたため、BALES では足立さんの会社でも、300件の補充でほかの人に配られていた。
+//   主のリストで所有者の列に「本人以外の名前」が入っている行と、その会社（会社名・SF のリード）を、ほかのリスト（SF リード）でも本人以外のものとして扱う。
+//   名前は空白を外して比べる（kinbot の担当名は BALES の書き方に合わせているが、空白の有無だけずれることがあるため）
+const ownSame = (a, b) => String(a || "").replace(/[\s　]+/g, "") === String(b || "").replace(/[\s　]+/g, "");
+async function mcOwnedByOthers(listKey, run_at, col, val) {
+  const rows = (await pool.query(`SELECT r.data->>$3 AS bo, r.data->>'companyName' AS cn, r.sf->'lead'->>'id' AS lid FROM mochica_bales_rows r
+      WHERE r.list_key=$1 AND r.run_at=$2 AND btrim(COALESCE(r.data->>$3,'')) <> ''`, [listKey, run_at, col])).rows;
+  const co = new Set(), lid = new Set();
+  for (const r of rows) {
+    if (ownSame(r.bo, val)) continue;
+    const k = normCompanyKey(r.cn || ""); if (k) co.add(k);
+    if (r.lid) lid.add(String(r.lid).slice(0, 15));
+  }
+  // 1行ずつ：主のリストなら行の所有者そのもの、どのリストでも同じ会社・同じ SF リードがほかの人の所有ならほかの人のもの
+  return (x) => (x.list_key === listKey && String(x.bo || "").trim() !== "" && !ownSame(x.bo, val))
+    || (!!x.lid && lid.has(String(x.lid).slice(0, 15))) || (!!x.cn && co.has(normCompanyKey(x.cn)));
+}
 async function mcTodayHold(listKey, run_at, col, val, day, rate) {
   await ensureMcHold();
+  // BALES の所有者がほかの人の会社は、本人の手持ちにも補充にも入れない（2026-11-26 福井さん）
+  const others = await mcOwnedByOthers(listKey, run_at, col, val).catch((e) => { console.warn("[mcToday] BALES の所有者を読めませんでした", e.message); return null; });
+  //   読めなければ補充はしない（ほかの人の会社を配るよりは、手持ちが300件に足りないほうがよい）
+  // すでに補充で配ってしまった、ほかの人の会社は戻す（自動で配ったものだけ。管理者が割り振り・追加したものは触らない）。
+  //   戻し先：未割り振りにしていたもの（assign_prev あり）は未割り振りへ、そうでないものは担当を空に（＝BALES の所有者のもの）
+  if (others) {
+    const hd = (await pool.query(`SELECT DISTINCT h.list_key, h.row_key, r.data->>$3 AS bo, r.data->>'companyName' AS cn, r.sf->'lead'->>'id' AS lid
+        FROM mochica_bales_hold h JOIN mochica_bales_rows r ON r.list_key = h.list_key AND r.row_key = h.row_key
+        WHERE h.member = $1 AND h.src LIKE 'auto:%' AND r.assign_name = $1 AND (r.list_key <> $2 OR r.run_at = $4)`, [val, listKey, col, run_at])
+      .catch((e) => { console.warn("[mcToday] 配った手持ちを読めませんでした", e.message); return { rows: [] }; })).rows.filter(others);
+    if (hd.length) {
+      const L = hd.map((x) => x.list_key), K = hd.map((x) => x.row_key);
+      const u = await pool.query(`UPDATE mochica_bales_rows r SET assign_name = CASE WHEN r.assign_prev IS NOT NULL THEN '${BALES_NONE}' ELSE NULL END
+          FROM unnest($1::text[], $2::text[]) AS x(lk, rk) WHERE r.list_key = x.lk AND r.row_key = x.rk AND r.assign_name = $3`, [L, K, val]);
+      await pool.query(`DELETE FROM mochica_bales_hold h USING unnest($1::text[], $2::text[]) AS x(lk, rk) WHERE h.list_key = x.lk AND h.row_key = x.rk AND h.member = $3`, [L, K, val])
+        .catch((e) => console.warn("[mcToday] 配った印を消せませんでした", e.message));
+      //   MOCHICALL の「かける」に今日の分として出ていたら外す（掛け直しの予定・架電の記録は消さない）
+      await pool.query(`UPDATE mc_call_leads SET today_day = NULL WHERE src = 'bales' AND src_key = ANY($1::text[]) AND today_day IS NOT NULL`, [hd.map((x) => `${x.list_key}|${x.row_key}`)])
+        .catch((e) => console.warn("[mcToday] MOCHICALL の今日の印を外せませんでした", e.message));
+      console.log(`[mcToday] ${val} の手持ちから、BALES の所有者がほかの人の会社を戻しました：${u.rowCount}件`);
+    }
+  }
   const st = await getSettings().catch(() => ({}));
   const mode = TODAY_MODES[(st.mcTodayMode || {})[val]] ? (st.mcTodayMode || {})[val] : "balance";
   const R = TODAY_MODES[mode].r;
@@ -13549,12 +13590,13 @@ async function mcTodayHold(listKey, run_at, col, val, day, rate) {
   // 補充：300件に足りない分を、未割り振り・SF リードから選び方の割合に合わせて配る
   let refilled = 0;
   const need = HOLD_N - H.size;
-  if (need > 0) {
-    const pool0 = (await pool.query(`SELECT ${pick0} FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key = r.list_key AND l.run_at = r.run_at AND l.status IS DISTINCT FROM 'running'
+  if (need > 0 && others) {
+    //   補充の候補から、BALES の所有者がほかの人の会社（未割り振りにした過去失注を含む）を外す。本人が所有者のものは本人だけに配る（2026-11-26 福井さん）
+    const pool0 = (await pool.query(`SELECT ${pick0}, r.data->>$3 AS bo, r.data->>'companyName' AS cn, r.sf->'lead'->>'id' AS lid FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key = r.list_key AND l.run_at = r.run_at AND l.status IS DISTINCT FROM 'running'
         WHERE ${VIS} AND ${canCall} AND (r.list_key <> $1 OR r.run_at = $2) AND (
           (r.list_key = $1 AND ${own} = '')
           OR (l.src = 'sf' AND COALESCE(NULLIF(r.assign_name, '${BALES_NONE}'), '') = '' AND NOT EXISTS (SELECT 1 FROM mochica_bales_handoff h WHERE h.list_key = r.list_key AND h.row_key = r.row_key)))`,
-      [listKey, run_at, col]).catch((e) => { console.warn("[mcToday] 補充の候補を読めませんでした", e.message); return { rows: [] }; })).rows.map(toL).filter((x) => !H.has(x.id));
+      [listKey, run_at, col]).catch((e) => { console.warn("[mcToday] 補充の候補を読めませんでした", e.message); return { rows: [] }; })).rows.filter((x) => !others(x)).map(toL).filter((x) => !H.has(x.id));
     const ordP = (a, b) => b.pv - a.pv || (b.due ? 1 : 0) - (a.due ? 1 : 0) || b.p - a.p || a.lc - b.lc;
     const have = [0, 0, 0]; for (const x of H.values()) have[x.cat]++;
     const got = [], used = new Set();
