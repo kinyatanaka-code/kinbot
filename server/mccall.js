@@ -13,7 +13,7 @@
 // 画面の考え方（ASUMO のレビューと kincall の評価から）：
 //   結果は「どこまで届いたか → 中身」の2段。不在でも受付で聞けたこと（担当者名・在席時間・直通）を残す。
 //   担当者に届かなかった不在は、1〜2営業日あけて前回と違う時間帯に自動で掛け直しに回し、8回続いたら一度休ませる（mccadence.js。解除できる）。記録の取り消しは「元に戻す」で行う。
-import { dbPool, listUsers, approachBanHit, approachBanHitSync, approachBanHitLead, approachBanHitLeadSync, loadApproachBans, listMembers, getSettings, saveSettings, mcBalesToday, mcBalesValues, mcNurtureTargets, BALES_MCU, TODAY_MODES, HOLD_N } from "./db.js";
+import { dbPool, listUsers, approachBanHit, approachBanHitSync, approachBanHitLead, approachBanHitLeadSync, loadApproachBans, listMembers, getSettings, saveSettings, mcBalesToday, mcBalesValues, mcBalesOwnerIndex, mcOwnedByOther, mcNurtureTargets, BALES_MCU, TODAY_MODES, HOLD_N } from "./db.js";
 import { freeBusy, gmailSend, isConnected as googleConnected, createCalendarEvent, deleteCalendarEvent } from "./google.js";
 import { notifyPerson } from "./chat.js";
 import { teamOf, teamLabel, splitFree, slotScore, pickFs } from "./mcteam.js";   // IS と FS のチーム（2026-11-23）
@@ -2342,7 +2342,7 @@ export function registerMcCall(app, deps) {
     //   候補の300件には、リスト管理で優先度を高にした会社を先に入れる（低は後ろ）（2026-11-25 福井さん）
     //   候補を選ぶときも、90日より前に過ぎた予定は「予定なし」と同じに数え、過ぎた予定は最近過ぎたものから選ぶ（rankQueue と同じ決まり。2026-11-25 福井さん）
     const rankOrder = `(next_at IS NOT NULL AND next_at > now() - interval '${STALE_NEXT_DAYS} days') DESC, COALESCE(next_why = $3, false) DESC, COALESCE(prio,2) DESC, next_at DESC NULLS LAST, COALESCE(hot,0) DESC, attempts, id`;
-    const cols = `id, list_id, company, person, hot, attempts, next_at, next_why, last_outcome, cross_from, miss_streak, hearing, gate, phone, info, sf_lead_id, prio, (research_at IS NOT NULL) AS researched`;
+    const cols = `id, list_id, company, person, hot, attempts, next_at, next_why, last_outcome, cross_from, miss_streak, hearing, gate, phone, info, sf_lead_id, prio, src, src_key, (research_at IS NOT NULL) AS researched`;
     // 企業調査が終わった会社を先に出す（架電者が調べなくてよいように）。
     //   調べ終わった会社が足りないときは、まだの会社も後ろに足して出す（「調査中」と出すだけで、かけてよい）。
     //   以前は調べ終わるまで出さなかったので、8人が同時にかけると調べが追いつかず「かける」が空になって待つことがあった（2026-11-23）
@@ -2359,14 +2359,22 @@ export function registerMcCall(app, deps) {
       }
     }
     // アプローチ禁止の会社は順番に出さない（取り込んだあとで禁止になった会社も、ここで毎回はじく）
-    const cand = cand0.filter((r) => !approachBanHitLeadSync(r));
+    // BALES の所有者（kinbot で割り振った担当があればそちら）がほかの人の会社は出さない（2026-11-26 福井さん「所有者が大沢 瑛太の 親和電機株式会社 が
+    //   福井の架電リストに出てきた。BALES の所有者をそのまま MOCHICALL に」）。掛け直し・リストを選んだときの担当なしのリードも、ここで毎回はじく。
+    //   BALES に名前の当たらない管理者は見ない（リストの確かめ・代わりにかけることがあるため）。所有者を読めないときは今までどおり出す（「かける」を止めないため）
+    let ownIdx = null, ownMe = "";
+    try {
+      const bm = await balesMain();
+      if (bm) { ownMe = await todayOwnerOf(u, bm); if (ownMe || !isAdmin(req)) ownIdx = await mcBalesOwnerIndex(bm.listKey, bm.col); }
+    } catch (e) { console.warn("[mccall] BALES の所有者を読めませんでした（所有者で外さずに出します）", e.message); }
+    const cand = cand0.filter((r) => !approachBanHitLeadSync(r) && !mcOwnedByOther(ownIdx, ownMe, r));
     // 掛け直しの約束・時刻が来た掛け直し（tier 0・1）と調べ終わった会社を前に、まだ調べていない会社を後ろに
     //   掛け直し（tier 0・1）より後ろは、優先度 高→中（未設定も中）→低 の順に並べ直す（同じ優先度の中は rankQueue の順のまま）（2026-11-25 福井さん）
     const pv = (r) => (r.tier < 2 ? 9 : r.prio == null ? 2 : Number(r.prio));
     const ranked = rankQueue(cand).map((r, i) => ({ r, i })).sort((a, b) => pv(b.r) - pv(a.r) || a.i - b.i).map((x) => x.r);
     const front = (r) => r.tier < 2 || r.researched;
     // 画面に渡すのは必要な項目だけ（受付で聞いた直通などを、順番の一覧に載せない）
-    const items = [...ranked.filter(front), ...ranked.filter((r) => !front(r))].slice(0, 60).map(({ hearing, gate: _g, phone: _p, info: _i, sf_lead_id: _s, ...x }) => x);
+    const items = [...ranked.filter(front), ...ranked.filter((r) => !front(r))].slice(0, 60).map(({ hearing, gate: _g, phone: _p, info: _i, sf_lead_id: _s, src: _sr, src_key: _sk, ...x }) => x);
     const later = (await P().query(`SELECT count(*) FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL AND next_at > now() AND next_at < $2${tm ? " AND assigned_to = $3" : ""}`, [use, jstAt(new Date(), 23, 59), ...(tm ? [u] : [])])).rows[0].count;
     // 出せる会社が無いときは、残りがどこにあるか（ほかの人の担当・ほかの人が開いている）を返す
     let why = null;

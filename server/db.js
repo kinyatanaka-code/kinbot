@@ -13542,6 +13542,41 @@ async function mcOwnedByOthers(listKey, run_at, col, val) {
   return (x) => (x.list_key === listKey && String(x.bo || "").trim() !== "" && !ownSame(x.bo, val))
     || (!!x.lid && lid.has(String(x.lid).slice(0, 15))) || (!!x.cn && co.has(normCompanyKey(x.cn)));
 }
+// MOCHICALL の「かける」で、ほかの人の会社を出さないための見分け（2026-11-26 福井さん「所有者が大沢 瑛太の 親和電機株式会社 が福井の架電リストに出てきた」）。
+//   今日の100件の補充だけ直しても、「かける」には本人の掛け直し・リストを選んだときの担当なしのリードなども出るため、出す直前の最後の段で見る。
+//   会社の持ち主＝kinbot で割り振った担当（assign_name。未割り振り __none__ は担当なし扱い）、無ければ BALES の所有者。
+//   主のリストの行はその行の持ち主、SF・CSV など主のリスト以外のリードは、同じ会社名・同じ SF リードの主のリストの行の持ち主で見る。
+//   主のリスト全体を読むので、10分は覚えておく（「かける」は1件ごとに呼ばれるため）
+const _ownIdx = new Map();
+export async function mcBalesOwnerIndex(listKey, col) {
+  if (!pool || !listKey || !col) return null;
+  const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return null;
+  const ck = `${listKey}|${col}|${new Date(l.run_at).getTime()}`, c = _ownIdx.get(ck);
+  if (c && Date.now() - c.at < 10 * 60 * 1000) return c.v;
+  //   300件の補充で自動に付いた担当（mochica_bales_hold の auto:）は持ち主に数えない（BALES の所有者を先にする）。管理者が手で割り振った担当だけを生かす
+  await ensureMcHold();
+  const OWN = `CASE WHEN COALESCE(r.assign_name,'') NOT IN ('', '${BALES_NONE}') AND NOT (btrim(COALESCE(r.data->>$3,'')) <> '' AND EXISTS (SELECT 1 FROM mochica_bales_hold h
+      WHERE h.list_key = r.list_key AND h.row_key = r.row_key AND h.member = r.assign_name AND h.src LIKE 'auto:%')) THEN r.assign_name ELSE r.data->>$3 END`;
+  const rows = (await pool.query(`SELECT r.row_key, ${OWN} AS o, r.data->>'companyName' AS cn, r.sf->'lead'->>'id' AS lid FROM mochica_bales_rows r
+      WHERE r.list_key=$1 AND r.run_at=$2 AND btrim(COALESCE(${OWN},'')) <> ''`, [listKey, l.run_at, col])).rows;
+  const row = new Map(), co = new Map(), lid = new Map();
+  const put = (m, k, o) => { if (!k) return; const s = m.get(k) || new Set(); s.add(String(o).replace(/[\s　]+/g, "")); m.set(k, s); };
+  for (const r of rows) { row.set(r.row_key, String(r.o).replace(/[\s　]+/g, "")); put(co, normCompanyKey(r.cn || ""), r.o); if (r.lid) put(lid, String(r.lid).slice(0, 15), r.o); }
+  const v = { listKey, row, co, lid };
+  _ownIdx.clear(); _ownIdx.set(ck, v); return v;
+}
+//   リード1件がほかの人の会社か。me は本人の BALES での名前（空なら、持ち主のいる会社はすべてほかの人の会社）
+export function mcOwnedByOther(idx, me, { src, src_key, company, sf_lead_id } = {}) {
+  if (!idx) return false;
+  const m = String(me || "").replace(/[\s　]+/g, ""), other = (s) => !!s && s.size > 0 && !(m && s.has(m));
+  if (src === "bales" && String(src_key || "").startsWith(idx.listKey + "|")) {
+    const o = idx.row.get(String(src_key).slice(idx.listKey.length + 1));
+    if (o) return o !== m;
+  }
+  if (sf_lead_id && other(idx.lid.get(String(sf_lead_id).slice(0, 15)))) return true;
+  const k = normCompanyKey(company || "");
+  return !!k && other(idx.co.get(k));
+}
 async function mcTodayHold(listKey, run_at, col, val, day, rate) {
   await ensureMcHold();
   // BALES の所有者がほかの人の会社は、本人の手持ちにも補充にも入れない（2026-11-26 福井さん）
