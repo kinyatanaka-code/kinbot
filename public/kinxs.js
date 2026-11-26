@@ -2696,11 +2696,14 @@ function kxStageInfo(x) {
   //   掲載の予定日が過ぎてもまだ掲載していない → 要確認。予定日がまだ先で、2か月（60日）以内に接点がある → オンボーディング中
   const planPast = !!x.usePlanOn && String(x.usePlanOn).slice(0, 10) < today0;
   const touch60 = !!x.lastTouch && x.sinceTouch != null && x.sinceTouch <= 60;
-  if (i < 0) i = pub ? 9 : planPast ? 7 : (x.usePlanOn && touch60) ? 8 : mailDays != null && mailDays >= 60 ? 7 : 6;
+  //   掲載・利用中は、掲載先一覧に URL がある会社だけ（2026-11-26 田中さん「掲載先一覧に URL がない企業はオンボーディング中で、2か月間接点がなかったりしたら要確認に」）
+  //   掲載した印・掲載先（URL なし）・活用の公開掲載だけの会社は、2か月以内に接点があればオンボーディング中、なければ要確認
+  const pubUrl = (x.places || []).some((p) => /^https?:\/\//i.test(String((p && p.url) || "")));
+  if (i < 0) i = pubUrl ? 9 : planPast ? 7 : pub ? (touch60 ? 8 : 7) : (x.usePlanOn && touch60) ? 8 : mailDays != null && mailDays >= 60 ? 7 : 6;
   // 手で決めた段階があれば、それを使う（下げることもできる）
   const mi = /^s[1-9]$/.test(String(x.stageManual || "")) ? Number(String(x.stageManual).slice(1)) : 0;
   if (mi) return { i: mi, auto: i, manual: true, done: done.map((v, j) => j < mi), pub, mailDays, kenSkip, planPast, touch60 };
-  return { i, done, pub, mailDays, kenSkip, planPast, touch60 };
+  return { i, done, pub, pubUrl, mailDays, kenSkip, planPast, touch60 };
 }
 const kxStageOf = (x) => kxStageInfo(x).i;
 // 一覧の会社の下に出す一言（その段で何を待っているか）
@@ -2714,8 +2717,10 @@ function kxStageNote(x, gi) {
   if (gi === 4) return `検収書：${x.kenshuSt || x.kenshu || "未回収"}${x.ksMonth ? `・回収予定 ${Number(x.ksMonth.slice(5))}月` : ""}`;
   if (gi === 5) return `納品メール：${x.mail || "未送付"}`;
   if (gi === 6) return `納品メールから${si.mailDays != null ? `${si.mailDays}日` : "—"}・掲載・利用はまだ確認できていません`;
+  if (gi === 7 && si.pub && !si.pubUrl && !si.planPast) return `掲載先一覧に URL がなく、2か月以上接点がありません（最後の接点 ${x.lastTouch ? `${x.sinceTouch}日前` : "なし"}）`;
   if (gi === 7 && si.planPast) return `掲載の予定日（${String(x.usePlanOn).slice(5, 10).replace("-", "/")}）を過ぎても、掲載・利用が確認できていません`;
   if (gi === 7) return `納品メールから${si.mailDays}日たっても、掲載・利用が確認できていません`;
+  if (gi === 8 && si.pub && !si.pubUrl) return `オンボーディング中（掲載先一覧に URL がまだありません）・最後の接点 ${x.sinceTouch}日前`;
   if (gi === 8) return `オンボーディング中・最後の接点 ${x.sinceTouch}日前・掲載開始の予定 ${x.usePlanOn ? x.usePlanOn.slice(5).replace("-", "/") : "—"}`;
   return `掲載 ${x.publishedOn || "日付なし"}${(x.places || []).length ? `・${x.places.map((p) => p.where).filter(Boolean).slice(0, 2).join("・")}` : ""}`;
 }
@@ -2810,8 +2815,8 @@ async function renderMine(boxArg, opts = {}) {
         // キックオフ未設定と要確認は、1社でもあれば大きく・点滅させて目立たせる（2026-11-25 田中さん「でっかく強調して、ピコピコしてほしい」）
         const n0 = mine.filter(f).length; const hot = (k === "s1" || k === "s7") && n0 > 0;
         // 要確認は、どんな会社かを名前の下に書いておく（2026-11-25 田中さん「要確認のところに定義を」）
-        const def = k === "s7" ? '<small class="mi-def">納品メールから2か月たっても、または掲載の予定日を過ぎても、掲載・利用が確認できていない会社</small>' : k === "s8" ? '<small class="mi-def">掲載の予定日が決まっていて、2か月以内に接点がある会社</small>' : "";
-        return `<button type="button" class="mi-kpi ${st.k === k ? "on" : ""}${hot ? " hot" : ""}" style="--c:${c}" data-mk="${k}" title="${k === "s7" ? "要確認：納品メールから2か月（60日）たっても、または掲載の予定日を過ぎても、掲載・利用が確認できていない会社" : k === "s8" ? "オンボーディング中：掲載の予定日が決まっていて、2か月以内に接点がある会社" : ""}"><span class="l"><i></i><span class="mi-nm">${esc(l)}${def}</span></span><span class="v">${n0}<small>社</small></span>${sub}</button>`; }).join('<span class="mi-arr" aria-hidden="true"><i><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5.5l6.5 6.5L9 18.5"/></svg></i></span>')}</div>
+        const def = k === "s7" ? '<small class="mi-def">納品メールから2か月、または掲載の予定日を過ぎても掲載・利用が確認できない会社。URL なし・2か月接点なしも</small>' : k === "s8" ? '<small class="mi-def">掲載の予定日が決まっている・掲載先一覧に URL がまだない会社で、2か月以内に接点がある</small>' : "";
+        return `<button type="button" class="mi-kpi ${st.k === k ? "on" : ""}${hot ? " hot" : ""}" style="--c:${c}" data-mk="${k}" title="${k === "s7" ? "要確認：納品メールから2か月（60日）たっても、または掲載の予定日を過ぎても、掲載・利用が確認できていない会社。掲載先一覧に URL がなく、2か月接点がない会社も" : k === "s8" ? "オンボーディング中：掲載の予定日が決まっている、または掲載したが掲載先一覧に URL がまだない会社で、2か月以内に接点がある" : ""}"><span class="l"><i></i><span class="mi-nm">${esc(l)}${def}</span></span><span class="v">${n0}<small>社</small></span>${sub}</button>`; }).join('<span class="mi-arr" aria-hidden="true"><i><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5.5l6.5 6.5L9 18.5"/></svg></i></span>')}</div>
       ${st.k === "tk" ? `<div class="mi-h">タスク（ホームと同じもの・期日の近い順）</div><div data-mtk><div class="kx-note">読み込み中…</div></div>`
         : `<div class="mi-h">${esc(cur ? cur[1] : "")}<span class="kx-note">${list.length}社</span></div><div class="mi-list">${list.length ? list.map((x) => `<div class="mi-co" role="button" tabindex="0" data-mopen="${esc(x.id)}">${kxLogoMini(x)}<span class="t"><b>${esc(x.name)}</b><small>${esc(cur[4](x) || "")}</small></span><span class="lb">${esc(x.label)}</span></div>`).join("") : '<div class="kx-empty" style="grid-column:1/-1">ありません</div>'}</div>`}`;
     const wsel = box.querySelector("[data-mwho]"); if (wsel) wsel.addEventListener("change", (e) => { st.who = e.target.value; draw(); });
