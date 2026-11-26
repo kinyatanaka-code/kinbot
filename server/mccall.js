@@ -767,7 +767,21 @@ export function registerMcCall(app, deps) {
       if (!next.WhoId) delete next.WhoId;
       if (!next.WhatId) next.WhatId = l.ConvertedOpportunityId || l.ConvertedAccountId || undefined;
       if (!next.WhatId) delete next.WhatId;
-      return createTask(owner, next);
+      try { return await createTask(owner, next); }
+      catch (e2) {
+        // 商談に付けると、SF のフロー（TODO_作成・編集時）が商談を書き換え、その商談の入力規則
+        //   （例：SS02 なのに初回商談対応者が空）で活動ごと断られる。架電の記録は商談の中身と関係ないので、
+        //   取引先に付け替えて残す。商談の入力漏れは SF の側で直してもらう（2026-11-26 内藤さんの困ったボタン）
+        const m = String(e2.message);
+        if (!/CANNOT_EXECUTE_FLOW_TRIGGER|FIELD_CUSTOM_VALIDATION_EXCEPTION/.test(m) || !/^006/.test(String(next.WhatId || "")) || !l.ConvertedAccountId) throw e2;
+        const rule = (m.match(/FIELD_CUSTOM_VALIDATION_EXCEPTION[:\s]*([^。"\\]{1,80})/) || [])[1] || "入力規則";
+        try {
+          return await createTask(owner, { ...next, WhatId: l.ConvertedAccountId,
+            Description: [next.Description, `（コンバート先の商談に付けると SF の入力規則「${rule}」で断られるため、取引先に付けました）`].filter(Boolean).join("\n") });
+        } catch (e3) {
+          throw new Error(`コンバート先の商談の入力規則「${rule}」で SF に断られました。SF でその商談の足りない項目を入れてから「書き直す」を押してください（${String(e3.message).slice(0, 120)}）`);
+        }
+      }
     }
   }
   async function sfWrite(req, logId) {
