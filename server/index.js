@@ -17322,7 +17322,8 @@ app.get("/api/kinxs/meetings/:id", async (req, res) => {
 // 次回アクションが空か、前に自動で入れたものなら書きかえる。手で入れてあれば「提案」として残す（モーダルで採用できる）
 const KX_FREE_MAIL = /^(gmail|yahoo|ymail|hotmail|outlook|icloud|me|docomo|ezweb|au|softbank|i\.softbank|nifty|biglobe|ocn|so-net)\./i;
 const KX_NA_TYPES = ["電話", "メール", "MTG", "資料送付", "その他"];
-async function kinxsReadNextAction(accountId, { force = false, doneText = "" } = {}) {
+// long：利用スケジュールを探すときは、古いメール・議事録まで読む（2026-11-26 田中さん「要確認の会社の中で、掲載や利用のスケジュールが確定しているところは議事録やメールにあるはず」）
+async function kinxsReadNextAction(accountId, { force = false, doneText = "", long = false } = {}) {
   const { items, mtBy, kickBy, allMeetings } = await kinxsBuild();
   const x = items.find((i) => i.id === accountId);
   if (!x) return { ok: false, reason: "会社が見つかりません" };
@@ -17349,8 +17350,8 @@ async function kinxsReadNextAction(accountId, { force = false, doneText = "" } =
   for (const o of owners) {
     if (!terms.length) break;
     try {
-      const q = `(${terms.join(" OR ")}) newer_than:45d -from:me`;
-      const q2 = `(${terms.join(" OR ")}) newer_than:45d`;
+      const q = `(${terms.join(" OR ")}) newer_than:${long ? 150 : 45}d -from:me`;
+      const q2 = `(${terms.join(" OR ")}) newer_than:${long ? 150 : 45}d`;
       let ths = await gmailSearchThreads(o, q, 3).catch(() => []);
       if (!ths.length) ths = await gmailSearchThreads(o, q2, 3).catch(() => []);
       for (const t of ths.slice(0, 3)) {
@@ -17365,19 +17366,23 @@ async function kinxsReadNextAction(accountId, { force = false, doneText = "" } =
   // 議事録：会社名で照らしたもの＋題名に担当者の名前が入っているもの。いちばん新しい2件（180日まで）
   const byName = names.size ? (allMeetings || []).filter((m) => { const t = String(m.title || "").normalize("NFKC"); return [...names].some((n) => n.length >= 2 && t.includes(n)) && (!coShort || t.includes(coShort.slice(0, 2)) || [...names].some((n) => n.length >= 3 && t.includes(n))); }) : [];
   const mtPool = [...new Map([...(mtBy.get(key) || []), ...(x.formerNames || []).flatMap((f) => mtBy.get(csCoKey(f)) || []), ...byName].map((m) => [m.bot_id, m])).values()];
-  const mts = mtPool.filter((m) => Date.now() - Date.parse(m.created_at) < 180 * 86400000).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 2);
+  const mts = mtPool.filter((m) => Date.now() - Date.parse(m.created_at) < (long ? 365 : 180) * 86400000).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, long ? 4 : 2);
   const minutes = [];
   for (const m0 of mts) {
     const m = await getMeeting(m0.bot_id).catch(() => null); const sm = (m && m.summary) || {};
     const acts = (Array.isArray(sm.action_items) ? sm.action_items : []).map((a) => typeof a === "string" ? a : [a.task || a.item || a.text || "", a.owner ? `（${a.owner}）` : "", a.due ? `〜${a.due}` : ""].join(""));
     minutes.push(`【議事録 ${new Date(m0.created_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}】${m0.title || ""}\n概要：${sm.overview || ""}\nやること：${acts.join("／")}`);
   }
+  // 回収MTGで聞いた公開予定と、議事録のまとめの「公開（目標）」も材料にする（利用スケジュールを見つけるため）
+  if (k && k.fields && k.fields.公開予定時期 && k.fields.公開予定時期 !== "未確認") minutes.push(`【回収MTGで聞いた公開予定】${k.fields.公開予定時期}（${String(k.meeting_at || "").slice(0, 10)}）`);
+  { const pg = ((r.mtg_summary || {}).schedule || []).find((y) => /公開/.test(y.name || "")); if (pg && pg.date) minutes.push(`【議事録のまとめの公開（目標）】${pg.date}`); }
   await kinxsUpdate(accountId, { na_scan_at: new Date().toISOString() }, "kinXs").catch(() => {});
   if (!mails.length && !minutes.length) return { ok: false, reason: `直近のメール・議事録が見つかりません（会社名・担当者のメール${emails.size}件・名前${names.size}件で探しました）` };
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 16).replace("T", " ");
   const sys = `あなたはカスタマーサクセスの担当者のアシスタントです。顧客企業とのメールと議事録を読み、その会社のいまの状況（利用目的・活用の状況）と、弊社（ネオキャリア）側が次にやるべきことを1つ決めます。必ずJSONだけを返します。`;
   const user = `今は ${today}（日本時間）です。会社：${x.name}\n\n${[...mails, ...minutes].join("\n\n").slice(0, 12000)}\n\n次のJSONを返してください：
 {"purpose": "この会社がDOC（どこでもオープンカンパニー）を使う目的を30字以内で（例：採用サイト掲載・カジュアル面談）。分からなければ空", "usage": "${KX_USAGE.join("|")} のどれか1つ（公開して使っている＝活用：公開掲載、一部だけ公開＝活用：限定公開、公開の予定がある＝活用予定、使うか考えている＝活用検討中、納品したのに未完了のもの＝発生済み未納品、解約の話＝解約企業、読み取れない＝不明）",
+ "use_plan_on": "掲載（公開）・利用を始める日が、先方と合意して決まっていれば YYYY-MM-DD（月だけなら その月の1日、もう公開・利用を始めているならその日）。『〜を目指す』『検討中』だけで決まっていなければ空", "use_plan_basis": "use_plan_on の根拠（どのメール・議事録の何という言葉か、40字以内）",
  "found": true/false（弊社が次にやることが読み取れたか）, "type": "${KX_NA_TYPES.join("|")}", "at": "YYYY-MM-DDTHH:MM（日時が書いてあれば。日だけなら09:00。書いていなければ文脈から妥当な期日）", "content": "やることを40字以内で（例：打ち合わせの日程候補を3つ送る）", "basis": "根拠を30字以内で（どのメール・議事録か）"}
 先方がやること・もう終わったこと・挨拶だけのメールは次回アクションにしません。${doneText ? `\nなお、弊社は「${String(doneText).slice(0, 80)}」をさきほど済ませました。これと同じことは出さず、そのあとに弊社がやることを選んでください。` : ""}`;
   let ans = null;
@@ -17397,6 +17402,9 @@ async function kinxsReadNextAction(accountId, { force = false, doneText = "" } =
     const who = lastMt && csm.find((c) => c.email === String(lastMt.owner || "").toLowerCase());
     if (who && who.name && who.name !== r.cs_name) { stPatch.cs_name = who.name; auto0.cs = "議事録"; filled.push("CS担当"); }
   }
+  // 利用スケジュール確定（2026-11-26）：予定日が読み取れたら入れる。手で入れた日は触らない（前に自動で入れた日だけ書きかえる）
+  const up = /^\d{4}-\d{2}-\d{2}$/.test(String(ans.use_plan_on || "")) ? String(ans.use_plan_on) : "";
+  if (up && (!r.use_plan_on || auto0.usePlan) && (r.use_plan_on instanceof Date ? new Date(r.use_plan_on.getTime() + 9 * 3600000).toISOString().slice(0, 10) : String(r.use_plan_on || "").slice(0, 10)) !== up) { stPatch.use_plan_on = up; auto0.usePlan = `${src}：${String(ans.use_plan_basis || "").slice(0, 60)}`; filled.push(`利用スケジュール（${up}）`); }
   if (Object.keys(stPatch).length) { stPatch.info = { ...info0, auto: auto0 }; await kinxsUpdate(accountId, stPatch, "kinXs（自動）"); }
   if (!ans.found || !ans.content) return filled.length ? { ok: true, applied: false, filled } : { ok: false, reason: "次にやることは読み取れませんでした" };
   // 済ませたものと同じ・よく似た内容は入れない（2文字ずつの重なりが5割以上なら同じとみなす）（2026-11-12 復活の直し）
@@ -17419,7 +17427,7 @@ async function kinxsReadNextAction(accountId, { force = false, doneText = "" } =
   return { ok: true, applied: true, suggest: sug, filled: [...filled, "次回アクション"] };
 }
 app.post("/api/kinxs/accounts/:id/read-na", async (req, res) => {
-  try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsReadNextAction(req.params.id, { force: true })); }
+  try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsReadNextAction(req.params.id, { force: true, long: !!(req.body || {}).long })); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 平日の9〜19時、1時間ごとに、読むのが古い順に8社ずつ（解約済み・キャンセルは読まない）
@@ -18832,7 +18840,9 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
     if ("archived" in b) { patch.archived = !!b.archived; patch.archived_at = b.archived ? new Date().toISOString() : null; }
     // 掲載日・キックオフ実施日・検収書（回収予定月・回収日）・請求（要否・状態・予定日）（2026-11-04 久野さんの要望書）
     const dOk = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : null;
-    for (const k2 of ["published_on", "kickoff_on", "kenshu_on", "invoice_date", "use_plan_on"]) if (k2 in b) patch[k2] = dOk(b[k2]);   // use_plan_on＝利用スケジュール確定の日（掲載・利用を始める予定日）（2026-11-26）
+    for (const k2 of ["published_on", "kickoff_on", "kenshu_on", "invoice_date", "use_plan_on"]) if (k2 in b) patch[k2] = dOk(b[k2]);
+    // 利用スケジュールを手で入れた・消したら、自動で入れた印を外す（あとで自動の読み取りに上書きされないように）
+    if ("use_plan_on" in b) { const rowsU = await kinxsList(); const rU = rowsU.find((y) => y.account_id === req.params.id) || {}; const infU = { ...(patch.info || rU.info || {}) }; const auU = { ...(infU.auto || {}) }; if (auU.usePlan) { delete auU.usePlan; patch.info = { ...infU, auto: auU }; } }   // use_plan_on＝利用スケジュール確定の日（掲載・利用を始める予定日）（2026-11-26）
     if ("kenshu_month" in b) patch.kenshu_month = /^\d{4}-\d{2}$/.test(String(b.kenshu_month || "")) ? String(b.kenshu_month) : null;
     if ("invoice_need" in b) patch.invoice_need = b.invoice_need === null ? null : !!b.invoice_need;
     if ("invoice_state" in b) patch.invoice_state = ["発行済み", "未発行"].includes(b.invoice_state) ? b.invoice_state : null;
@@ -35237,7 +35247,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-26b kinXs 段階に「利用スケジュール確定」（利用開始の予定日を入れた会社。要確認にしない）。／2026-11-26help MOCHICALL：「困った」ボタンを MOCHICALL だけのインターン生も送れるように（送り先を /api/mccall/help に。前は /api/dev-notes で 403） ／ 2026-11-26talk MOCHICALL：トークの段階を「受付／採用担当者（ヒヤリング）／採用担当者（アポ取り）」に改名（前の見出しのトークもそのまま読める） ／ 2026-11-26bw MOCHICALL：ヒアリングに ㉖予算検討時期（任意・1月〜12月／未定）を足した ／ 2026-11-26need MOCHICALL：ひと目での採用ニーズを失注理由と採用の数字だけに ／ 2026-11-26pace MOCHICALL：1時間17コール・間隔2分以内の見張りとレポート ／ 2026-11-26freq MOCHICALL：架電画面に架電回数と頻度 ／ 2026-11-26hold MOCHICALL：今日かけるリストを「手持ち300件（未割り振り・SF リードから補充）から、全力でアポ／バランス／コールド育成の割合で100件」に。選び方は管理者がリスト管理のメンバーのカードで決める ／ 2026-11-26mw MOCHICALL：今週は移行期間。昨日の引き継ぎのうちコネクト情報獲得・ジャッジ以外を元に戻せるように（/api/mccall/nurture-handover/revert）、週末の引き継ぎはコネクト情報獲得・ジャッジだけ ／ 2026-11-26akincall 担当者（相手の人）にこちらの社員名が入っていた行を、SFのリードの氏名に直す（取り込みのたびにも直す）。／2026-11-25zn kincall リスト編集：表は最初の500件だけ描いて「さらに表示」（数万件で固まっていた）。／2026-11-25zm kincall リスト編集：たくさんのリストを開くとき、6本ずつ同時に読み込む（何本目まで読めたかも出す）。／2026-11-25zl kincall リスト管理：「すべてのリスト」カード（非表示・アーカイブ・リサイクルも入れたkincallのリストの全部）。／2026-11-25zk kinXs アチコチバース（年間）の更新月＝納品メールを送った月の1年後（手で決めた更新月はそのまま）。／2026-11-25zj kinXs 担当企業の大きな画面：段階7つを横一列に並べ直し（崩れを直した）。／2026-11-25zi kincall リスト管理のメンバーごとの「箱」を取りやめ（元の表示に戻した）。／2026-11-25zg 要確認の行の高さ（指定の強さを直す）。／2026-11-25zf 要確認の行は定義が入る高さを保つ。／2026-11-25ze 担当企業の流れの要確認に定義を書く。／2026-11-25left MOCHICALL：今日かけるリストの「残り」を、今日まだかけていない会社の数にした（かけたらすぐ減る。掛け直し待ちは別に数える）／2026-11-25zd ホームの担当企業：流れの行を枠の高さいっぱいに広げて余白をなくす。／2026-11-25zc kinXs ステージの名前を「済」の形に（キックオフ未設定・設定済・実施済・検収書回収済・納品メール回収済・要確認・掲載・利用中）。オンボーディング中はなくした。／2026-11-25sk MOCHICALL：レポートに「飛ばした」会社の数を出す（飛ばすを押した記録をサーバーに残す。同じ会社は1社） ／ 2026-11-25nh3 MOCHICALL：BALES のジャッジ・コネクト情報・営業フォロー・次回アクションのあるリードを、所有者の担当で MOCHICALL へ引き継ぐ（全部すぐ「かける」に出す）。過ぎた予定は最近過ぎた順、90日より前は予定なし扱い ／ 2026-11-25kc MOCHICALL：ヒアリングの ⑥採用対象で「高卒」を選べるように ／ 2026-11-25zbkinXs：予定名の頭の「Zoom」などを外して会社に議事録をつなぐ（Zoom【ユ/フォ】暁飯島工業 など）。／2026-11-25za kinXs ステージ：キックオフの実施日が入っていれば（今日以前）実施済みとしてすぐ次の段へ。／2026-11-25z ホームの担当企業の下の会社の一覧をなくす。／2026-11-25y kinXs ホームの担当企業：段・納品待ちを押すと会社の一覧をモーダルで。／2026-11-25x kinXs ホームの担当企業：上の3つの数字をやめ、今月・来月の納品待ちを見出しのとなりに。／2026-11-25w kinXs ホームのタスク：期日の札を押すとカレンダーで期日を変えられる。／2026-11-25v 担当企業の流れのキックオフ未設定・要確認を大きく・点滅。／2026-11-25u 要アクションが0社のときは1行だけにする。／2026-11-25t kinXs ホームを作りかえ（案C）：左にタスク（ぜんぶ・期限切れ・今日の数、要アクションを赤い枠で上に固定、タスクの一覧）、右に担当企業・これからの更新（月ごとに縦）・情報不足。／2026-11-25s kinXs 担当企業の流れの先頭を「受注」から「キックオフ未設定」に。／2026-11-25r kinXs：初期費用なしの会社は検収書回収を飛ばす（道のりは「不要（初期なし）」と薄く出す）。／2026-11-25q ステージの判定：10月より前の納品済みは納品メール済み、受注日が無くても先が済めば受注済み、送った日が分からないときは納品日から数える。／2026-11-25p kinXs ステージをそろえる：受注→キックオフ設定→キックオフ実施→検収書回収→納品メール回収→オンボーディング中→要確認（納品メールから2か月・掲載/利用が未確認）→掲載・利用中。担当企業の流れと企業モーダルの道のりの両方で同じ判定。／2026-11-25o kinXs 企業モーダル：議事録のタブをやめ、活動記録の「いまどこ？」の下に議事録・接触の記録・要望をまとめる。／2026-11-25fs MOCHICALL：問い合わせフォームの「送る」が止まったままになるのを直した（1回の上限2分・相手のページを読む処理に待ち時間の上限・送っている間は秒数を出す・確認画面の「検索」「再入力する」を押さない・所在国は「日本」を選ぶ） ／ 2026-11-25n 担当企業の枠の虫めがねのカーソルをやめる。／2026-11-25m kinXs ホームの担当企業から「担当企業へ ›」をなくす（余白で大きく開けるため）。／2026-11-25l 担当企業の大きなモーダルは、ホームの自分／全員と選んでいた数字から始める。／2026-11-25k kinXs ホーム：担当企業の枠の余白を押すと、担当企業の画面を大きくモーダルで出す。／2026-11-25j kinXs：VR だけの会社の企業IDは VR の URL の .aticoti の前（polus.aticoti.com → polus）。／2026-11-25sg MOCHICALL：メール・問い合わせフォームの名乗りを「株式会社ネオキャリアの福井です」の形に／送る人ごとの署名（自分の署名・名乗り）／問い合わせフォームは署名から会社名・電話を入れ、自動で決められない必須の欄（クイズなど）は画面で答えて送れる ／ 2026-11-25i MOCHICALL 検討時期待ち：SF の検討開始時期・架電で聞いた検討時期が2か月より先の会社は「かける」に出さない（情報が1年以上前ならかける。人と約束した掛け直しは出す）。リスト管理に「検討時期待ち」の絞り込み。／2026-11-25talkmap MOCHICALL：リスト管理に「リストとトークの対応」を足し、リストごとのトーク A/B/C に、ほかのリストのトークを写して差し替え・外しができるように／2026-11-25i 拡張機能 2.2.34：DOC の AI の管理画面「ユーザー管理」を開くと、一覧のメール・企業ID・権限を kinXs に送る。kinXs の企業情報「AIの管理者のログイン情報」に、その会社のユーザーのメールを出す（押すとコピー）。パスワードは管理画面にも出ないので出さない。／2026-11-25talkmap MOCHICALL：リスト管理に「リストとトークの対応」を足し、リストごとのトーク A/B/C に、ほかのリストのトークを写して差し替え・外しができるように";
+const BUILD_TAG = "2026-11-26c kinXs メール・議事録から利用スケジュール（利用開始の予定日）を読み取る。／2026-11-26b kinXs 段階に「利用スケジュール確定」（利用開始の予定日を入れた会社。要確認にしない）。／2026-11-26help MOCHICALL：「困った」ボタンを MOCHICALL だけのインターン生も送れるように（送り先を /api/mccall/help に。前は /api/dev-notes で 403） ／ 2026-11-26talk MOCHICALL：トークの段階を「受付／採用担当者（ヒヤリング）／採用担当者（アポ取り）」に改名（前の見出しのトークもそのまま読める） ／ 2026-11-26bw MOCHICALL：ヒアリングに ㉖予算検討時期（任意・1月〜12月／未定）を足した ／ 2026-11-26need MOCHICALL：ひと目での採用ニーズを失注理由と採用の数字だけに ／ 2026-11-26pace MOCHICALL：1時間17コール・間隔2分以内の見張りとレポート ／ 2026-11-26freq MOCHICALL：架電画面に架電回数と頻度 ／ 2026-11-26hold MOCHICALL：今日かけるリストを「手持ち300件（未割り振り・SF リードから補充）から、全力でアポ／バランス／コールド育成の割合で100件」に。選び方は管理者がリスト管理のメンバーのカードで決める ／ 2026-11-26mw MOCHICALL：今週は移行期間。昨日の引き継ぎのうちコネクト情報獲得・ジャッジ以外を元に戻せるように（/api/mccall/nurture-handover/revert）、週末の引き継ぎはコネクト情報獲得・ジャッジだけ ／ 2026-11-26akincall 担当者（相手の人）にこちらの社員名が入っていた行を、SFのリードの氏名に直す（取り込みのたびにも直す）。／2026-11-25zn kincall リスト編集：表は最初の500件だけ描いて「さらに表示」（数万件で固まっていた）。／2026-11-25zm kincall リスト編集：たくさんのリストを開くとき、6本ずつ同時に読み込む（何本目まで読めたかも出す）。／2026-11-25zl kincall リスト管理：「すべてのリスト」カード（非表示・アーカイブ・リサイクルも入れたkincallのリストの全部）。／2026-11-25zk kinXs アチコチバース（年間）の更新月＝納品メールを送った月の1年後（手で決めた更新月はそのまま）。／2026-11-25zj kinXs 担当企業の大きな画面：段階7つを横一列に並べ直し（崩れを直した）。／2026-11-25zi kincall リスト管理のメンバーごとの「箱」を取りやめ（元の表示に戻した）。／2026-11-25zg 要確認の行の高さ（指定の強さを直す）。／2026-11-25zf 要確認の行は定義が入る高さを保つ。／2026-11-25ze 担当企業の流れの要確認に定義を書く。／2026-11-25left MOCHICALL：今日かけるリストの「残り」を、今日まだかけていない会社の数にした（かけたらすぐ減る。掛け直し待ちは別に数える）／2026-11-25zd ホームの担当企業：流れの行を枠の高さいっぱいに広げて余白をなくす。／2026-11-25zc kinXs ステージの名前を「済」の形に（キックオフ未設定・設定済・実施済・検収書回収済・納品メール回収済・要確認・掲載・利用中）。オンボーディング中はなくした。／2026-11-25sk MOCHICALL：レポートに「飛ばした」会社の数を出す（飛ばすを押した記録をサーバーに残す。同じ会社は1社） ／ 2026-11-25nh3 MOCHICALL：BALES のジャッジ・コネクト情報・営業フォロー・次回アクションのあるリードを、所有者の担当で MOCHICALL へ引き継ぐ（全部すぐ「かける」に出す）。過ぎた予定は最近過ぎた順、90日より前は予定なし扱い ／ 2026-11-25kc MOCHICALL：ヒアリングの ⑥採用対象で「高卒」を選べるように ／ 2026-11-25zbkinXs：予定名の頭の「Zoom」などを外して会社に議事録をつなぐ（Zoom【ユ/フォ】暁飯島工業 など）。／2026-11-25za kinXs ステージ：キックオフの実施日が入っていれば（今日以前）実施済みとしてすぐ次の段へ。／2026-11-25z ホームの担当企業の下の会社の一覧をなくす。／2026-11-25y kinXs ホームの担当企業：段・納品待ちを押すと会社の一覧をモーダルで。／2026-11-25x kinXs ホームの担当企業：上の3つの数字をやめ、今月・来月の納品待ちを見出しのとなりに。／2026-11-25w kinXs ホームのタスク：期日の札を押すとカレンダーで期日を変えられる。／2026-11-25v 担当企業の流れのキックオフ未設定・要確認を大きく・点滅。／2026-11-25u 要アクションが0社のときは1行だけにする。／2026-11-25t kinXs ホームを作りかえ（案C）：左にタスク（ぜんぶ・期限切れ・今日の数、要アクションを赤い枠で上に固定、タスクの一覧）、右に担当企業・これからの更新（月ごとに縦）・情報不足。／2026-11-25s kinXs 担当企業の流れの先頭を「受注」から「キックオフ未設定」に。／2026-11-25r kinXs：初期費用なしの会社は検収書回収を飛ばす（道のりは「不要（初期なし）」と薄く出す）。／2026-11-25q ステージの判定：10月より前の納品済みは納品メール済み、受注日が無くても先が済めば受注済み、送った日が分からないときは納品日から数える。／2026-11-25p kinXs ステージをそろえる：受注→キックオフ設定→キックオフ実施→検収書回収→納品メール回収→オンボーディング中→要確認（納品メールから2か月・掲載/利用が未確認）→掲載・利用中。担当企業の流れと企業モーダルの道のりの両方で同じ判定。／2026-11-25o kinXs 企業モーダル：議事録のタブをやめ、活動記録の「いまどこ？」の下に議事録・接触の記録・要望をまとめる。／2026-11-25fs MOCHICALL：問い合わせフォームの「送る」が止まったままになるのを直した（1回の上限2分・相手のページを読む処理に待ち時間の上限・送っている間は秒数を出す・確認画面の「検索」「再入力する」を押さない・所在国は「日本」を選ぶ） ／ 2026-11-25n 担当企業の枠の虫めがねのカーソルをやめる。／2026-11-25m kinXs ホームの担当企業から「担当企業へ ›」をなくす（余白で大きく開けるため）。／2026-11-25l 担当企業の大きなモーダルは、ホームの自分／全員と選んでいた数字から始める。／2026-11-25k kinXs ホーム：担当企業の枠の余白を押すと、担当企業の画面を大きくモーダルで出す。／2026-11-25j kinXs：VR だけの会社の企業IDは VR の URL の .aticoti の前（polus.aticoti.com → polus）。／2026-11-25sg MOCHICALL：メール・問い合わせフォームの名乗りを「株式会社ネオキャリアの福井です」の形に／送る人ごとの署名（自分の署名・名乗り）／問い合わせフォームは署名から会社名・電話を入れ、自動で決められない必須の欄（クイズなど）は画面で答えて送れる ／ 2026-11-25i MOCHICALL 検討時期待ち：SF の検討開始時期・架電で聞いた検討時期が2か月より先の会社は「かける」に出さない（情報が1年以上前ならかける。人と約束した掛け直しは出す）。リスト管理に「検討時期待ち」の絞り込み。／2026-11-25talkmap MOCHICALL：リスト管理に「リストとトークの対応」を足し、リストごとのトーク A/B/C に、ほかのリストのトークを写して差し替え・外しができるように／2026-11-25i 拡張機能 2.2.34：DOC の AI の管理画面「ユーザー管理」を開くと、一覧のメール・企業ID・権限を kinXs に送る。kinXs の企業情報「AIの管理者のログイン情報」に、その会社のユーザーのメールを出す（押すとコピー）。パスワードは管理画面にも出ないので出さない。／2026-11-25talkmap MOCHICALL：リスト管理に「リストとトークの対応」を足し、リストごとのトーク A/B/C に、ほかのリストのトークを写して差し替え・外しができるように";
 const BUILD_FEATURES = [
   "MOCHICALL：ヒアリングに ㉖予算検討時期（任意）を追加",
   "MOCHICALL：ひと目での採用ニーズを、失注理由と採用の数字だけに抜き出して表示（AI なし）",
