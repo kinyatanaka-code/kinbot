@@ -7704,7 +7704,7 @@ async function nmFetch() {
     fetch("/api/calls/crosslost-members?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()).catch(() => null),
     fetch("/api/calls/nurture-summary?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()).then((d) => { if (d && d.ok) _nmNur = { total: d.total || 0, week: d.week || 0, byMember: d.byMember || {} }; }).catch(() => null),
   ]);
-  if (sg && !sg.error) _nmStage = { archive: Number(sg.archive || 0), recycle: Number(sg.recycle || 0), crosslost: Number(sg.crosslost || 0) };
+  if (sg && !sg.error) _nmStage = { archive: Number(sg.archive || 0), recycle: Number(sg.recycle || 0), crosslost: Number(sg.crosslost || 0), all: sg.all || {} };
   if (clm && clm.byMember) _nmCrosslost = clm.byMember || {};
   const _all = (d.items || []).filter((x) => !NM_EX.includes(String(x.owner || "").toLowerCase()));
   _nmLists = _all.filter((x) => !x.hidden);          // 件数・カードは表示中のリストだけで数える
@@ -8386,6 +8386,14 @@ function nmRenderCards() {
       const zanE = ev.reduce((s0, x) => s0 + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0);
       return `<button type="button" class="nm-card nm-allcard nm-everycard" data-owner="__every__" title="非表示にしたリストも含めた、kincall にあるリストの全部"><div class="nm-card-name">すべてのリスト</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zanE.toLocaleString()}</span></div><div class="nm-card-sub">${ev.length} リスト（表示 ${_nmLists.length}・非表示 ${_nmHiddenLists.length}）</div></button>`;
     })()}<button type="button" class="nm-card nm-allcard" data-owner="__all__"><div class="nm-card-name">全リスト</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zanA.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nurA.toLocaleString()}・${allLs.length} リスト</div>${_nmRates && _nmRates.byCaller ? `<div class="nm-rates">${nmRatePill(Object.values(_nmRates.byCaller).reduce((s, o) => ({ calls: s.calls + Number((o && o.calls) || 0), apos: s.apos + Number((o && o.apos) || 0) }), { calls: 0, apos: 0 }), "全体のアポ率（直近3か月・全員）")}</div>` : ""}</button>${_nmTree ? _nmTree.map((f) => f.name === "リサイクル" ? nmSpecialCard("recycle", "リサイクル", _nmStage.recycle, "ステージ＝リサイクル（全体）") : f.name === "アーカイブ" ? nmSpecialCard("archive", "アーカイブ", _nmStage.archive, "ステージ＝アーカイブ・使われていない番号（全体）") : nmTypeCardHtml(f)).join("") : ""}</div></div>`;
+    // ステージ別（すべてのリストから）（2026-11-26 田中さん「ステージ別のリストを作りたい。かける（ステージが空白・-・NEW・担当者未接触・コネクト情報獲得・ジャッジ）、リサイクル、アーカイブ。すべてのリストから」）
+    //   押すと、そのステージのリードを1つの表で開く（リストそのものは動かさない）
+    { const sa = _nmStage.all || {};
+      html += `<div class="nm-sec"><div class="nm-sec-h">ステージ別<span class="nm-sec-sub" style="font-weight:500;color:#6b857b;font-size:11px;margin-left:8px">すべてのリスト（非表示も含む）から</span></div><div class="nm-grid">`
+        + nmSpecialCard("kakeru", "かける", sa.kakeru, "ステージが空白・-・NEW・担当者未接触・コネクト情報獲得・ジャッジ")
+        + nmSpecialCard("recycle", "リサイクル", sa.recycle, "ステージ＝リサイクル")
+        + nmSpecialCard("archive", "アーカイブ", sa.archive, "ステージ＝アーカイブ・使われていない番号")
+        + `</div></div>`; }
     if (!_nmTree) nmLoadTree().then(() => { if (!_nmSel && _nmMode !== "group") nmRenderCards(); });   // 全リストの隣のリストの種類（2026-11-08）
   }
   if (!_nmShift || _nmShiftDay !== nmTodayStr()) nmLoadShift();
@@ -8672,6 +8680,7 @@ function nmRenderSpecial(body) {
     recycle: { name: "リサイクル", vid: "recycle" },
     archive: { name: "アーカイブ", vid: "archive" },
     crosslost: { name: "クロス失注", vid: "crosslost" },
+    kakeru: { name: "かける（ステージ別）", vid: "kakeru" },
   }[_nmSel.key];
   if (!info) { body.innerHTML = '<div class="empty-state">表示できませんでした</div>'; return; }
   const member = _nmSel.member || "";

@@ -4548,6 +4548,8 @@ export async function addCallTargets(listId, items = [], { dedupe = false, takeO
 // 全メンバーのリストをまとめて返す（リスト整理タブのプルダウン用）。
 // アーカイブ／リサイクルの実データ件数（どのリストにあっても、ステージ/ステータスで横断集計）。
 // かける画面の「アーカイブ／リサイクル（まとめ）」と同じ考え方。
+// 「かける」ステージ（2026-11-26 田中さん「ステージ別のリスト。かける＝ステージが空白・-・NEW・担当者未接触・コネクト情報獲得・ジャッジ」）
+export const KAKERU_STAGE_SQL = `(btrim(COALESCE(t.stage,'')) IN ('', '-', '－', 'ー', '―') OR COALESCE(t.stage,'') ILIKE '%NEW%' OR COALESCE(t.stage,'') ~ '担当者未接触|コネクト情報獲得|ジャッジ')`;
 export async function stageSummaryCounts() {
   if (!pool) return { archive: 0, recycle: 0 };
   try {
@@ -4559,7 +4561,17 @@ export async function stageSummaryCounts() {
          FROM call_targets t JOIN call_lists l ON l.id = t.list_id
         WHERE NOT COALESCE(l.closed, false) AND NOT COALESCE(l.hidden, false)`);
     const r = rows[0] || {};
-    return { archive: Number(r.archive || 0), recycle: Number(r.recycle || 0), crosslost: Number(r.crosslost || 0) };
+    // すべてのリスト（非表示のリストも含む）でのステージ別の件数（2026-11-26）
+    const { rows: ra } = await pool.query(
+      `SELECT
+         count(*) FILTER (WHERE ${KAKERU_STAGE_SQL}) AS kakeru,
+         count(*) FILTER (WHERE COALESCE(t.stage,'') ILIKE '%リサイクル%') AS recycle,
+         count(*) FILTER (WHERE COALESCE(t.stage,'') ILIKE '%アーカイブ%' OR COALESCE(t.status,'') ~ '現在使われて|現アナ|欠番|不通|使われていない番号') AS archive
+         FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+        WHERE NOT COALESCE(l.closed, false)`).catch(() => ({ rows: [{}] }));
+    const a = ra[0] || {};
+    return { archive: Number(r.archive || 0), recycle: Number(r.recycle || 0), crosslost: Number(r.crosslost || 0),
+      all: { kakeru: Number(a.kakeru || 0), recycle: Number(a.recycle || 0), archive: Number(a.archive || 0) } };
   } catch (e) { console.error("[db] stageSummaryCounts", e.message); return { archive: 0, recycle: 0, crosslost: 0 }; }
 }
 
@@ -4703,7 +4715,8 @@ export async function listStageTargets(keyword, { q = "", limit = 2000, statusMa
   if (!pool || !keyword) return [];
   try {
     const p = [`%${keyword}%`];
-    let stageOr = `COALESCE(t.stage,'') ILIKE $1`;
+    //   keyword が "__kakeru__" のときは「かける」ステージ（空白・-・NEW・担当者未接触・コネクト情報獲得・ジャッジ）
+    let stageOr = keyword === "__kakeru__" ? `(${KAKERU_STAGE_SQL} AND $1::text IS NOT NULL)` : `COALESCE(t.stage,'') ILIKE $1`;
     // ステージだけでなく、指定したステータス（例：現在使われていない）も「その仮想ビュー」に含める
     for (const k of statusMatch) { p.push(`%${k}%`); stageOr += ` OR COALESCE(t.status,'') ILIKE $${p.length}`; }
     // ステータスに関係なく含めたい架電先（例：SFのクロス失注商談と会社名が一致したもの）
