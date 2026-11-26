@@ -38,7 +38,7 @@
     d: null, cache: new Map(), f: null, notices: [], ni: 0, toast: null, busy: false, mounted: false, src: null, reps: null, ldBack: null };
   let memoEl = null;
   const CALL_TOOLS = [["mccTalk", "スクリプトを見る"], ["mccWork", "ヒアリングを入力"], ["mccMemoPanel", "架電メモを書く"]];
-  const blankForm = () => ({ step: "reach", reach: "", outcome: "", reason: "", apoAt: "", apoWho: "", nextAt: "", nextLabel: "", noRetry: false, memo: "", gate: { name: "", hours: "", direct: "", biz: "" }, hearing: {}, memoHearing: {}, editedNeed: new Set(), phone: "", dialed: false, picks: {}, person: false, talkManual: null, tool: "mccTalk", hearingPage: 0 });
+  const blankForm = () => ({ step: "reach", reach: "", outcome: "", reason: "", apoAt: "", apoWho: "", nextAt: "", nextLabel: "", noRetry: false, memo: "", gate: { name: "", hours: "", direct: "", biz: "" }, hearing: {}, memoHearing: {}, editedNeed: new Set(), phone: "", dialed: false, dialAt: 0, picks: {}, person: false, talkManual: null, tool: "mccTalk", hearingPage: 0 });
 
   // MOCHICA は Zoom Phone で架電する決まりなので、いつも Zoom アプリで発信する
   // （kinbot の Zoom 連携の状態を読む API は、インターンのアカウントでは開けないため見ない）
@@ -156,10 +156,34 @@
   async function loadStats() {
     try { const j = await api("/api/mccall/stats"); const m = j.me;
       // 今日の数字は3つだけ（項目が多くて「コ/ール」と縦に崩れていた。SF 項目はレポート、時間帯は数字タブで見る。2026-11-23 福井さん）
-      $("mccStats").innerHTML = `<span><b>${m.calls}</b>コール</span><span title="担当者と話せた"><b>${m.person}</b>話せた</span><span class="apo"><b>${m.apo}</b>アポ</span>`; S.allStats = j.all;
+      $("mccStats").innerHTML = `<span><b>${m.calls}</b>コール</span><span title="担当者と話せた"><b>${m.person}</b>話せた</span><span class="apo"><b>${m.apo}</b>アポ</span><span class="mcc-pace" id="mccPace"></span>`; S.allStats = j.all;
+      S.pace = j.pace ? { ...j.pace, hour: jstHour() } : null; paceTick();
       S.sf = j.sf || null; drawNotices();
     } catch { $("mccStats").innerHTML = `<span>今日の数字を読めませんでした</span>`; }
   }
+  // 1時間17コール・間隔2分以内（2026-11-26 福井さん「各メンバーのコール数を徹底できるように」）。
+  //   上の数字の横に「この時台のコール数／17」と「記録してから何分たったか」を出し、2分を超えたら赤くする。
+  //   間隔は前の記録 → 次の「かける」で、通話中は数えない（話している人を急かさないため）。30分を超えたら休憩として数えない。
+  //   数え方は server/mcpace.js と同じ。2分超えが続くと管理者に Chat が届く（サーバー側）
+  const jstHour = () => new Date(Date.now() + 9 * 3600e3).getUTCHours();
+  const mmss = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
+  function paceTick() {
+    const el = $("mccPace"), P = S.pace; if (!el || !P) return;
+    const h = jstHour(); if (P.hour !== h) { P.hour = h; P.hourCalls = 0; }   // 時が変わったら0から（次の読み直しで正しい数になる）
+    const hc = P.hourCalls;
+    const left = Math.max(0, P.target - hc), minLeft = 60 - new Date(Date.now() + 9 * 3600e3).getUTCMinutes();
+    const t = P.today || {}; const okRate = t.n ? Math.round(t.ok / t.n * 100) : null;
+    const hrTitle = `${h}時台のコール ${hc}本（目標 ${P.target}本）${left ? `。あと${left}本・この時台の残り${minLeft}分` : "。目標に届きました"}${okRate != null ? `
+今日の間隔：2分以内 ${t.ok}／${t.n}回（${okRate}%）・中央値 ${mmss(t.med || 0)}` : ""}`;
+    let gap = "";
+    const since = P.lastAt ? (Date.now() - Date.parse(P.lastAt)) / 1000 : null;
+    if (S.f && S.f.dialed) gap = `<i class="call">通話中</i>`;
+    else if (since == null || since < 0) gap = "";
+    else if (since > P.breakSec) gap = `<i class="rest" title="前の記録から30分を超えたので、休憩として間隔に数えていません">休憩中</i>`;
+    else gap = `<i class="${since > P.gapSec ? "over" : "ok"}" title="前の記録からの時間。2分以内に次の「かける」を押します">${since > P.gapSec ? "2分超え " : "次まで "}${mmss(since)}</i>`;
+    el.innerHTML = `<span class="hr ${hc >= P.target ? "done" : ""}" title="${esc(hrTitle)}"><b>${hc}</b>/${P.target}<small>${h}時台</small></span>${gap}`;
+  }
+  setInterval(paceTick, 1000);
   async function loadQueue(openFirst) {
     try {
       const j = await api(`/api/mccall/queue${S.listId ? `?list=${S.listId}` : ""}`); const items = j.items || [];
@@ -366,10 +390,16 @@
 
   // ひと目で：採用ニーズ・検討時期・前回までの架電（2026-11-18 福井さん「架電時に調べなくても一目でわかるように」）
   //   ニーズと時期は SF の項目＋過去の記録の文から見つけた1文（出どころと日付つき）。無ければ「まだ聞けていない」と聞くことを促す
+  // 採用ニーズの抜き出し（server/mcneed.js）：失注理由は1行で目立たせ、採用の数字は「見出し 値」を詰めて並べる（2026-11-26 福井さん「超見にくい」）
+  function digHtml(arr) {
+    const a = arr || []; const lost = a.find(([k]) => k === "失注理由"); const facts = a.filter(([k]) => k !== "失注理由");
+    return [lost ? `<div class="mcc-gl-lost"><small>失注理由</small>${esc(lost[1])}</div>` : "",
+      facts.length ? `<div class="mcc-gl-facts">${facts.map(([k, v]) => `<span><small>${esc(k)}</small>${esc(v)}</span>`).join("")}</div>` : ""];
+  }
   function glanceHtml(d) {
     const g = d.glance || {};
     const row = (lbl, x, ask) => { x = x || {}; const h = x.hit; const st = (x.kb && x.kb.length) || (x.sf && x.sf.length) || (h && h.st === "あり") ? "ok" : h && h.st === "なし" ? "no" : "yet";
-      const body = [x.kb && x.kb.length ? `<div><small>架電で聞いた${x.by ? ` ${esc(day(x.by.at))} ${esc(x.by.who)}` : ""}</small>${x.kb.map(([k, v]) => k === "採用ニーズ" || k === "検討時期" ? esc(v) : `${esc(k.replace("説明会・面接の参加人数", "説明会・面接の参加"))} ${esc(v)}`).join("／")}</div>` : "", ...(x.sf || []).map(([k, v]) => `<div><small>SF ${esc(k)}</small>${esc(v)}</div>`),
+      const body = [x.kb && x.kb.length ? `<div><small>架電で聞いた${x.by ? ` ${esc(day(x.by.at))} ${esc(x.by.who)}` : ""}</small>${x.kb.map(([k, v]) => k === "採用ニーズ" || k === "検討時期" ? esc(v) : `${esc(k.replace("説明会・面接の参加人数", "説明会・面接の参加"))} ${esc(v)}`).join("／")}</div>` : "", ...(x.dig ? digHtml(x.sf) : (x.sf || []).map(([k, v]) => `<div><small>SF ${esc(k)}</small>${esc(v)}</div>`)),
         h ? `<div><small>${esc(h.src)}${h.at ? ` ${esc(day(h.at))}` : ""}${h.who ? ` ${esc(h.who)}` : ""}${h.st === "なし" ? "（無いと言われた）" : ""}</small>「${esc(h.why)}」</div>` : ""].join("");
       return `<div class="mcc-gl-row ${st}"><b>${lbl}</b><div>${body || `<span class="mcc-gl-yet">まだ聞けていません。${ask}</span>`}</div></div>`; };
     // 前回までの架電は、中央の「前回」と右の「これまで」と同じ中身なので、ここには出さない（2026-11-23 福井さん）
@@ -459,7 +489,7 @@
         <span class="rate">${p.invalid ? "使えない番号" : p.n ? `${p.n}回中 ${p.reached}回つながった` : "まだかけていない"}</span></a>`).join("")}` : ""}
       ${sfRows.length ? `<h3>SF のリード</h3>${kv(sfRows.map(([k, v]) => [nk[k] || k, v]))}` : ""}
       ${L.src === "csv" ? (Object.keys(data).length ? `<details class="mcc-more"><summary>CSV の列（取り込んだままの中身）</summary>${kv(Object.entries(data).slice(0, 30))}</details>` : "") : bales.length ? `<h3>${L.src === "doc" ? "DOC のリスト" : "Bales"}</h3>${kv(bales)}` : ""}`;
-    $("mccLeft").querySelectorAll("[data-ph]").forEach((a) => a.addEventListener("click", () => { S.f.phone = a.dataset.ph; S.f.dialed = true; loadSlots(); setTimeout(() => { drawLeft(); drawCenter(); drawTalk(); drawWork(); }, 0); }));
+    $("mccLeft").querySelectorAll("[data-ph]").forEach((a) => a.addEventListener("click", () => { S.f.phone = a.dataset.ph; S.f.dialed = true; S.f.dialAt = S.f.dialAt || Date.now(); loadSlots(); setTimeout(() => { drawLeft(); drawCenter(); drawTalk(); drawWork(); }, 0); }));
     $("mccEdit").addEventListener("click", editDialog);
     const st = $("mccLst"); if (st) st.addEventListener("change", () => changeStatus(st.value));
     const sn = $("mccSfNew"); if (sn) sn.addEventListener("click", sfNewDialog);
@@ -757,7 +787,7 @@
       ${P === "person" ? "" : `<div class="mcc-sum"><small>前回</small>${d.summary ? esc(d.summary) : d.blind ? "このリストは過去の履歴を伏せています（あなたの記録はまだありません）" : "この会社に kinbot から架電した記録はまだありません"}${nxSummaryHtml(d)}</div>`}
       ${P === "person" ? "" : planHtml(d)}
       <div class="mcc-callrow">
-        ${f.dialed ? `<a class="mcc-dialed" href="${callHref(ph)}" title="切れたときは、押すともう一度かけます">${ICO.phone}${esc(ph)} に発信しました</a>` : ph ? `<a class="mcc-btn primary big" href="${callHref(ph)}" id="mccDial" aria-keyshortcuts="C">${ICO.phone}${esc(ph)} にかける<span class="mcc-key" style="background:rgba(255,255,255,.18);color:#fff;border-color:transparent">C</span></a>` : `<span class="mcc-note">電話番号がありません</span>`}
+        ${f.dialed ? `<a class="mcc-dialed" id="mccRedial" href="${callHref(ph)}" title="切れたときは、2回押すともう一度かけます">${ICO.phone}<span>${esc(ph)} に発信しました</span></a>` : ph ? `<a class="mcc-btn primary big" href="${callHref(ph)}" id="mccDial" aria-keyshortcuts="C">${ICO.phone}${esc(ph)} にかける<span class="mcc-key" style="background:rgba(255,255,255,.18);color:#fff;border-color:transparent">C</span></a>` : `<span class="mcc-note">電話番号がありません</span>`}
         ${f.dialed ? "" : `<button class="mcc-btn" id="mccSkip" aria-keyshortcuts="S">${ICO.skip}飛ばす<span class="mcc-key">S</span></button>`}
         <button class="mcc-btn" id="mccDoc">${ICO.mail}資料を送る</button>
       </div>
@@ -807,7 +837,15 @@
     if (showSlots && !S.slots) loadSlots();
     $("mccRec").addEventListener("click", record);
     // 発信したら受付の段階へ。日程の候補もこの時点で裏で読んでおく（担当者につながったらすぐ出せるように）
-    const dial = $("mccDial"); if (dial) dial.addEventListener("click", () => { S.f.phone = ph; if (!S.f.dialed) { S.f.dialed = true; S.f.talkManual = null; loadSlots(); setTimeout(() => { drawCenter(); drawTalk(); drawWork(); }, 0); } });
+    const dial = $("mccDial"); if (dial) dial.addEventListener("click", () => { S.f.phone = ph; if (!S.f.dialed) { S.f.dialed = true; S.f.dialAt = Date.now(); paceTick(); S.f.talkManual = null; loadSlots(); setTimeout(() => { drawCenter(); drawTalk(); drawWork(); }, 0); } });
+    // 発信ずみの表示は、1回押しただけではかけない（話している最中にうっかり押すと、もう1本かかってしまったため）。
+    // 1回目で「もう一度押すとかけ直します」に変え、4秒以内にもう一度押したときだけかけ直す。
+    const redial = $("mccRedial"); if (redial) { let armT = 0; redial.addEventListener("click", (e) => {
+      if (redial.classList.contains("armed")) { clearTimeout(armT); redial.classList.remove("armed"); return; }
+      e.preventDefault(); redial.classList.add("armed"); const lbl = redial.querySelector("span"), was = lbl.textContent;
+      lbl.textContent = "切れていたら、もう一度押すとかけ直します";
+      armT = setTimeout(() => { redial.classList.remove("armed"); lbl.textContent = was; }, 4000);
+    }); }
     const apo = $("mccApo"); if (apo) { apo.addEventListener("input", () => {
       S.f.apoAt = apo.value; S.f.apoWho = ""; S.f.apoOther = false;
       $("mccApoWho")?.remove();
@@ -1546,7 +1584,7 @@
     const gate = { name: f.gate.name || (L.gate && L.gate.name) || "", hours: f.gate.hours || (L.gate && L.gate.hours) || "", direct: f.gate.direct || (L.gate && L.gate.direct) || "", biz: f.gate.biz || (L.gate && L.gate.biz) || "" };
     const body = { reach: f.reach, outcome: f.outcome, reason: f.reason, apoWho: f.outcome === "apo" ? f.apoWho : "", memo: f.memo, phone: f.phone || L.phone, gate, noRetry: f.noRetry, hearing: f.reach === "person" ? hearingBody() : null,
       nextAt: f.nextAt || null, apoAt: f.apoAt ? new Date(f.apoAt).toISOString() : null,
-      talkId: S.d.talk ? S.d.talk.id : null, inbound: isInbound(L.id) ? S.inbound.id : null, sfPick: f.picks };
+      talkId: S.d.talk ? S.d.talk.id : null, dialAt: f.dialAt || null, inbound: isInbound(L.id) ? S.inbound.id : null, sfPick: f.picks };
     try {
       const j = await post(`/api/mccall/leads/${L.id}/log`, body);
       ls.del(memoKey(L.id));   // 記録に入ったので書きかけは消す
@@ -1556,6 +1594,7 @@
       toast(`記録しました：${company} ${what}${apoTx}${j.nextAt ? ` → ${tm(j.nextAt)} に掛け直し` : ""}`, { undo: j.logId });
       // アポの警告（FS に知らせが届かない など）は、次の会社を開いても消えないように持っておく（drawNotices で上に出す）
       if (ap && ap.warn && ap.warn.length) { S.apoWarn = { at: Date.now(), items: ap.warn.map((t) => `${company}のアポ：${t}`) }; drawNotices(); }
+      if (S.pace) { S.pace.lastAt = new Date().toISOString(); S.pace.hourCalls++; paceTick(); }   // 記録した瞬間から次の発信までを数え始める（読み直しを待たない）
       loadStats(); S.busy = false;
       setTimeout(loadStats, 8000);   // SF への書き込みは記録のあとで行うので、少し待って書けたかを確かめ直す
       // 次の会社を開いたあとも、記録のたびに読み直す（今日かけるリストの「残り」をすぐ減らすため。
@@ -2105,6 +2144,33 @@
     const res = $("mccRres"); if (!T.calls && !T.skipped) { res.innerHTML = ""; return; }
     const dayLbl = (k) => { const x = new Date(`${k}T00:00:00`); return isNaN(x) ? k : `${x.getMonth() + 1}/${x.getDate()}（${"日月火水木金土"[x.getDay()]}）`; };
     const lbl = (r) => (j.by === "day" ? dayLbl(r.label) : r.label);
+    // 時間ごとのコール数（2026-11-26 福井さん「1時間17コール・間隔2分以内を徹底。毎時間の進み具合をレポートから」）。
+    //   管理者は人ごと（2日以上の期間は、その時台にかけた日の1日あたりの平均）、かける人は自分の日ごと
+    const paceCard = (pc) => {
+      if (!pc) return "";
+      const G = pc.target || {}; const tgt = G.perHour || 17;
+      if (pc.tooLong) return `<div class="mcc-card"><h2>時間ごとのコール数</h2><p class="mcc-note">時間ごとは31日までの期間で出します。期間を短くしてください。</p></div>`;
+      if (!pc.rows || !pc.rows.length) return "";
+      const hs = []; for (let h = pc.hourFrom; h <= pc.hourTo; h++) hs.push(h);
+      const gp = (g) => (g && g.n ? `${Math.round(g.ok / g.n * 100)}%` : "—");
+      const cell = (r, h, lo, hi) => { const c = r.cells[h]; if (!c) return `<td class="h"></td>`;
+        const multi = r.days > 1, v = multi ? c.avg : c.n;
+        const edge = !multi && Object.keys(r.cells).length > 2 && (h === lo || h === hi);
+        const cls = v >= tgt ? "hit" : v >= tgt * 0.7 ? "mid" : "low";
+        return `<td class="h ${cls}${edge ? " edge" : ""}" title="${h}時台：${multi ? `${c.n}本を${c.d}日で（1日あたり ${c.avg}本）` : `${c.n}本`}${edge ? "。その日の最初か最後の時台なので、届いたかの割合には入れていません" : ""}">${multi ? c.avg : c.n}${multi ? `<small>${c.d}日</small>` : ""}</td>`; };
+      const row = (r) => { const ks = Object.keys(r.cells).map(Number); const lo = Math.min(...ks), hi = Math.max(...ks); const g = r.gap || {};
+        return `<tr><td>${esc(pc.by === "day" ? dayLbl(r.label) : r.label)}</td>${hs.map((h) => cell(r, h, lo, hi)).join("")}
+          <td class="num">${r.calls}</td><td class="num ${r.perHour != null && r.perHour < tgt ? "bad" : ""}">${r.perHour ?? "—"}</td><td class="num">${r.full ? `${r.hit}／${r.full}` : "—"}</td>
+          <td class="num ${g.med > (G.gapSec || 120) ? "bad" : ""}">${g.med != null ? mmss(g.med) : "—"}</td><td class="num">${gp(g)}</td><td class="num ${g.over ? "bad" : ""}">${g.over ?? 0}</td><td class="num">${g.breaks ?? 0}</td></tr>`; };
+      const T2 = pc.total;
+      return `<div class="mcc-card"><h2>時間ごとのコール数（目標 1時間${tgt}本・間隔 2分以内）</h2>
+        ${T2 ? `<p class="mcc-note">全体：1時間あたり <b>${T2.perHour ?? "—"}本</b>・${tgt}本に届いた時台 <b>${T2.hit}／${T2.full}</b>・間隔が2分以内 <b>${gp(T2.gap)}</b>（中央値 ${T2.gap && T2.gap.med != null ? mmss(T2.gap.med) : "—"}・2分超え ${T2.gap ? T2.gap.over : 0}回）</p>` : ""}
+        <div class="mcc-tblwrap"><table class="mcc-tbl mcc-hgrid"><thead><tr><th>${pc.by === "day" ? "日" : "名前"}</th>${hs.map((h) => `<th class="num">${h}時</th>`).join("")}
+          <th class="num">コール</th><th class="num" title="かけた時台1つあたりのコール数">1時間あたり</th><th class="num" title="その日の最初と最後の時台を除いた時台のうち、${tgt}本以上かけた時台">${tgt}本に届いた時台</th>
+          <th class="num" title="記録してから次の「かける」を押すまで">間隔の中央値</th><th class="num">2分以内</th><th class="num">2分超え</th><th class="num" title="30分より空いたもの。間隔には入れていません">休憩</th></tr></thead>
+          <tbody>${pc.rows.map(row).join("")}</tbody></table></div>
+        <p class="mcc-note" style="margin-top:8px">${pc.by === "user" && j.days > 1 ? "時台の数字は、その時台にかけた日の1日あたりの平均です（小さい字はかけた日数）。" : ""}間隔は「記録してから次の『かける』を押すまで」で、通話中の時間は入れません（2026-11-26 から測っています）。30分より空いたものは休憩として数えません。その日の最初と最後の時台（薄い色）は途中から・途中までなので、届いたかの割合に入れていません。リストの絞り込みはかけていません。2分超えが${G.alertStreak || 3}回続くと、管理者に Chat が届きます。</p></div>`;
+    };
     const maxCalls = Math.max(...j.rows.map((r) => r.calls), 1);
     // コールの数は細い線でも出す（人・日を上から下へ見比べやすいように）。合計の行には引かない
     const callTd = (r, sum) => `<td class="num bar">${sum ? "" : `<i style="width:calc((100% - 16px) * ${(r.calls / maxCalls).toFixed(3)})"></i>`}${r.calls}</td>`;
@@ -2120,7 +2186,7 @@
     const rank = (title, arr) => { if (!arr || !arr.length) return ""; const mx = Math.max(...arr.map((r) => r.n), 1);
       return `<div><h3>${title}</h3>${arr.map((r) => `<div class="mcc-rk"><span title="${esc(r.k)}">${esc(r.k)}</span><i><u style="width:${Math.round(r.n / mx * 100)}%"></u></i><b>${r.n}</b></div>`).join("")}</div>`; };
     const ranks = rank("受付で断られた文句", j.gateReasons) + rank("担当者に断られた理由", j.reasons) + rank("聞けて SF に入れた項目", j.fields);
-    res.innerHTML = `${j.rows.length ? `<div class="mcc-card">
+    res.innerHTML = `${paceCard(j.pace)}${j.rows.length ? `<div class="mcc-card">
         <div class="mcc-chead"><h2>内訳</h2>
           <div class="mcc-chips" role="group" aria-label="分け方">${bys.map(([v, l]) => `<button class="mcc-chip" data-by="${v}" aria-pressed="${RP.by === v}">${l}</button>`).join("")}</div>
           <span class="mcc-sp"></span>

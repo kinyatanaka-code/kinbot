@@ -220,6 +220,25 @@ await t("飛ばす → 記録が残り、レポートの「飛ばした」に同
   assert.equal(day.rows.reduce((a, r) => a + r.skipped, 0), 1);
   await q(`DELETE FROM mc_call_skips`);
 });
+await t("コールのペース：記録→次の発信の間隔を測り、今日の数字とレポートの時間ごとに出す（2026-11-26）", async () => {
+  // 3本記録して、記録の時刻と発信の時刻を並べ直す：1本目 → 3分後に発信（2分超え）→ 1分後に発信（2分以内）
+  const ids = (await call(I1, "GET", "/api/mccall/queue")).items.slice(0, 3).map((x) => x.id);
+  const logs = [];
+  for (const id of ids) { await call(I1, "GET", `/api/mccall/leads/${id}?lock=1`); logs.push((await call(I1, "POST", `/api/mccall/leads/${id}/log`, { reach: "none", outcome: "no_answer", talkId: TALK, sfPick: {}, dialAt: Date.now() })).logId); }
+  const base = Date.now() - 30 * 60e3;
+  const set = (i, rec, dial) => q(`UPDATE mc_call_logs SET created_at=$2, dialed_at=$3 WHERE id=$1`, [logs[i], new Date(base + rec), dial == null ? null : new Date(base + dial)]);
+  await set(0, 60e3, 0); await set(1, 5 * 60e3, 60e3 + 180e3); await set(2, 7 * 60e3, 5 * 60e3 + 60e3);
+  const st = await call(I1, "GET", "/api/mccall/stats");
+  assert.ok(st.pace && st.pace.target === 17 && st.pace.gapSec === 120, JSON.stringify(st.pace));
+  assert.deepEqual({ n: st.pace.today.n, ok: st.pace.today.ok, over: st.pace.today.over }, { n: 2, ok: 1, over: 1 });
+  const rep = await call(A, "GET", "/api/mccall/report?by=user");
+  const me1 = rep.pace.rows.find((r) => r.key === I1);
+  assert.ok(me1 && me1.calls === 3 && me1.gap.n === 2 && me1.gap.over === 1, JSON.stringify(rep.pace));
+  const mine = await call(I1, "GET", "/api/mccall/report?by=day");
+  assert.equal(mine.pace.by, "day"); assert.equal(mine.pace.rows.length, 1);
+  for (const id of logs) await call(A, "POST", `/api/mccall/logs/${id}/undo`);
+  for (const id of ids) await q(`UPDATE mc_call_leads SET locked_by=NULL WHERE id=$1`, [id]);
+});
 await t("メールで登録：名前で当たらない人（Raia Naito）は、内藤さんの行にメールを登録するとインターンになる", async () => {
   assert.equal((await call(ROMAJI.email, "GET", "/api/mccall/queue")).why.kind, "notIntern");
   const ppl = await call(A, "GET", "/api/mccall/people");

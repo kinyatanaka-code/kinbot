@@ -137,6 +137,10 @@
 .mcc-gl-row small{display:block;font-size:11px;color:var(--c-muted);font-weight:700;}
 .mcc-gl-row>div>div+div{margin-top:4px;}
 .mcc-gl-row .r{font-weight:800;} .mcc-gl-row .m{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-line;color:var(--c-ink);}
+.mcc-gl-lost{padding:4px 8px;border-radius:8px;background:#FBF3E6;color:#7a4a00;font-size:12.5px;}
+.mcc-gl-lost small{color:#a15c00 !important;}
+.mcc-gl-facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:4px 10px;}
+.mcc-gl-facts span{font-size:12.5px;color:var(--c-ink);word-break:break-all;}
 .mcc-gl-yet{color:var(--c-warn);font-weight:700;font-size:12.5px;}
 
 /* マイナビの中身は「見出し 値」を詰めて並べる（ひと目でが縦に伸びすぎないように）（2026-11-18） */
@@ -426,6 +430,7 @@
 .mcc-dialed{display:inline-flex;align-items:center;gap:6px;flex:1 1 auto;font-size:13px;font-weight:800;color:var(--c-deep);text-decoration:none;}
 .mcc-dialed svg{width:16px;height:16px;}
 .mcc-dialed:hover{text-decoration:underline;}
+.mcc-dialed.armed{color:#b45309;}
 /* 企業調査の見出しに出どころを並べ、会社の基本と CSV の生データはたたむ */
 .mcc-research h3 small{font-weight:700;color:var(--c-muted);font-size:10.5px;margin-left:8px;}
 .mcc-more{margin-top:6px;font-size:12.5px;}
@@ -603,3 +608,21 @@
 .mcc-find-row small{font-size:11px;color:var(--c-muted);}
 .mcc-sum-nx{margin-top:6px;padding-top:6px;border-top:1px dashed var(--c-line);font-weight:600;color:var(--c-ink);}
 .mcc-sum-nx small{display:inline-block;margin:0 6px 0 0;color:#0d5b47;}
+/* 1時間17コール・間隔2分以内（2026-11-26 福井さん）：今の時台のコール数と、記録してからの時間。2分を超えたら赤く */
+.mcc-pace{display:inline-flex;gap:8px;align-items:baseline;padding-left:12px;border-left:1px solid var(--c-line);}
+.mcc-pace .hr small{margin-left:4px;font-size:11px;color:var(--c-muted);}
+.mcc-pace .hr.done b{color:var(--c-accent);}
+.mcc-pace i{font-style:normal;font-size:12px;font-weight:800;border-radius:8px;padding:2px 8px;font-variant-numeric:tabular-nums;}
+.mcc-pace i.ok{background:var(--c-soft);color:var(--c-deep);}
+.mcc-pace i.over{background:#fde8e8;color:#b42318;animation:mccPaceBlink 1.2s ease-in-out infinite;}
+.mcc-pace i.call{background:var(--c-soft);color:var(--c-deep);}
+.mcc-pace i.rest{background:#f1f1f1;color:#888;}
+@keyframes mccPaceBlink{50%{opacity:.55;}}
+/* レポートの「時間ごと」：目標に届いた時は緑、届かない時は薄い赤。濃さはコール数 */
+.mcc-hgrid td.h{text-align:center;font-variant-numeric:tabular-nums;min-width:36px;}
+.mcc-hgrid td.h.hit{background:#CFEFF2;color:var(--c-deep);font-weight:800;}
+.mcc-hgrid td.h.mid{background:#fff4dc;color:#7a5200;}
+.mcc-hgrid td.h.low{background:#fde8e8;color:#b42318;}
+.mcc-hgrid td.h.edge{opacity:.6;}
+.mcc-hgrid td.h small{display:block;font-size:10px;font-weight:400;color:var(--c-muted);}
+.mcc-hgrid .bad{color:#b42318;font-weight:800;}

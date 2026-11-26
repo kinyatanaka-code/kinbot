@@ -21,6 +21,7 @@ import { fixMojibake } from "./docs.js";
 import { pastApproach, balesItems, dedupeTimeline, startZoomSync, spokenText, spokenData } from "./mchist.js";   // リードの過去アプローチを BALES・SF・Zoom Phone・DOC から集める（2026-11-20）
 import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord, sfUpdateMany, connectionInfo as sfConnInfo, describeObject, sfCreateRecord, sfUserIdByEmail } from "./salesforce.js";
 import { judgeHot } from "./mchot.js";
+import { needDigest, looksTemplate } from "./mcneed.js";   // ひと目での採用ニーズを、失注理由と採用の数字だけにする（2026-11-26 福井さん）
 import { lookupMynaviFree } from "./mcresearch.js";   // マイナビの調べも AI・有料の検索を使わない（2026-11-20 福井さん）
 import { showableResearch, CHECK_V, STALE_DAYS } from "./mcfresh.js";   // 企業調査は今の募集と確かめた採用情報だけを画面に出す（2026-11-23）   // マイナビの調べも AI・有料の検索を使わない（2026-11-20 福井さん）
 
@@ -31,6 +32,7 @@ import { pickLeadStages, stageOf, stageCode, normCode, autoStage, LEAD_STAGES } 
 import { segOf, SEG_V, SF_LEAD_FIELDS, sfLeadRow, balesCarry, sfLeadWhere } from "./mcseg.js";
 import { ensurePlay, talkForLead, activeTalks, saveTalks, listsWithTalk, measures, researchGate, researchSoon, researchState, inboundFor, inboundAllows, startPlayPumps, TALK_LABELS } from "./mcplay.js";
 import { CADENCE, BENCH, WHY_HUMAN, jstDayStart, jstAt, nextMissAt, hourRates, slotNow, rankQueue, STALE_NEXT_DAYS } from "./mccadence.js";
+import { PACE, gapStats, hourStats, overStreak, mmss } from "./mcpace.js";   // 1時間17コール・間隔2分以内（2026-11-26 福井さん）
 import { planFromBales, MAX_AGE_H } from "./mcbalessync.js";   // BALES でかけた結果で「かける」の順番を変える（2026-11-25）
 import { FILL_APIS, FILL_SOQL_FIELDS, readMemo, readInputs, planFills, pickedFields, hiresBucket } from "./mcsffill.js";
 import { formRun } from "./mcform.js";   // 問い合わせフォームの自動送信（2026-11-20）
@@ -192,6 +194,8 @@ async function ensure() {
     //   いまあるリストはすべて MOCHICA のまま。記録にも、かけたときの商材を残す（あとで商材ごとに数えられるように）
     await q(`ALTER TABLE mc_call_lists ADD COLUMN IF NOT EXISTS product TEXT NOT NULL DEFAULT 'mochica'`);
     await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS product TEXT`);
+    // 「かける」を押した時刻（2026-11-26 福井さん「コールとコールの間隔は2分以内」）。前の記録からここまでを間隔として測る（server/mcpace.js）
+    await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS dialed_at TIMESTAMPTZ`);
     // リスト管理の「今日かけるリスト」から「かける」を出す（2026-11-23 福井さん）。today_src＝その入れ先のリスト（1本だけ。閉じると今までの出し方に戻る）、
     //   today_day＝そのリードがだれかの今日かけるリストに入った日（日本時間の YYYY-MM-DD）
     await q(`ALTER TABLE mc_call_lists ADD COLUMN IF NOT EXISTS today_src BOOLEAN NOT NULL DEFAULT false`);
@@ -1079,6 +1083,59 @@ export function registerMcCall(app, deps) {
     res.json({ ok: true, total, page, items: rows.map((r) => ({ ...r, outcome: outcomeLabel(r.last_outcome), assigned: r.assigned_to ? names.get(r.assigned_to) || r.assigned_to : "" })) });
   }));
 
+  // ---- コールのペース（2026-11-26 福井さん「1時間17コール・間隔2分以内を徹底。毎時間の進み具合をレポートで」） ----
+  //   数え方は server/mcpace.js。間隔＝前の記録 → 次の「かける」（dialed_at）。同じ人・同じ日（日本時間）の中だけで測る
+  const gapSql = (w) => `SELECT g.caller, to_char(g.created_at AT TIME ZONE 'Asia/Tokyo','YYYY-MM-DD') AS day, g.created_at,
+      EXTRACT(EPOCH FROM g.dialed_at - lag(g.created_at) OVER (PARTITION BY g.caller, (g.created_at AT TIME ZONE 'Asia/Tokyo')::date ORDER BY g.created_at, g.id)) AS gap
+    FROM mc_call_logs g WHERE ${w}`;
+  // レポートの「時間ごと」。リストの絞り込みはかけない（リストをまたいで続けてかけた間隔も、その人の間隔なので）。
+  //   管理者は人ごと（2日以上なら1日あたりの平均）、ほかの人は自分の日ごと。間隔の数を全部返すので、長すぎる期間は出さない
+  async function paceReport(req, from, to, names) {
+    if (to - from > 31 * 86400e3) return { tooLong: true, target: PACE };
+    const p = [from, to]; let w = "NOT g.undone AND g.created_at >= $1 AND g.created_at < $2";
+    if (!isAdmin(req)) { p.push(me(req)); w += ` AND g.caller=$${p.length}`; }
+    const cells = (await P().query(`SELECT g.caller, to_char(g.created_at AT TIME ZONE 'Asia/Tokyo','YYYY-MM-DD') AS day, EXTRACT(HOUR FROM g.created_at AT TIME ZONE 'Asia/Tokyo')::int AS h, count(*)::int AS n
+      FROM mc_call_logs g WHERE ${w} GROUP BY 1,2,3`, p)).rows;
+    const gaps = (await P().query(`SELECT caller, day, array_agg(round(gap)::int) FILTER (WHERE gap IS NOT NULL) AS gaps FROM (${gapSql(w)}) x GROUP BY 1,2`, p)).rows;
+    const byPerson = isAdmin(req);
+    const keyOf = (r) => (byPerson ? String(r.caller || "").toLowerCase() : r.day);
+    const groups = new Map();
+    const grp = (k) => { if (!groups.has(k)) groups.set(k, { cells: [], gaps: [] }); return groups.get(k); };
+    for (const c of cells) grp(keyOf(c)).cells.push(c);
+    for (const g of gaps) grp(keyOf(g)).gaps.push(...(g.gaps || []));
+    const hours = cells.map((c) => c.h);
+    const row = (k, G) => {
+      // 1つの時に、何日ぶんの記録があるか（2日以上なら平均を出す）
+      const per = new Map();
+      for (const c of G.cells) { const x = per.get(c.h) || { n: 0, d: 0 }; x.n += c.n; x.d++; per.set(c.h, x); }
+      const days = new Set(G.cells.map((c) => c.day)).size;
+      return { key: k, label: byPerson ? names.get(k) || k : k, days, ...hourStats(G.cells), gap: gapStats(G.gaps),
+        cells: Object.fromEntries([...per].map(([h, x]) => [h, { n: x.n, d: x.d, avg: Math.round(x.n / x.d * 10) / 10 }])) };
+    };
+    const rows = [...groups].map(([k, G]) => row(k, G)).sort((a, b) => (byPerson ? b.calls - a.calls : String(a.key).localeCompare(String(b.key))));
+    const all = { cells: cells, gaps: gaps.flatMap((g) => g.gaps || []) };
+    return { target: PACE, by: byPerson ? "user" : "day", hourFrom: hours.length ? Math.min(...hours) : 9, hourTo: hours.length ? Math.max(...hours) : 18,
+      total: rows.length > 1 ? { ...hourStats(all.cells), gap: gapStats(all.gaps) } : null, rows };
+  }
+  // 2分超えが続いた人を管理者に Chat で知らせる（2026-11-26 福井さん：画面で赤く出すのに加えて、管理者にも）。
+  //   記録のたびに、その人の今日の直近の間隔を見るだけ（自動で回る処理は増やさない）。同じ人は PACE.alertEveryMin 分に1回まで。
+  //   覚えはサーバーの中だけ（再起動で消える。そのときは1回多く届くことがあるだけ）
+  const _paceAlerted = new Map();
+  async function paceAlert(u) {
+    const last = _paceAlerted.get(u); if (last && Date.now() - last < PACE.alertEveryMin * 60e3) return;
+    const rows = (await P().query(`SELECT gap FROM (${gapSql("NOT g.undone AND g.caller=$1 AND g.created_at >= $2")}) x ORDER BY created_at DESC LIMIT $3`, [u, jstDayStart(), PACE.alertStreak + 1])).rows;
+    const gaps = rows.map((r) => (r.gap == null ? null : +r.gap));
+    const n = overStreak(gaps); if (n < PACE.alertStreak) return;
+    _paceAlerted.set(u, Date.now());
+    const hc = +(await P().query(`SELECT count(*) AS n FROM mc_call_logs WHERE NOT undone AND caller=$1 AND created_at >= date_trunc('hour', now())`, [u])).rows[0].n;
+    const names = await nameMap(); const who = names.get(u) || u;
+    const hour = new Date(Date.now() + 9 * 3600e3).getUTCHours();
+    const text = `⏱ *コールの間隔が2分を超えています（MOCHICALL）*\n${who}さん：記録してから次にかけるまでが ${mmss(PACE.gapSec)} を超えた間隔が ${n}回続いています（直近 ${gaps.slice(0, n).map(mmss).join("・")}）。\n${hour}時台のコール ${hc}／${PACE.perHour}\n手が止まっていないか、声をかけてください。`;
+    const to = (deps.adminEmails ? await deps.adminEmails().catch(() => []) : []).map((x) => String(x).toLowerCase()).filter((x) => x.includes("@") && x !== u);
+    for (const e of to) await notifyPerson(e, text).catch(() => {});
+    console.log(`[mccall] 間隔の知らせ：${who} 2分超え${n}回 → 管理者${to.length}人`);
+  }
+
   // ---- レポート（期間・人・リスト・日ごと）（2026-11-18 福井さん。BALES のレポートのかわり） ----
   //   数えるのは SHOBO で記録した架電だけ（Bales で記録した過去の架電は入らない）。取り消した記録は数えない。
   //   管理者は全員分、ほかの人は自分の分だけ
@@ -1129,7 +1186,8 @@ export function registerMcCall(app, deps) {
     const names = await nameMap();
     const lists = by === "list" ? new Map((await P().query(`SELECT id::text AS id, name FROM mc_call_lists`)).rows.map((r) => [r.id, r.name])) : null;
     const label = (k) => by === "user" ? names.get(String(k || "").toLowerCase()) || k : by === "list" ? lists.get(k) || `リスト ${k}` : k;
-    res.json({ ok: true, by, from, to, all: isAdmin(req), days: Math.round(span / 86400e3), prev: { ...num(prev), skipped: skipPrev }, total: { ...num(tot), ...ftot, invalid: [...inv.values()].reduce((a, b) => a + b, 0), skipped: skipTot }, reasons, gateReasons, fields,
+    const pace = await paceReport(req, from, to, names);
+    res.json({ ok: true, by, from, to, all: isAdmin(req), days: Math.round(span / 86400e3), pace, prev: { ...num(prev), skipped: skipPrev }, total: { ...num(tot), ...ftot, invalid: [...inv.values()].reduce((a, b) => a + b, 0), skipped: skipTot }, reasons, gateReasons, fields,
       rows: rows.map((r) => ({ key: r.k, label: label(r.k), ...num(r), ...fx(r.k) })).sort((a, b) => by === "day" ? 0 : b.calls - a.calls) });
   }));
 
@@ -2530,14 +2588,19 @@ export function registerMcCall(app, deps) {
       const L = (sf && sf.lead) || {};
       const sfv = (labels) => labels.map((k) => [k, String(L[k] ?? "").trim()]).filter(([, v]) => v);
       const hit = (key) => {
-        for (const t of tl) { const s = spokenText(t); if (!s) continue; const j = judgeHot({ comment: s }, null)[key]; if (j.st) return { st: j.st, why: j.why, at: t.at, src: t.src, who: t.who || "" }; }
+        for (const t of tl) { const s = spokenText(t); if (!s) continue; const j = judgeHot({ comment: s }, null)[key]; if (j.st) return { st: j.st, why: j.why, at: t.at, src: t.src, who: t.who || "", ...(key === "need" ? { full: s } : {}) }; }
         const d0 = blind ? null : spokenData(lead.src, data); if (!d0) return null;
         const j = judgeHot(d0, null)[key]; return j.st ? { st: j.st, why: j.why, at: null, src: lead.src === "doc" ? "DOC" : "Bales", who: "" } : null;
       };
       // 架電で聞いたヒアリングをいちばん上に（いちばん新しく、本人から聞いた値なので）
       const H = lead.hearing || {}; const kv = (arr) => arr.filter(([, v]) => v != null && v !== "").map(([k, v]) => [k, String(v)]);
       const by = H.at ? { at: H.at, who: names.get(String(H.by || "").toLowerCase()) || H.by || "" } : null;
-      return { need: { kb: kv([["採用ニーズ", H.need], ["採用目標人数", H.target != null ? `${H.target}名` : ""], ["接触人数", H.contact != null ? `${H.contact}名` : ""]]), by, sf: sfv(["顧客の課題感", "顧客の現状", "採用人数(選択リスト)", "利用中ATS"]), hit: hit("need") },
+      // 採用ニーズ：SF の「顧客の現状」をそのまま出すと連絡先・日程まで入って読めないので、失注理由と採用の数字だけを抜き出す（mcneed.js）。
+      //   根拠の1文が商談メモの型を切ったもの（「■…・採用目標人数:20…」）なら、その元の本文からも同じように抜き出して、切れた文は出さない
+      const nh = hit("need"); const tmpl = nh && looksTemplate(nh.why);
+      const dig = needDigest(L, tmpl ? nh.full : "");
+      const needHit = nh && !(tmpl && dig.length) ? { st: nh.st, why: nh.why, at: nh.at, src: nh.src, who: nh.who } : null;
+      return { need: { kb: kv([["採用ニーズ", H.need], ["採用目標人数", H.target != null ? `${H.target}名` : ""], ["接触人数", H.contact != null ? `${H.contact}名` : ""]]), by, sf: dig, dig: true, hit: needHit },
         when: { kb: kv([["次卒の選考開始", H.when]]), by, sf: sfv(["検討開始時期", "現利用サービス更新予定月"]), hit: hit("when") } };
     })();
     for (const t of tl) delete t.memo;
@@ -2987,6 +3050,8 @@ export function registerMcCall(app, deps) {
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,(SELECT COALESCE(product,'mochica') FROM mc_call_lists WHERE id=$2)) RETURNING id, created_at`,
       [id, lead.list_id, u, clip(b.phone || lead.phone, 40), reach, outcome, reason || null, gate, clip(b.memo, 2000) || null, nextAt, apoAt, lead.cross_from, prev])).rows[0];
     if (outcome === "apo" && b.apoWho) await P().query(`UPDATE mc_call_logs SET apo_who=$2 WHERE id=$1`, [log.id, clip(b.apoWho, 80)]);
+    // 「かける」を押した時刻（間隔を測るため）。パソコンの時計のずれや古い画面の値で変な間隔にならないよう、直近2時間の中だけ受け取る
+    { const t = Number(b.dialAt); if (Number.isFinite(t) && t <= Date.now() + 60e3 && t >= Date.now() - 2 * 3600e3) await P().query(`UPDATE mc_call_logs SET dialed_at=$2 WHERE id=$1`, [log.id, new Date(Math.min(t, Date.now()))]); }
     if (hearing) await P().query(`UPDATE mc_call_logs SET hearing=$2 WHERE id=$1`, [log.id, hearing]);
     // どのトーク（版）で話したか。そのリストのトークのときだけ残す（別のリストのトークと取り違えないため）
     const talkId = parseInt(b.talkId, 10);
@@ -3002,6 +3067,7 @@ export function registerMcCall(app, deps) {
     res.json({ ok: true, logId: log.id, nextAt, why, done, parked: !!parkedAt, apo });
     // SF の活動（リードに付ける）。代理アカウントでも書ける。失敗しても架電の記録は残り、画面の知らせから書き直せる
     sfWrite(req, log.id).catch(() => {});
+    paceAlert(u).catch((e) => console.error("[mccall] 間隔の知らせ", e.message));
   }));
 
   // 元に戻す（記録した本人が15分以内。管理者はいつでも）
@@ -3054,7 +3120,12 @@ export function registerMcCall(app, deps) {
     const sf = (await P().query(`SELECT count(*) FILTER (WHERE ${SF_FAIL}) AS fail, count(*) FILTER (WHERE NOT g.undone AND g.sf_err='nolead') AS nolead, count(*) FILTER (WHERE NOT g.undone AND g.sf_lead_err IS NOT NULL) AS leaderr,
         (array_agg(g.sf_err ORDER BY g.created_at DESC) FILTER (WHERE ${SF_FAIL} AND g.sf_err IS NOT NULL))[1] AS last_err
       FROM mc_call_logs g WHERE g.caller=$1 AND g.created_at >= $2`, [me(req), jstDayStart()])).rows[0];
-    res.json({ ok: true, me: mine, all: isAdmin(req) ? rows.sort((a, b) => b.calls - a.calls) : null, sf: { fail: +sf.fail, nolead: +sf.nolead, leadErr: +sf.leaderr, lastErr: sf.last_err || "" }, slot: slotNow(await ratesNow()) });
+    // 1時間17コール・間隔2分以内（2026-11-26 福井さん）：この時（14時台など）の自分のコール数と、最後に記録した時刻・今日の間隔。
+    //   画面はここから「前の記録から何分たったか」を数え続ける。date_trunc('hour') は日本時間とずれが無い（時差が1時間単位のため）
+    const pz = (await P().query(`SELECT count(*) FILTER (WHERE created_at >= date_trunc('hour', now())) AS hour_calls, max(created_at) AS last_at FROM mc_call_logs WHERE NOT undone AND caller=$1 AND created_at >= $2`, [me(req), jstDayStart()])).rows[0];
+    const tg = gapStats((await P().query(`SELECT gap FROM (${gapSql("NOT g.undone AND g.caller=$1 AND g.created_at >= $2")}) x`, [me(req), jstDayStart()])).rows.map((r) => (r.gap == null ? null : +r.gap)));
+    const pace = { target: PACE.perHour, gapSec: PACE.gapSec, breakSec: PACE.breakSec, hourCalls: +pz.hour_calls, lastAt: pz.last_at, today: tg };
+    res.json({ ok: true, me: mine, pace, all: isAdmin(req) ? rows.sort((a, b) => b.calls - a.calls) : null, sf: { fail: +sf.fail, nolead: +sf.nolead, leadErr: +sf.leaderr, lastErr: sf.last_err || "" }, slot: slotNow(await ratesNow()) });
   }));
 
   // ---- 数字の見方（科学的に確かめる道具）：時間帯ごとのつながりやすさ・直近14日と目安・何回目の架電でアポが取れたか ----
