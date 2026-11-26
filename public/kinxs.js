@@ -3812,7 +3812,7 @@ function kxNowCard(d) {
   const koAt = d.kickoffAt ? md(d.kickoffAt) : "";
   const steps = [
     { k: "受注", ok: si.done[0], sub: info.booked ? `${md(info.booked)} ✓` : "—" },
-    { k: "キックオフ設定", ed: "キックオフ", ok: si.done[1], sub: si.done[1] ? (koAt ? `${koAt}${koOk ? "" : "予定"}` : "✓") : "まだ" },
+    { k: "キックオフ設定", ed: "キックオフ設定", ok: si.done[1], sub: si.done[1] ? (koAt ? `${koAt}${koOk ? "" : "予定"}` : "✓") : "まだ" },
     { k: "キックオフ実施", ed: "キックオフ", ok: si.done[2], sub: si.done[2] ? (koOk && koAt ? `${koAt} ✓` : "✓") : "まだ" },
     { k: "検収書回収", ed: "検収書", ok: si.done[3], skipNote: si.kenSkip ? "不要（初期なし）" : "", sub: si.kenSkip ? "不要（初期なし）" : x.kenshuNa ? "対象外" : si.done[3] ? "✓" : String(x.kenshu || "").startsWith("依頼済み") ? "依頼済み" : "まだ" },
     { k: "納品メール回収", ed: "納品メール", ok: si.done[4], sub: si.done[4] ? (x.mailOn ? `${md(x.mailOn)} ✓` : "✓") : "まだ" },
@@ -3888,11 +3888,14 @@ function kxNowMount(bg) {
   // 道のりの段を押すと、その段を直す欄を開く（2026-11-20 田中さん「この辺が手で直しにくい」）
   const now0 = window.__kxNow || {}; const id0 = now0.id || (bg.querySelector("[data-na-box]") || {}).dataset?.naBox || bg.dataset.kxId;
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
-  const put = async (body, msg) => { try { await api(`/api/kinxs/accounts/${encodeURIComponent(id0)}`, { method: "PUT", body: JSON.stringify(body) }); lsData = null; if (window.kbToast && msg) window.kbToast(msg); openDetail(id0, { bg, tab: "info" }); } catch (e) { alert(`保存できませんでした：${e.message}`); } };
+  //   保存したら、モーダルの段階と、うしろのホーム（担当企業の段階の数）もすぐ描き直す（2026-11-26 田中さん「ボタンを押したらステージが更新されていくように」）
+  const put = async (body, msg) => { try { await api(`/api/kinxs/accounts/${encodeURIComponent(id0)}`, { method: "PUT", body: JSON.stringify(body) }); lsData = null; if (window.kbToast && msg) window.kbToast(msg); await openDetail(id0, { bg, tab: "info" }); if (typeof VIEW !== "undefined" && VIEW === "home") loadHomeV2().catch(() => {}); } catch (e) { alert(`保存できませんでした：${e.message}`); } };
   const edBox = pane.querySelector("[data-step-box]");
   const USAGES = ["活用：公開掲載", "活用：限定公開", "活用予定", "活用検討中", "不明", "発生済み未納品", "解約企業"];
   const edOf = (k, sub) => {
     const row = (inner) => `<div class="kx-a-edh"><b>${esc(k)}を直す</b><button type="button" class="kx-a-sec" data-ed-x>閉じる</button></div><div class="kx-a-edr">${inner}</div>`;
+    // キックオフ設定の段は「設定」で入れる（2026-11-26 田中さん「実施済みではなく設定にしてほしい」）：日付が今日より先なら設定済、今日までなら実施済になる
+    if (k === "キックオフ設定") return row(`<label>キックオフの日 <input type="date" class="kx-in" data-ed-d data-keep-empty value=""></label><button type="button" class="kx-a-pri" data-ed-a="ko-set">この日で設定する</button>${now0.kickoffManual ? '<button type="button" class="kx-a-sec kx-a-del" data-ed-a="ko-clear">手で入れた日を消す</button>' : ""}<div class="kx-note" style="flex-basis:100%">日付が今日より先なら「キックオフ設定済」、今日までなら「キックオフ実施済」に進みます</div>`);
     if (k === "キックオフ") return row(`<label>実施日 <input type="date" class="kx-in" data-ed-d value="${esc((sub.match(/^\d/) ? "" : ""))}"></label><button type="button" class="kx-a-pri" data-ed-a="ko">この日で実施済みにする</button>${now0.kickoffManual ? '<button type="button" class="kx-a-sec kx-a-del" data-ed-a="ko-clear">手で入れた日を消す</button>' : ""}<small>議事録・CS連携から読んだ日より、手で入れた日を使います</small>`);
     if (k === "検収書") return row(`<label>回収日 <input type="date" class="kx-in" data-ed-d value="${today}"></label><button type="button" class="kx-a-pri" data-ed-a="ken-on">この日で回収済みにする</button><button type="button" class="kx-a-sec" data-ed-a="ken-na">対象外にする</button><button type="button" class="kx-a-sec kx-a-del" data-ed-a="ken-undo">未回収に戻す</button>`);
     if (k === "納品メール") return row(`<button type="button" class="kx-a-pri" data-ed-a="mail-done">送付済みにする</button><button type="button" class="kx-a-sec kx-a-del" data-ed-a="mail-undo">未送付に戻す</button>`);
@@ -3907,10 +3910,11 @@ function kxNowMount(bg) {
     pane.querySelectorAll("[data-step-ed]").forEach((o) => o.setAttribute("aria-expanded", "false"));
     if (open) { edBox.hidden = true; return; }
     edBox.dataset.k = k; edBox.innerHTML = edOf(k, (b.querySelector("small") || {}).textContent || ""); edBox.hidden = false; b.setAttribute("aria-expanded", "true");
-    const dIn = edBox.querySelector("[data-ed-d]"); if (dIn && !dIn.value) dIn.value = today;
+    const dIn = edBox.querySelector("[data-ed-d]"); if (dIn && !dIn.value && !dIn.hasAttribute("data-keep-empty")) dIn.value = today;
     edBox.querySelector("[data-ed-x]").addEventListener("click", () => { edBox.hidden = true; b.setAttribute("aria-expanded", "false"); });
     edBox.querySelectorAll("[data-ed-a]").forEach((e1) => e1.addEventListener("click", async () => {
       const a = e1.dataset.edA; const dv = (edBox.querySelector("[data-ed-d]") || {}).value || "";
+      if (a === "ko-set") { if (!dv) return alert("キックオフの日を入れてください"); return put({ kickoff_on: dv }, dv > today ? `キックオフを ${dv.slice(5).replace("-", "/")} に設定しました` : "キックオフを実施済みにしました"); }
       if (a === "ko") { if (!dv) return alert("実施日を入れてください"); return put({ kickoff_on: dv }, "キックオフの実施日を入れました"); }
       if (a === "ko-clear") { if (confirm("手で入れたキックオフの日を消しますか？（議事録・CS連携から読んだ日があれば、それに戻ります）")) return put({ kickoff_on: "" }, "キックオフの日を消しました"); return; }
       if (a === "ken-on") return dv ? put({ kenshu_on: dv, kenshu_na: false }, "検収書を回収済みにしました") : tog("kenshu_done", "true");
