@@ -367,7 +367,7 @@ const kxHasSns = (x) => (x.prodLabels || []).some((t) => KX_SNS_L.includes(t));
 // 納品前の会社か（2026-11-17 田中さん「納品前の企業はタグ付けてほしい」）。納品＝検収書を回収した（または前からの契約）。解約・キャンセルの会社は付けない
 const kxPreDeliv = (x) => x && x.delivered === false && !x.archived && !["解約済み", "キャンセル"].includes(x.label);
 //   oVice などの DOC ではないツールだけの会社（nonDoc）は DOC にしない（2026-11-26 久野さん）
-const kxHasDoc = (x) => !x.nonDoc && ((x.prodLabels || []).some((t) => KX_DOC_L.includes(t)) || !(x.prodLabels || []).length);
+const kxHasDoc = (x) => (x.groupParent && !x.nonDoc) || !x.nonDoc && ((x.prodLabels || []).some((t) => KX_DOC_L.includes(t)) || !(x.prodLabels || []).length);
 function renderList() {
   const d = lsData; if (!d) return;
   const sel = $("lsCs"), cur = sel.value;
@@ -805,7 +805,7 @@ async function openDetail(id, reuse) {
     <div style="display:flex;align-items:center;gap:14px">
       <div class="kx-dlogo" data-logo-btn role="button" tabindex="0" title="押すと、ロゴを取り直す・手で入れる">${x.logo ? `<img src="${esc(x.logo)}" alt="" data-logo-img" />` : `<span class="mono">${esc((x.name || "？").replace(/^(株式会社|有限会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|公益財団法人|学校法人)\s*/, "").slice(0, 1))}</span>`}<span class="ed">ロゴ</span></div>
       <div style="min-width:0"><h2>${esc(x.name)}${(x.formerNames || []).length ? `<span class="kx-former-h">（旧：${esc(x.formerNames.slice().reverse().join("・旧："))}）</span>` : ""} <button type="button" class="kx-ren kx-pen" data-ren-open title="社名を変える（社名が変わったとき）" aria-label="社名を変える"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg></button>${kxHeadId(d)}</h2>
-        <div class="kx-golinks">${kxGoLinks(d)}<span class="kx-uc-tags2 kx-head-tags">${kxCoTags(x)}</span></div></div><button type="button" class="kx-btn" data-archive style="margin-left:auto" title="${x.archived ? "ユーザー一覧・フェーズ別に戻す" : "動いていない会社を、ユーザー一覧・フェーズ別から見えなくする（あとで戻せる）"}">${x.archived ? "アーカイブから戻す" : "アーカイブする"}</button><button type="button" class="kx-btn" data-x>閉じる</button></div>
+        <div class="kx-golinks">${kxGoLinks(d)}<span class="kx-uc-tags2 kx-head-tags">${kxCoTags(x)}</span>${d.info && d.info.groupParent ? `<button type="button" class="kx-chtag" style="background:#E1F5EE;color:#0d5b47;border:1px solid #9FD9C2;cursor:pointer" data-open-parent="${esc(d.info.groupParent.id)}" title="グループ会社。商品・企業ID・SF の取引先と商談は親の会社のものを使います。押すと親の会社を開きます">グループ：${esc(d.info.groupParent.name)}</button>` : ""}</div></div><button type="button" class="kx-btn" data-archive style="margin-left:auto" title="${x.archived ? "ユーザー一覧・フェーズ別に戻す" : "動いていない会社を、ユーザー一覧・フェーズ別から見えなくする（あとで戻せる）"}">${x.archived ? "アーカイブから戻す" : "アーカイブする"}</button><button type="button" class="kx-btn" data-x>閉じる</button></div>
     ${x.archived ? '<div class="kh-warn" style="margin:0">この会社はアーカイブしています（ユーザー一覧・フェーズ別には出ません）</div>' : ""}
     <div class="kx-logo-menu" data-ren-box hidden>
       <div class="h" style="width:100%"><b>社名を変える</b><span class="kx-note">今の名前は「旧社名」として残り、「新しい社名（旧：今の社名）」と出ます</span><button type="button" class="hp-b" data-ren-close style="margin-left:auto">しまう ▲</button></div>
@@ -916,6 +916,7 @@ async function openDetail(id, reuse) {
     if (reuse.msg) { const t = document.createElement("div"); t.className = "kx-saved"; t.textContent = reuse.msg; bg.querySelector(".kx-drawer").appendChild(t); setTimeout(() => t.remove(), 1600); }
   }
   const close = () => bg.remove();
+  { const op = bg.querySelector("[data-open-parent]"); if (op) op.addEventListener("click", () => openDetail(op.dataset.openParent)); }
   const again = async (msg = "保存しました") => {
     const tab = (bg.querySelector("[data-tab].on") || {}).dataset?.tab || "co";
     const scroll = (bg.querySelector(".kx-drawer") || {}).scrollTop || 0;
