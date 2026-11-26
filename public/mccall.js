@@ -2035,41 +2035,51 @@
   // ---- 管理者：インサイドの「かける」の状態（2026-11-23 福井さん「初週を止めずに回す」）----
   //   名簿のインサイド8名と MOCHICA のインターンについて、「かける」に会社が出るか・出ないなら何が足りないかを1行ずつ出す。
   //   止まっている人（赤）・もうすぐ無くなる人（橙）を上に並べ、朝いちばんに見れば詰まりが分かるようにする
-  async function drawReady() {
-    const box = $("mccReady"); if (!box) return;
-    let j; try { j = await api("/api/mccall/readiness"); } catch (e) { box.innerHTML = `<h2>インサイドの「かける」の状態</h2><p class="mcc-note">読めませんでした：${esc(e.message)}</p>`; return; }
+  //   2026-11-27 福井さん（オーナー決定）：「リストの管理」タブをしまったので、SHOWIN のリスト管理（メンバー別の右上）から開く。
+  //   描くのはここだけ（SHOWIN 側は入れ物を渡すだけ）にして、同じ表を2か所で作り分けないようにする
+  let readyBox = null;
+  async function drawReady(el, pre) {
+    const box = el || (readyBox && readyBox.isConnected ? readyBox : $("mccReady")); if (!box || !box.isConnected) return null; readyBox = box;
+    let j = pre; if (!j) try { j = await api("/api/mccall/readiness"); } catch (e) { box.innerHTML = `<h2>インサイドの「かける」の状態</h2><p class="mcc-note">読めませんでした：${esc(e.message)}</p>`; return null; }
     const rank = { stop: 0, warn: 1, ok: 2 }; const items = (j.items || []).slice().sort((a, b) => rank[a.level] - rank[b.level]);
     const bad = items.filter((x) => x.level === "stop").length;
     const R = j.research || {};
+    // 今日の分の欄：今日かけるリストから出す人は「残り／今日の分」と手持ち。そうでない人は「-」（担当のリストすべてから出る）
+    const todayCell = (x) => { const t = x.today; if (!x.email || !t) return "-"; if (!t.made) return '<small>まだ作っていない</small>';
+      return `${t.inCall ? `${Number(t.left)}／${Number(t.inCall)}` : `${Number(t.n)}<small>（未）</small>`}${t.hold != null ? `<br><small>手持ち ${Number(t.hold)}／${Number(t.holdTarget || 300)}</small>` : ""}`; };
     box.innerHTML = `<h2>インサイドの「かける」の状態${bad ? `<span class="mcc-badge danger" style="margin-left:8px">止まっている人 ${bad}人</span>` : '<span class="mcc-badge" style="margin-left:8px">全員かけられます</span>'}</h2>
       ${j.banOk ? "" : '<p class="mcc-note" style="color:#B4441F;font-weight:700">アプローチ禁止の名簿が読めないため、全員の「かける」が止まっています。</p>'}
       ${(j.orphans || []).length ? `<p class="mcc-note">BALES の所有者のうち、kinbot のだれとも名前が合わない人：${(j.orphans || []).map((o) => `${esc(o.name)}（${Number(o.n || 0)}件）`).join("・")}。この人たちの今日かけるリストは、だれの「かける」にも出ません（インターンでない人はそのままで大丈夫です）。</p>` : ""}
-      <table class="mcc-tbl"><thead><tr><th>名前</th><th class="num">リスト</th><th class="num">今かけられる</th><th>状態</th></tr></thead><tbody>
-      ${items.map((x) => `<tr><td>${esc(x.name)}${x.email ? "" : '<small style="color:var(--c-muted)">（アカウントなし）</small>'}</td><td class="num">${x.email ? `${x.talkLists}/${x.lists}` : "-"}</td><td class="num">${x.email ? x.now : "-"}</td>
-        <td><span class="mcc-badge ${x.level === "stop" ? "danger" : x.level === "warn" ? "warm" : "doc"}">${x.level === "stop" ? "止まっている" : x.noEmail ? "メール未登録" : x.level === "warn" ? "もうすぐ無くなる" : "かけられる"}</span> ${esc(x.msg)}</td></tr>`).join("")}</tbody></table>
-      <p class="mcc-note">リスト＝トークのあるリスト／入れるリスト。企業調査：今日 ${R.today || 0}件（上限 ${R.daily || 0}件）${R.gate ? "。調べ終わった会社を先に出し、足りないときは調査中の会社も出します" : "。いまは調べ終わるのを待たずに出しています"}。</p>
-      <div id="mccPeople"></div>`;
-    drawPeople();
+      <table class="mcc-tbl"><thead><tr><th>名前</th><th class="num" title="今日かけるリストの残り（今日まだかけていない会社）／今日の分">今日の分</th><th class="num">今かけられる</th><th>状態</th></tr></thead><tbody>
+      ${items.map((x) => `<tr><td>${esc(x.name)}${x.email ? "" : '<small style="color:var(--c-muted)">（アカウントなし）</small>'}</td><td class="num">${todayCell(x)}</td><td class="num">${x.email ? `${Number(x.now)}${x.nowMore ? "+" : ""}` : "-"}</td>
+        <td><span class="mcc-badge ${x.level === "stop" ? "danger" : x.level === "warn" ? "warm" : "doc"}">${x.level === "stop" ? "止まっている" : x.noEmail ? "メール未登録" : x.level === "warn" ? "要確認" : "かけられる"}</span> ${esc(x.msg)}</td></tr>`).join("")}</tbody></table>
+      <p class="mcc-note">今かけられる＝いま本人が「かける」を開いたときに出る会社の数（掛け直しの時刻が来ていない・検討時期待ち・ほかの人の担当・BALES の所有者がほかの人の会社は数えません）。企業調査：今日 ${R.today || 0}件（上限 ${R.daily || 0}件）${R.gate ? "。調べ終わった会社を先に出し、足りないときは調査中の会社も出します" : "。いまは調べ終わるのを待たずに出しています"}。</p>
+      <div data-people></div>`;
+    drawPeople(box.querySelector("[data-people]"));
+    return j;
   }
   // 名簿とメール（2026-11-23 福井さん決定「本人をメールで登録する」）：名簿の1行ずつに kinbot のログインのメールを結びつける。
   //   判定はメールが最優先で、未登録の人だけ名前で補う。未登録の行は、名前で当たった人を最初から選んでおく（確かめて「登録」を押すだけ）
-  async function drawPeople() {
-    const box = $("mccPeople"); if (!box) return;
+  async function drawPeople(box) {
+    if (!box) return;
     let j; try { j = await api("/api/mccall/people"); } catch (e) { box.innerHTML = `<p class="mcc-note">名簿とメールを読めませんでした：${esc(e.message)}</p>`; return; }
     const miss = j.rows.filter((r) => !r.email);
     const opts = (sel) => `<option value="">（未登録）</option>` + j.users.map((u) => `<option value="${esc(u.email)}" ${u.email === sel ? "selected" : ""}>${esc(u.name)}（${esc(u.email)}）</option>`).join("");
-    box.innerHTML = `<details class="mcc-people" ${miss.some((r) => r.kind === "is") ? "open" : ""}><summary>名簿とメール${miss.length ? `<span class="mcc-badge warm" style="margin-left:8px">未登録 ${miss.length}件</span>` : '<span class="mcc-badge doc" style="margin-left:8px">全員登録ずみ</span>'}</summary>
-      <p class="mcc-note">インターン・営業・架電の管理者は、ここに登録したメールで決まります（名前より先）。未登録の人だけ名前で判定します。候補（名前で当たった人）は選んであるので、確かめて「登録」を押してください。</p>
+    box.innerHTML = `<details class="mcc-people" ${miss.length ? "open" : ""}><summary>名簿とメール${miss.length ? `<span class="mcc-badge warm" style="margin-left:8px">未登録 ${miss.length}件</span>` : '<span class="mcc-badge doc" style="margin-left:8px">全員登録ずみ</span>'}</summary>
+      <p class="mcc-note">インサイド・営業（FS）・架電の管理者は、ここに登録したメールで決まります（名前より先）。未登録の人だけ名前で判定します。候補（名前で当たった人）は選んであるので、確かめて「登録」を押してください。</p>
       <table class="mcc-tbl"><thead><tr><th>種類</th><th>名簿の名前</th><th>kinbot のアカウント</th><th></th></tr></thead><tbody>
       ${j.rows.map((r, i) => `<tr><td>${esc(r.kindLabel)}</td><td>${esc(r.label)}${r.email ? "" : '<small style="color:var(--c-warn)"> 未登録</small>'}</td>
-        <td><select class="mcc-sel" data-pp="${i}" style="width:100%">${opts(r.email || r.guess)}</select></td>
+        <td><select class="mcc-sel" data-pp="${i}" style="width:100%;max-width:none">${opts(r.email || r.guess)}</select></td>
         <td><button class="mcc-btn" data-ps="${i}">${r.email ? "直す" : "登録"}</button></td></tr>`).join("")}</tbody></table></details>`;
     box.querySelectorAll("[data-ps]").forEach((b) => b.addEventListener("click", async () => {
       const r = j.rows[+b.dataset.ps]; const email = box.querySelector(`[data-pp="${b.dataset.ps}"]`).value;
+      b.disabled = true;
       try { await api("/api/mccall/people", { method: "PUT", body: JSON.stringify({ kind: r.kind, key: r.key, email }) }); toast(email ? `${r.label} を ${email} で登録しました` : `${r.label} の登録を外しました`); drawReady(); }
-      catch (e) { toast(`登録できませんでした：${e.message}`); }
+      catch (e) { b.disabled = false; toast(`登録できませんでした：${e.message}`); }
     }));
   }
+  // SHOWIN のリスト管理から呼ぶ入口（el＝入れ物、pre＝もう読んだ readiness の答え）
+  window.mcCallReady = drawReady;
   // ---- 管理者：リストの管理 ----
   async function drawLists() {
     const box = $("mccAdmin"); box.innerHTML = `<div class="mcc-card">読み込んでいます…</div>`; S.ldBack = null;

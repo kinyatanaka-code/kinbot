@@ -13,7 +13,7 @@
 // 画面の考え方（ASUMO のレビューと kincall の評価から）：
 //   結果は「どこまで届いたか → 中身」の2段。不在でも受付で聞けたこと（担当者名・在席時間・直通）を残す。
 //   担当者に届かなかった不在は、1〜2営業日あけて前回と違う時間帯に自動で掛け直しに回し、8回続いたら一度休ませる（mccadence.js。解除できる）。記録の取り消しは「元に戻す」で行う。
-import { dbPool, listUsers, approachBanHit, approachBanHitSync, approachBanHitLead, approachBanHitLeadSync, loadApproachBans, listMembers, getSettings, saveSettings, mcBalesToday, mcBalesValues, mcBalesOwnerIndex, mcOwnedByOther, mcNurtureTargets, BALES_MCU, TODAY_MODES, HOLD_N } from "./db.js";
+import { dbPool, listUsers, approachBanHit, approachBanHitSync, approachBanHitLead, approachBanHitLeadSync, loadApproachBans, listMembers, getSettings, saveSettings, mcBalesToday, mcBalesTodayPeek, mcBalesValues, mcBalesOwnerIndex, mcOwnedByOther, mcNurtureTargets, BALES_MCU, TODAY_MODES, HOLD_N } from "./db.js";
 import { freeBusy, gmailSend, isConnected as googleConnected, createCalendarEvent, deleteCalendarEvent, getCalendarEventState, patchCalendarEvent } from "./google.js";
 import { notifyPerson } from "./chat.js";
 import { teamOf, teamLabel, splitFree, slotScore, pickFs } from "./mcteam.js";   // IS と FS のチーム（2026-11-23）
@@ -2485,6 +2485,19 @@ export function registerMcCall(app, deps) {
     const rows = (await callbacks()).filter(p=>isAdmin(req) || p.owner===me(req));
     res.json({ items: rows.map(({attempt_phone,...p})=>({...p,mine:p.owner===me(req)})) });
   }));
+  // 「かける」に出す会社の条件（$1＝リスト、$2＝本人）。管理者の「かけるの状態」でも同じ式で数える（数え方がずれて「出るはずなのに出ない」にならないように）
+  //   BALES から引き継いだ本人のリード（handover_at）は、11-25 は全部出していたが、11-26 から「手持ち300件から選び方で選んだ今日の100件」に入ったときと、
+  //   掛け直しの時刻が来たときだけ出す（2026-11-26 福井さん「300件から最もアポが取れるものを今日かける100件に」）
+  //   tid は数・day は日付の形なので、そのまま SQL に書く（ほかの問い合わせと $ の数を変えないため）
+  //   相手が日時を指定した掛け直し（再架電リストで引き継ぐもの）は、まだかけていなければ出さない（callbacks と同じ・2026-11-27）
+  function queueBaseSql(tm) {
+    const HOLD_Q = whenHoldSql("mc_call_leads");
+    const todayW = tm && /^\d{4}-\d{2}-\d{2}$/.test(tm.day) ? ` AND ((list_id = ${Number(tm.tid)} AND assigned_to = $2 AND today_day = '${tm.day}')
+        OR (next_at IS NOT NULL AND (assigned_to = $2 OR (assigned_to IS NULL AND (SELECT g.caller FROM mc_call_logs g WHERE g.lead_id = mc_call_leads.id AND NOT g.undone ORDER BY g.created_at DESC LIMIT 1) = $2))))` : "";
+    return `list_id = ANY($1) AND NOT done AND dup_of IS NULL AND (next_at IS NULL OR next_at <= now())
+        AND (assigned_to IS NULL OR assigned_to=$2) AND (locked_by IS NULL OR locked_by=$2 OR locked_at < now() - interval '10 minutes')${todayW}
+        AND NOT EXISTS (SELECT 1 FROM mc_call_logs g WHERE g.lead_id=mc_call_leads.id AND NOT g.undone AND g.customer_quote IS NOT NULL AND NOT EXISTS (SELECT 1 FROM mc_call_logs a WHERE a.callback_for=g.id AND NOT a.undone)) AND NOT ${HOLD_Q}${mqlGateOn() ? ` AND ${MQL_OK_SQL}` : ""}`;   // MQL 外は出さない（「かける」と「かけるの状態」で同じ数え方にする・2026-11-27）
+  }
   app.get("/api/mccall/queue", guard(async (req, res) => {
     let ids = await myListIds(req); const listId = parseInt(req.query.list, 10);
     const u = me(req);
@@ -2527,13 +2540,7 @@ export function registerMcCall(app, deps) {
     //   tid は数・day は日付の形なので、そのまま SQL に書く（ほかの問い合わせと $ の数を変えないため）
     // 検討時期待ちの会社（検討時期の2か月前まで）は出さない。ただし情報が1年以上前なら出す（whenHoldSql・2026-11-25 福井さん）
     const HOLD_Q = whenHoldSql("mc_call_leads");
-    //   BALES から引き継いだ本人のリード（handover_at）は、11-25 は全部出していたが、11-26 から「手持ち300件から選び方で選んだ今日の100件」に入ったときと、
-    //   掛け直しの時刻が来たときだけ出す（2026-11-26 福井さん「300件から最もアポが取れるものを今日かける100件に」）
-    const todayW = tm && /^\d{4}-\d{2}-\d{2}$/.test(tm.day) ? ` AND ((list_id = ${Number(tm.tid)} AND assigned_to = $2 AND today_day = '${tm.day}')
-        OR (next_at IS NOT NULL AND (assigned_to = $2 OR (assigned_to IS NULL AND (SELECT g.caller FROM mc_call_logs g WHERE g.lead_id = mc_call_leads.id AND NOT g.undone ORDER BY g.created_at DESC LIMIT 1) = $2))))` : "";
-    const base = `list_id = ANY($1) AND NOT done AND dup_of IS NULL AND (next_at IS NULL OR next_at <= now())
-        AND (assigned_to IS NULL OR assigned_to=$2) AND (locked_by IS NULL OR locked_by=$2 OR locked_at < now() - interval '10 minutes')${todayW}
-        AND NOT EXISTS (SELECT 1 FROM mc_call_logs g WHERE g.lead_id=mc_call_leads.id AND NOT g.undone AND g.customer_quote IS NOT NULL AND NOT EXISTS (SELECT 1 FROM mc_call_logs a WHERE a.callback_for=g.id AND NOT a.undone)) AND NOT ${HOLD_Q}${mqlGate ? ` AND ${MQL_OK_SQL}` : ""}`;
+    const base = queueBaseSql(tm);
     const order = `(next_at IS NOT NULL) DESC, next_at, COALESCE(hot,0) DESC, attempts, id`;
     // 順番は mccadence.js の rankQueue で決める（約束の掛け直し → 時刻が来た掛け直し → ホット度・検討時期・在席時間の順）。SQL では候補を多め（300件）に絞るだけ
     //   候補の300件には、アポ確率の高い会社を先に入れる（2026-11-27 オーナー。前は人が付けた優先度で選んでいた）
@@ -2638,30 +2645,79 @@ export function registerMcCall(app, deps) {
     // 今日かけるリストの本人の判定（BALES の所有者の名前と合うか）も見る（2026-11-25：名字だけの所有者と合わず、今日かけるリストが出ない人がいた）
     const bm = await balesMain().catch(() => null);
     const claimed = new Set();
+    // ここからは「かける」（/api/mccall/queue）と同じ決まりで数える（2026-11-27 福井さん「SHOWIN に移す。理由の表示が今の作りと合っているか」）。
+    //   11/23 に作ったときの数え方は「担当のリストの、担当なしか本人の会社」だけで、そのあとに入った
+    //   今日かけるリスト（手持ち300件→今日の100件）・検討時期待ち・BALES の所有者がほかの人の会社を見ておらず、
+    //   「かけられる 1,200件」と出ても本人の「かける」は今日の分だけ、ということが起きていた。
+    //   今日かけるリストの入れ先は読むだけ（todayList() は無ければ作るので呼ばない）。様子を見る画面から今日の分を作ったり担当を付けたりしない
+    const tRow = (await P().query(`SELECT id, closed FROM mc_call_lists WHERE today_src AND biz=$1 ORDER BY id LIMIT 1`, [BIZ])).rows[0];
+    const tid = tRow && !tRow.closed ? tRow.id : 0;
+    const day = todayDay(), dayStart = jstDayStart(new Date());
+    const admins = new Set((deps.adminEmails ? await deps.adminEmails().catch(() => []) : []).map((x) => String(x).toLowerCase()));
+    let ownIdx = null; try { if (bm) ownIdx = await mcBalesOwnerIndex(bm.listKey, bm.col); } catch { ownIdx = null; }
+    const HOLD_Q = whenHoldSql("mc_call_leads");
     for (const p of people) {
       if (!p.email) { items.push({ ...p, level: "stop", msg: "kinbot のアカウントが見つかりません（メール未登録）。本人に kinbot へログインしてもらい、下の「名簿とメール」でそのメールを登録してください" }); continue; }
       const intern = await isMcIntern(p.email).catch(() => false);
-      const ids = await listIdsFor(p.email, {});
-      const talk = await listsWithTalk(ids);
-      const use = ids.filter((x) => talk.has(x));
-      const c = use.length ? (await P().query(`SELECT
-          count(*) FILTER (WHERE (assigned_to IS NULL OR assigned_to=$2) AND (next_at IS NULL OR next_at <= now())${mqlGateOn() ? ` AND ${MQL_OK_SQL}` : ""}) AS now,
-          count(*) FILTER (WHERE (assigned_to IS NULL OR assigned_to=$2) AND (next_at IS NULL OR next_at <= now()) AND research_at IS NULL${mqlGateOn() ? ` AND ${MQL_OK_SQL}` : ""}) AS unresearched,
-          count(*) FILTER (WHERE assigned_to IS NOT NULL AND assigned_to <> $2) AS others
-        FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL`, [use, p.email])).rows[0] : { now: 0, unresearched: 0, others: 0 };
-      const n = { lists: ids.length, talkLists: use.length, now: +c.now, unresearched: +c.unresearched, others: +c.others };
-      let level = "ok", msg = `今かけられる会社 ${n.now}件${n.unresearched && gate ? `（うち企業調査中 ${n.unresearched}件。調査中でもかけられます）` : ""}`;
-      if (!intern && !ids.length) { level = "stop"; msg = `MOCHICA のインターンと判定されていません（kinbot の名前「${p.name}」が名簿と合いません）。kinbot の名前を SF の氏名にそろえるか、メンバー設定で「kincall だけ」＋事業 MOCHICA にしてください`; }
-      else if (!ids.length) { level = "stop"; msg = "入れるリストがありません。リストのメンバーに入れるか、メンバーを空（MOCHICA 全員）にしてください"; }
-      else if (!use.length) { level = "stop"; msg = "入れるリストのどれにもトークがありません。「リストの管理」でトークを書いてください"; }
-      else if (!banOk) { level = "stop"; msg = "アプローチ禁止の名簿が読めないため、全員の「かける」を止めています。少し待って直らなければ、データベースと SF のつながりを確かめてください"; }
-      else if (!n.now) { level = "stop"; msg = n.others ? `今かけられる会社がありません（残り ${n.others}件はほかの人の担当）。担当を付け直すか、リードを足してください` : "今かけられる会社がありません。リードを足してください"; }
-      else if (n.now < 20) { level = "warn"; msg += "。今日のうちに無くなりそうです。リードを足してください"; }
-      // 名前で判定している人は「メール未登録」と添える（名前が変わると外れるので、メールで登録してもらう）
-      if (p.noEmail) { msg += "（メール未登録：名前で判定しています。下の「名簿とメール」で登録してください）"; if (level === "ok") level = "warn"; }
+      let ids = await listIdsFor(p.email, {});
+      // 「かける」でリストを選ばないときと同じく、キャリミキのリストは数えない
+      if (ids.length) { const cm = new Set((await P().query(`SELECT id FROM mc_call_lists WHERE id = ANY($1) AND product = 'careermixer'`, [ids])).rows.map((r) => r.id)); ids = ids.filter((x) => !cm.has(x)); }
       const owner = bm ? await todayOwnerOf(p.email, bm).catch(() => "") : "";
       if (owner) claimed.add(owner);
-      else if (bm) { msg += "（今日かけるリスト：BALES の所有者の名前と合わないため出ません。kinbot の名前か BALES の所有者の名前をそろえてください）"; if (level === "ok") level = "warn"; }
+      // 今日かけるリストから出す人か（todayModeFor と同じ決まり）。今日の分をまだ作っていなくても、本人が開けば作られて今日かけるリストから出る。
+      //   今日の分が0件で作られたときだけ、今までの出し方（担当のリストすべて）に戻る（syncToday と同じ）
+      const tOn = !!(owner && bm && (tid || !tRow));
+      const peek = tOn ? await mcBalesTodayPeek(bm.listKey, { col: bm.col, val: owner }).catch(() => null) : null;
+      const made = !!(peek && !peek.old);
+      const zero = made && !peek.n;
+      const tm = tOn && !zero ? { tid, day } : null;
+      if (tm && tid && !ids.includes(tid)) ids.push(tid);
+      const talk = await listsWithTalk(ids);
+      const use = ids.filter((x) => talk.has(x));
+      const todayNoTalk = !!(tm && tid && !talk.has(tid));
+      // 今かけられる会社：queue と同じ条件の候補から、アプローチ禁止と BALES の所有者がほかの人の会社を外した数（多すぎるときは3,000件で止める）
+      const cand = use.length ? (await P().query(`SELECT id, company, phone, sf_lead_id, src, src_key, (research_at IS NULL) AS unr,
+          jsonb_build_object('phones', info->'phones', 'contacts', info->'contacts') AS info
+        FROM mc_call_leads WHERE ${queueBaseSql(tm)} LIMIT 3000`, [use, p.email])).rows : [];
+      const useOwn = !!ownIdx && (!!owner || !admins.has(p.email));
+      const ok = cand.filter((r) => !approachBanHitLeadSync(r) && !(useOwn && mcOwnedByOther(ownIdx, owner, r)));
+      const c = use.length ? (await P().query(`SELECT count(*) FILTER (WHERE assigned_to IS NOT NULL AND assigned_to <> $2) AS others,
+          count(*) FILTER (WHERE (assigned_to IS NULL OR assigned_to = $2) AND ${HOLD_Q}) AS held
+        FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL`, [use, p.email])).rows[0] : { others: 0, held: 0 };
+      let today = null;
+      if (tm) {
+        const r = tid ? (await P().query(`SELECT count(*) AS n, count(*) FILTER (WHERE NOT done AND NOT ${HOLD_Q} AND (last_at IS NULL OR last_at < $4)) AS left,
+            count(*) FILTER (WHERE NOT done AND NOT ${HOLD_Q} AND last_at >= $4) AS wait, count(*) FILTER (WHERE NOT done AND ${HOLD_Q}) AS held
+          FROM mc_call_leads WHERE list_id=$1 AND assigned_to=$2 AND today_day=$3 AND dup_of IS NULL`, [tid, p.email, day, dayStart])).rows[0] : { n: 0, left: 0, wait: 0, held: 0 };
+        const I = (peek && peek.info) || {};
+        today = { made, n: made ? peek.n : 0, inCall: +r.n, left: +r.left, wait: +r.wait, held: +r.held,
+          hold: made && I.hold != null ? Number(I.hold) : null, holdTarget: Number(I.hold_target || HOLD_N), mode: String(I.mode_label || "") };
+      }
+      const n = { lists: ids.length, talkLists: use.length, now: ok.length, nowMore: cand.length >= 3000, unresearched: ok.filter((r) => r.unr).length, others: +c.others, held: today ? today.held : +c.held, mode: tm ? "today" : "all", today };
+      let level = "ok", msg;
+      if (today && !today.made) msg = `今日の分はまだ作っていません（本人が「かける」を開くと、手持ちから今日の分を作ります）。今かけられる掛け直し ${n.now}件`;
+      else if (today && !today.inCall) msg = `今日の分 ${today.n}件（まだ「かける」に入っていません。本人が開くと入ります）`;
+      else if (today) msg = `今日の分 残り ${today.left}件／${today.inCall}件${today.wait ? `（掛け直し待ち ${today.wait}件）` : ""}・今かけられる ${n.now}件`;
+      else msg = `今かけられる会社 ${n.now}件${n.nowMore ? "以上" : ""}${n.unresearched && gate ? `（うち企業調査中 ${n.unresearched}件。調査中でもかけられます）` : ""}`;
+      if (today && today.hold != null) msg += `。手持ち ${today.hold}／${today.holdTarget}件${today.mode ? `（選び方：${today.mode}）` : ""}`;
+      if (n.held) msg += `。検討時期待ち ${n.held}件は時期が来るまで出しません`;
+      if (!intern && !ids.length) { level = "stop"; msg = `MOCHICA のインターンと判定されていません（kinbot の名前「${p.name}」が名簿と合いません）。下の「名簿とメール」で、この人の行に kinbot のメールを登録してください`; }
+      else if (!ids.length) { level = "stop"; msg = "入れるリストがありません。リストのメンバーに入れるか、メンバーを空（MOCHICA 全員）にしてください"; }
+      else if (todayNoTalk) { level = "stop"; msg = "今日かけるリストにトークがありません。管理者のアカウントで「かける」を開くと出る案内から、トークを書いてください"; }
+      else if (!use.length) { level = "stop"; msg = "入れるリストのどれにもトークがありません。管理者のアカウントで「かける」を開くと出る案内から、トークを書いてください"; }
+      else if (!banOk) { level = "stop"; msg = "アプローチ禁止の名簿が読めないため、全員の「かける」を止めています。少し待って直らなければ、データベースと SF のつながりを確かめてください"; }
+      else if (today) {
+        // 今日かけるリストの人：残りがあるのに1社も出せないときだけ止まっている。かけ終わった・掛け直し待ちは止まっていない
+        if (today.inCall && today.left && !n.now) { level = "stop"; msg += "。残りがあるのに出せません（ほかの人が開いている・BALES の所有者がほかの人の会社など）。リスト管理で担当を確かめてください"; }
+        // 今日の分は100件。半分に届かないときは手持ちが足りない（未割り振り・SF リードの補充も尽きている）
+        else if (today.made && today.n < 50) { level = "warn"; msg += "。今日の分が少なめです（100件の予定）。リスト管理で、この人に会社を割り振ってください"; }
+      }
+      else if (!n.now) { level = "stop"; msg = n.others ? `今かけられる会社がありません（残り ${n.others}件はほかの人の担当）。担当を付け直すか、リードを足してください` : `今かけられる会社がありません${n.held ? `（検討時期待ち ${n.held}件だけ）` : ""}。リードを足してください`; }
+      else if (n.now < 20) { level = "warn"; msg += "。今日のうちに無くなりそうです。リードを足してください"; }
+      if (zero) { msg += "（今日の分が0件で作られたため、担当のリストすべてから出しています。リスト管理でこの人に会社を割り振ってください）"; if (level === "ok") level = "warn"; }
+      // 名前で判定している人は「メール未登録」と添える（名前が変わると外れるので、メールで登録してもらう）
+      if (p.noEmail) { msg += "（メール未登録：名前で判定しています。下の「名簿とメール」で登録してください）"; if (level === "ok") level = "warn"; }
+      if (!owner && bm) { msg += "（今日かけるリスト：BALES の所有者の名前と合わないため出ません。下の「名簿とメール」でこの人の行にメールを登録するか、BALES の所有者の名前をそろえてください）"; if (level === "ok") level = "warn"; }
       items.push({ ...p, intern, ...n, owner, level, msg });
     }
     // BALES の所有者のうち、だれにも結びつかない名前（今日かけるリストを作っても、だれの「かける」にも出ない）
@@ -2696,6 +2752,7 @@ export function registerMcCall(app, deps) {
     if (email && !(await listUsers().catch(() => [])).some((x) => String(x.email || "").toLowerCase() === email)) return res.status(400).json({ error: "そのメールの kinbot のアカウントがありません。先に本人に kinbot へログインしてもらってください" });
     await setPerson(row.kind, row.key, email, me(req));
     if (deps.peopleChanged) deps.peopleChanged();   // 判定の覚えを捨てて、すぐ効くようにする
+    _ownerMemo.clear();   // 今日かけるリストの本人の判定（BALES の所有者）も、登録したメールですぐ合うように
     res.json({ ok: true });
   }));
 

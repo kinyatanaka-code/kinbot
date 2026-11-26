@@ -13,7 +13,7 @@ import { MCDASH_ROSTER } from "./mcdash.js";
 
 // 架電の管理者の名簿（苗字）。名前で補うときは異体字をそろえて比べるので、齊藤／斉藤／斎藤は1つでよい
 export const MCCALL_ADMIN_SURNAMES = ["福井", "本炭", "餌取", "齊藤", "北川", "山田"];
-export const PEOPLE_KINDS = { is: "インサイド", sales: "営業", admin: "架電の管理者" };
+export const PEOPLE_KINDS = { is: "インサイド", sales: "営業（FS）", admin: "架電の管理者" };
 
 // 名簿の行（種類・鍵・画面に出す名前）。鍵はインサイド＝SF の氏名、営業＝ダッシュボードの key、管理者＝苗字
 export function rosterRows() {

@@ -13993,6 +13993,16 @@ export async function mcBalesToday(listKey, { col = "", val = "", rebuild = fals
   // ホット・ウォーム・コールドの内訳（2026-11-23 田中さん「今日かけるにホット・ウォーム・コールドの内訳も」）。ホット度は後から変わるので毎回数える
   return { day, keys, ext, ...(t.info || {}), made_at: t.made_at, called_today: c.called_today || 0, apo_today: c.apo || 0, hot: { hot: Number(c.h_hot || 0), warm: Number(c.h_warm || 0), cold: Number(c.h_cold || 0) } };
 }
+// その人の今日のリストを読むだけ（作らない）。管理者の「かけるの状態」で使う。
+//   mcBalesToday は無ければ作る（手持ちの補充で担当も付く）ので、様子を見るだけの画面からは呼ばない。まだ作っていなければ null
+export async function mcBalesTodayPeek(listKey, { col = "", val = "" } = {}) {
+  if (!pool) return null; await ensureMcToday();
+  const ok = `${String(col).slice(0, 80)}|${String(val).slice(0, 200)}`;
+  const t = (await pool.query(`SELECT keys, ext, info, made_at FROM mochica_bales_today WHERE list_key=$1 AND owner_key=$2 AND day=$3`, [listKey, ok, jstDay()])).rows[0];
+  if (!t) return null;
+  const n = (Array.isArray(t.keys) ? t.keys.length : 0) + (Array.isArray(t.ext) ? t.ext.length : 0);
+  return { n, info: t.info || {}, made_at: t.made_at, old: Number((t.info || {}).v || 1) < BALES_TODAY_V };
+}
 export async function mcBalesHotOrder(listKey, keys = []) {
   if (!pool || !keys.length) return []; await ensureMcBales();
   return (await pool.query(`SELECT r.row_key FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1 AND r.row_key = ANY($2::text[]) ORDER BY COALESCE(r.hot,0) DESC, r.seq`, [listKey, keys])).rows;

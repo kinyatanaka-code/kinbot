@@ -92,6 +92,32 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
   const ownerCol = (l) => { const v = (l && l.view) || []; const a = v.find((x) => /所有者|オーナー/.test(x.label)); if (a) return a.key;
     const c = ((l && l.cols) || []).find((x) => /(^|\.)owner(\.name|Name|\.fullName)?$/i.test(x.key)); return c ? c.key : ""; };
   const mainList = () => lists.find((l) => l.src !== "csv" && l.src !== "sf" && l.status !== "running") || lists.find((l) => l.status !== "running") || lists[0] || null;
+  // 「かけるの状態」のアイコン（人と丸いチェック）
+  const READY_ICO = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.6 6.5-5.6 1.4 0 2.7.4 3.7 1.1"/><circle cx="17.5" cy="16.5" r="4.5" fill="#fff"/><path d="m15.6 16.6 1.3 1.3 2.6-2.7"/></svg>';
+  // 「かけるの状態・名簿とメール」（2026-11-27 福井さん・オーナー決定：MOCHICALL の「リストの管理」タブをしまったので SHOWIN のメンバー別から開く）。
+  //   管理者だけに出す（readiness は管理者でないと 403）。人ごとに何件も数えて重いので、2分は前の答えを使う
+  let readyMemo = null, readyDeny = false;
+  async function readyData(force) {
+    if (readyDeny) return null;
+    if (!force && readyMemo && Date.now() - readyMemo.at < 120e3) return readyMemo.j;
+    try { const j = await api("/api/mccall/readiness"); readyMemo = { at: Date.now(), j }; return j; }
+    catch (e) { if (/403|管理者/.test(String(e.message))) readyDeny = true; return null; }
+  }
+  function readyWire(root) {
+    const b = root.querySelector("[data-ready]"); if (!b || readyDeny) return;
+    const badge = (j) => { const stop = (j.items || []).filter((x) => x.level === "stop").length, warn = (j.items || []).filter((x) => x.level === "warn").length;
+      const el = b.querySelector("[data-ready-b]"); if (!el) return;
+      el.className = `bl-ready-b ${stop ? "stop" : warn ? "warn" : "ok"}`; el.textContent = stop ? `止まっている ${stop}人` : warn ? `要確認 ${warn}人` : "全員OK"; };
+    readyData().then((j) => { if (!j || !b.isConnected) return; b.hidden = false; badge(j); });
+    b.onclick = async () => {
+      const panel = sheet('<div class="mcc-ready" data-ready-box><p class="mc-note">読み込んでいます…</p></div>');
+      const box = panel.querySelector("[data-ready-box]");
+      if (typeof window.mcCallReady !== "function") { box.innerHTML = '<p class="mc-note">MOCHICALL の画面が読み込めていません。ページを読み直してください。</p>'; return; }
+      // 開くときは新しく読む（登録・割り振りのあとにすぐ確かめられるように）
+      const j = await readyData(true); const j2 = await window.mcCallReady(box, j || undefined);
+      if (j2) { readyMemo = { at: Date.now(), j: j2 }; badge(j2); }
+    };
+  }
   const PLUS = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
   // ===== ページの上の帯（ヘッダー）に、会社名で探す・取り込み直す・CSV・SF と結び直す を出す（2026-11-22 田中さん「ヘッダーに移して」）=====
   //   表を描き直しても、探す欄はそのまま（打っている途中で消えない）。一覧（カード）に戻ったら消す
@@ -157,10 +183,11 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
       ${tierH(4, "リードステージ", "合計は統合リードと同じ件数")}
       <div class="bl-lgrid" data-stgs>${m0 ? TIER_STG.map(([k, l, d]) => `<div class="bl-lc stg ${k}" role="button" tabindex="0" data-tstg="${k}"><b>${l}</b><span class="n" data-t="s_${k}">…<small>件</small></span><span data-ta="s_${k}"></span><small>${d}</small>${k !== "other" ? `<button type="button" class="bl-lc-sub" data-stg="${k}" title="主のリスト（${esc(m0.name || "")}）の${l}を、メンバーごとに分けて見ます">メンバーごとに見る</button>` : ""}</div>`).join("") : ""}</div>
       <p class="bl-tsum" data-tsum="s"></p>
-      <div class="bl-home-h sub"><h3>メンバー別</h3><button type="button" class="bl-add" data-addmem ${oc ? "" : "disabled"}>${PLUS}メンバー追加</button></div>
+      <div class="bl-home-h sub"><h3>メンバー別</h3><span class="bl-acts"><button type="button" class="bl-add bl-ready" data-ready hidden title="インサイドの「かける」の状態と、名簿のメールの登録（管理者だけ）">${READY_ICO}かけるの状態<span data-ready-b></span></button><button type="button" class="bl-add" data-addmem ${oc ? "" : "disabled"}>${PLUS}メンバー追加</button></span></div>
       <div class="bl-lgrid" data-mems>${oc ? '<div class="mc-note">読み込んでいます…</div>' : '<div class="mc-note">リストに「所有者」の列が無いので、メンバー別に分けられません。</div>'}</div>
       ${SHOW_FEEDS && feeds.length ? `<div class="bl-home-h sub"><h3>見張り（架電の記録）</h3></div><div class="bl-lgrid">${feeds.map((f) => `<button type="button" class="bl-lc" data-l="${esc(f.feed)}"><b>${esc(f.name || f.feed)}</b><span class="n">${Number(f.total || 0).toLocaleString()}<small>件</small></span><small>${f.last_sync ? `${esc(dt(f.last_sync))} に読んだ（新しい ${f.last_new || 0}件）` : "まだ読んでいません"}</small></button>`).join("")}</div>` : ""}
       ${lists.length ? "" : diagHtml()}</div>`}`;
+    readyWire(root);
     root.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => { homeTab = b.dataset.tab; try { localStorage.setItem("kb_bales_tab", homeTab); } catch {} home(root); }));
     root.querySelectorAll("[data-l]").forEach((b) => { const go = () => { cur = b.dataset.l; mode = "list"; memberF = ""; q = ""; fcol = ""; fval = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; uniF = ""; tierF = ""; page = 0; openList(); };
       b.addEventListener("click", (e) => { if (e.target.closest("[data-lsrc]")) return; go(); }); b.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target === b) go(); }); });
