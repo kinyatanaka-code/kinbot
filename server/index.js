@@ -290,7 +290,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelResetTries, mcBalesSfValues, kxInboxAiGet, kxInboxAiPut, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcCompanyCalls, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcBalesSources, mcBalesStages, mcBalesToday, prebriefLocal, prebriefMediaCache, mcBalesUnassignPastlost, mcBalesDupRows, mcBalesDupSet, mcBalesBlankCount, mcBalesNgSet, mcBalesAssignSet, mcBalesHotOrder, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, mcMiitelManualNoSf, fixPersonOwnerSwap, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, kxTaskRecentTitles, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, personFixCandidates, setTargetPersonFixed, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelResetTries, mcBalesSfValues, kxInboxAiGet, kxInboxAiPut, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcCompanyCalls, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcBalesSources, mcBalesStages, mcBalesToday, prebriefLocal, prebriefMediaCache, mcBalesUnassignPastlost, mcBalesDupRows, mcBalesDupSet, mcBalesBlankCount, mcBalesNgSet, mcBalesAssignSet, mcBalesHotOrder, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, mcMiitelManualNoSf, fixPersonOwnerSwap, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, kxTaskRecentTitles, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -9311,7 +9311,7 @@ async function importMissingCrosslost({ sfUser, dryRun = true, by = "" } = {}) {
   let imported = 0, created = 0;
   if (items.length) {
     const list = await findOrCreateNamedList(null, "クロス失注（未割り当て）", by);
-    if (list) { if (list.created) created++; imported = await addCallTargets(list.id, items, { dedupe: true }); }
+    if (list) { if (list.created) created++; imported = await addCallTargetsK(list.id, items, { dedupe: true }); }
   }
   _clIdsCache = null; _clSummaryCache = null;
   console.log(`[kincall] kincallに無いクロス失注の会社を${imported}件取り込み（新規リスト${created}）by ${by || "自動"}`);
@@ -9396,7 +9396,7 @@ app.post("/api/calls/pastlost-old/import", async (req, res) => {
       items.push({ leadId: null, company, person: String(r.person || "").trim(), phone, email: String(r.email || "").trim(), stage: "", status: OLD_LOST_STATUS, extra });
     }
     if (dryRun) return res.json({ ok: true, dryRun: true, total: rows.length, willAdd: items.length, dup, dupNew, newTotal: newCo.size, empty });
-    const n = await addCallTargets(listId, items, { dedupe: false });
+    const n = await addCallTargetsK(listId, items, { dedupe: false });
     _oldLostSumCache = null;
     console.log(`[kincall] 〜2026/2の失注を${n}件取り込み（重複${dup}・2026/3以降と重複${dupNew}・空${empty}）by ${req.user}`);
     res.json({ ok: true, dryRun: false, added: n, dup, dupNew, empty, listId });
@@ -9646,7 +9646,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
         extra: x._extra || null,
         ...(分ける人2.length ? { assignedTo: 分ける人2[(開始2 + i) % 分ける人2.length] } : {}),
       }));
-      const n2 = await addCallTargets(list2.id, 入れるリスト2, { dedupe: true, takeOver: !!b.takeOver });
+      const n2 = await addCallTargetsK(list2.id, 入れるリスト2, { dedupe: true, takeOver: !!b.takeOver });
       const 移した2 = lastAddStats.moved;
       const 重複除外2 = 入れるリスト2.length - n2 - 移した2;
       console.log(`[kincall] CSVからリストだけ作りました（SF更新なし）「${name}」（${n2}件${重複除外2 ? `／重複除外 ${重複除外2}件` : ""}） by ${req.user}`);
@@ -10012,7 +10012,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
     }
     let n = 0;
     let 移した = 0;
-    for (const [lid, arr] of byList) { n += await addCallTargets(lid, arr, { dedupe: true, takeOver: !!b.takeOver }); 移した += lastAddStats.moved; }
+    for (const [lid, arr] of byList) { n += await addCallTargetsK(lid, arr, { dedupe: true, takeOver: !!b.takeOver }); 移した += lastAddStats.moved; }
     const 重複除外 = 入れるリスト.length - n - 移した;
 
     console.log(`[kincall] CSVからリスト「${name}」を作りました（ほかのリストから移した ${移した}件）`);
@@ -10071,7 +10071,7 @@ app.post("/api/calls/lists", async (req, res) => {
     const who = who0;
     if (who.length) items = items.map((x, i) => ({ ...x, assignedTo: who[i % who.length] }));
 
-    const n = await addCallTargets(list.id, items, { dedupe: true });
+    const n = await addCallTargetsK(list.id, items, { dedupe: true });
     const 重複除外 = items.length - n;
 
     // クローザー所有のリードを、インサイドに割り振るぶんだけ中澤良太の所有へ変える（ジャッジは除く）
@@ -10200,7 +10200,7 @@ app.post("/api/calls/from-leads", async (req, res) => {
     // 見るだけ（まだ入れない）
     if (!listId) return res.json({ ok: true, 件数: items.length, items });
 
-    const n = await addCallTargets(listId, items, { dedupe: true });
+    const n = await addCallTargetsK(listId, items, { dedupe: true });
     const 重複除外 = items.length - n;
     console.log(`[kincall] リードを${n}件入れました${重複除外 ? `（重複除外 ${重複除外}件）` : ""} by ${req.user}`);
     res.json({ ok: true, 入れた数: n, 重複除外 });
@@ -10320,6 +10320,56 @@ async function leadOwnerNames(sfUser, leadIds) {
   return map;
 }
 
+// ===== 担当者（相手の人）に、こちらの社員の名前が入った行を直す（2026-11-26 田中さん「担当者が俺とか植野さんとか中村圭佑さんになっている」）=====
+//   原因：レポートの「担当者」の列が、こちらの担当（Salesforce のユーザー）のことだったとき、そのまま相手の担当者として入っていた（例：261111_DOCメルマガ(開封)）
+//   直し方：担当者が Salesforce のユーザー名（kincall のメンバー名も）と同じ行は、Salesforce のリードの氏名に入れ替える。リードが無ければ空にする
+//   直す前の名前は元の列「担当者（直す前）」に残す。取り込みのたびに、入れたリストを裏で直す
+let _kcInNames = { at: 0, set: null };
+const kcNz = (v) => String(v || "").normalize("NFKC").replace(/[\s　]/g, "");
+async function kcInternalNames(op) {
+  if (_kcInNames.set && Date.now() - _kcInNames.at < 6 * 3600000) return _kcInNames.set;
+  const set = new Set();
+  const add = (n) => { const t = String(n || "").trim(); if (!t || kcNz(t).length < 3) return; set.add(kcNz(t)); const p = t.split(/[\s　]+/); if (p.length === 2) set.add(kcNz(p[1] + p[0])); };
+  try { for (const m of await listMembers()) add(m.name); } catch {}
+  if (op) { try { const d = await sfQuery(op, `SELECT Name FROM User LIMIT 5000`); for (const u of (d && d.records) || []) add(u.Name); } catch (e) { console.warn("[kincall] 社員の名前を読めませんでした:", e.message); } }
+  _kcInNames = { at: Date.now(), set };
+  return set;
+}
+async function kcFixInternalPersons(listId = null) {
+  const op = await sfOperator().catch(() => "");
+  const names = await kcInternalNames(op);
+  if (!names.size) return { fixed: 0 };
+  const rows = (await personFixCandidates(listId)).filter((r) => names.has(kcNz(r.person)));
+  if (!rows.length) return { fixed: 0 };
+  const leadName = new Map();
+  const ids = [...new Set(rows.map((r) => String(r.lead_id || "").replace(/[^a-zA-Z0-9]/g, "")).filter((x) => x.length >= 15))];
+  if (op) for (let i = 0; i < ids.length; i += 200) {
+    try { const d = await sfQuery(op, `SELECT Id, Name FROM Lead WHERE Id IN (${ids.slice(i, i + 200).map((x) => `'${x}'`).join(",")})`);
+      for (const L of (d && d.records) || []) { leadName.set(String(L.Id), L.Name || ""); leadName.set(String(L.Id).slice(0, 15), L.Name || ""); } } catch {}
+  }
+  let fixed = 0;
+  for (const r of rows) {
+    const ln = String(leadName.get(String(r.lead_id || "")) || "").trim();
+    const want = ln && !names.has(kcNz(ln)) && !/^\[\[Unknown\]\]$/.test(ln) ? ln : "";
+    await setTargetPersonFixed(r.id, want, r.person).catch(() => {}); fixed++;
+  }
+  console.log(`[kincall] 担当者にこちらの社員名が入っていた行を ${fixed} 件直しました${listId ? `（リスト ${listId}）` : ""}`);
+  return { fixed };
+}
+// 取り込みのあとに、入れたリストの担当者を裏で直す（取り込みは待たせない）
+async function addCallTargetsK(listId, items, opts) {
+  const n = await addCallTargets(listId, items, opts);
+  setTimeout(() => { kcFixInternalPersons(Number(listId) || null).catch((e) => console.warn("[kincall] 担当者の直し:", e.message)); }, 1000);
+  return n;
+}
+app.post("/api/calls/fix-persons", async (req, res) => {
+  try {
+    if (!canHideLists(req)) return res.status(403).json({ error: "リストを管理できる人だけが使えます" });
+    res.json({ ok: true, ...(await kcFixInternalPersons(parseInt((req.body || {}).listId, 10) || null)) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+setTimeout(async () => { try { const st = await getSettings().catch(() => ({})); if (st.fixPersonInternal20261126) return; const r = await kcFixInternalPersons(); await saveSettings({ fixPersonInternal20261126: { at: new Date().toISOString(), ...r } }); } catch (e) { console.warn("[kincall] 担当者の直し（起動時）:", e.message); } }, 90 * 1000);
+
 // レポートの表を、そのままkincallのリストにする。
 // 列の名前から「会社名・担当者・電話・メール・ステージ・状態」を見つける。
 app.post("/api/calls/from-report", async (req, res) => {
@@ -10424,7 +10474,7 @@ app.post("/api/calls/from-report", async (req, res) => {
       ? { id: 既存R, name }
       : await createCallList({ name, owner: toMember || 分ける人R[0] || req.user, createdBy: req.user });
     if (!list) return res.status(500).json({ error: "リストを作れませんでした" });
-    const n = await addCallTargets(list.id, 入れる, { dedupe: true });
+    const n = await addCallTargetsK(list.id, 入れる, { dedupe: true });
     const 重複除外 = 入れる.length - n;
 
     // クローザー所有のリードを、インサイドに割り振るぶんだけ中澤良太の所有へ変える（ジャッジは除く）
@@ -11832,7 +11882,7 @@ app.post("/api/calls/lists/split", async (req, res) => {
       email: r.email, industry: r.industry, area: r.area, memo: r.memo,
       stage: r.stage, status: r.status,
     }));
-    const n = await addCallTargets(list.id, items);
+    const n = await addCallTargetsK(list.id, items);
     console.log(`[kincall] 絞り込みで新しいリスト「${name}」を作りました（${n}件） by ${req.user}`);
     res.json({ ok: true, id: list.id, name: list.name, 件数: n });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -35160,7 +35210,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-25zn kincall リスト編集：表は最初の500件だけ描いて「さらに表示」（数万件で固まっていた）。／2026-11-25zm kincall リスト編集：たくさんのリストを開くとき、6本ずつ同時に読み込む（何本目まで読めたかも出す）。／2026-11-25zl kincall リスト管理：「すべてのリスト」カード（非表示・アーカイブ・リサイクルも入れたkincallのリストの全部）。／2026-11-25zk kinXs アチコチバース（年間）の更新月＝納品メールを送った月の1年後（手で決めた更新月はそのまま）。／2026-11-25zj kinXs 担当企業の大きな画面：段階7つを横一列に並べ直し（崩れを直した）。／2026-11-25zi kincall リスト管理のメンバーごとの「箱」を取りやめ（元の表示に戻した）。／2026-11-25zg 要確認の行の高さ（指定の強さを直す）。／2026-11-25zf 要確認の行は定義が入る高さを保つ。／2026-11-25ze 担当企業の流れの要確認に定義を書く。／2026-11-25left MOCHICALL：今日かけるリストの「残り」を、今日まだかけていない会社の数にした（かけたらすぐ減る。掛け直し待ちは別に数える）／2026-11-25zd ホームの担当企業：流れの行を枠の高さいっぱいに広げて余白をなくす。／2026-11-25zc kinXs ステージの名前を「済」の形に（キックオフ未設定・設定済・実施済・検収書回収済・納品メール回収済・要確認・掲載・利用中）。オンボーディング中はなくした。／2026-11-25sk MOCHICALL：レポートに「飛ばした」会社の数を出す（飛ばすを押した記録をサーバーに残す。同じ会社は1社） ／ 2026-11-25nh3 MOCHICALL：BALES のジャッジ・コネクト情報・営業フォロー・次回アクションのあるリードを、所有者の担当で MOCHICALL へ引き継ぐ（全部すぐ「かける」に出す）。過ぎた予定は最近過ぎた順、90日より前は予定なし扱い ／ 2026-11-25kc MOCHICALL：ヒアリングの ⑥採用対象で「高卒」を選べるように ／ 2026-11-25zbkinXs：予定名の頭の「Zoom」などを外して会社に議事録をつなぐ（Zoom【ユ/フォ】暁飯島工業 など）。／2026-11-25za kinXs ステージ：キックオフの実施日が入っていれば（今日以前）実施済みとしてすぐ次の段へ。／2026-11-25z ホームの担当企業の下の会社の一覧をなくす。／2026-11-25y kinXs ホームの担当企業：段・納品待ちを押すと会社の一覧をモーダルで。／2026-11-25x kinXs ホームの担当企業：上の3つの数字をやめ、今月・来月の納品待ちを見出しのとなりに。／2026-11-25w kinXs ホームのタスク：期日の札を押すとカレンダーで期日を変えられる。／2026-11-25v 担当企業の流れのキックオフ未設定・要確認を大きく・点滅。／2026-11-25u 要アクションが0社のときは1行だけにする。／2026-11-25t kinXs ホームを作りかえ（案C）：左にタスク（ぜんぶ・期限切れ・今日の数、要アクションを赤い枠で上に固定、タスクの一覧）、右に担当企業・これからの更新（月ごとに縦）・情報不足。／2026-11-25s kinXs 担当企業の流れの先頭を「受注」から「キックオフ未設定」に。／2026-11-25r kinXs：初期費用なしの会社は検収書回収を飛ばす（道のりは「不要（初期なし）」と薄く出す）。／2026-11-25q ステージの判定：10月より前の納品済みは納品メール済み、受注日が無くても先が済めば受注済み、送った日が分からないときは納品日から数える。／2026-11-25p kinXs ステージをそろえる：受注→キックオフ設定→キックオフ実施→検収書回収→納品メール回収→オンボーディング中→要確認（納品メールから2か月・掲載/利用が未確認）→掲載・利用中。担当企業の流れと企業モーダルの道のりの両方で同じ判定。／2026-11-25o kinXs 企業モーダル：議事録のタブをやめ、活動記録の「いまどこ？」の下に議事録・接触の記録・要望をまとめる。／2026-11-25fs MOCHICALL：問い合わせフォームの「送る」が止まったままになるのを直した（1回の上限2分・相手のページを読む処理に待ち時間の上限・送っている間は秒数を出す・確認画面の「検索」「再入力する」を押さない・所在国は「日本」を選ぶ） ／ 2026-11-25n 担当企業の枠の虫めがねのカーソルをやめる。／2026-11-25m kinXs ホームの担当企業から「担当企業へ ›」をなくす（余白で大きく開けるため）。／2026-11-25l 担当企業の大きなモーダルは、ホームの自分／全員と選んでいた数字から始める。／2026-11-25k kinXs ホーム：担当企業の枠の余白を押すと、担当企業の画面を大きくモーダルで出す。／2026-11-25j kinXs：VR だけの会社の企業IDは VR の URL の .aticoti の前（polus.aticoti.com → polus）。／2026-11-25sg MOCHICALL：メール・問い合わせフォームの名乗りを「株式会社ネオキャリアの福井です」の形に／送る人ごとの署名（自分の署名・名乗り）／問い合わせフォームは署名から会社名・電話を入れ、自動で決められない必須の欄（クイズなど）は画面で答えて送れる ／ 2026-11-25i MOCHICALL 検討時期待ち：SF の検討開始時期・架電で聞いた検討時期が2か月より先の会社は「かける」に出さない（情報が1年以上前ならかける。人と約束した掛け直しは出す）。リスト管理に「検討時期待ち」の絞り込み。／2026-11-25talkmap MOCHICALL：リスト管理に「リストとトークの対応」を足し、リストごとのトーク A/B/C に、ほかのリストのトークを写して差し替え・外しができるように／2026-11-25i 拡張機能 2.2.34：DOC の AI の管理画面「ユーザー管理」を開くと、一覧のメール・企業ID・権限を kinXs に送る。kinXs の企業情報「AIの管理者のログイン情報」に、その会社のユーザーのメールを出す（押すとコピー）。パスワードは管理画面にも出ないので出さない。／2026-11-25talkmap MOCHICALL：リスト管理に「リストとトークの対応」を足し、リストごとのトーク A/B/C に、ほかのリストのトークを写して差し替え・外しができるように";
+const BUILD_TAG = "2026-11-26a kincall 担当者（相手の人）にこちらの社員名が入っていた行を、SFのリードの氏名に直す（取り込みのたびにも直す）。／2026-11-25zn kincall リスト編集：表は最初の500件だけ描いて「さらに表示」（数万件で固まっていた）。／2026-11-25zm kincall リスト編集：たくさんのリストを開くとき、6本ずつ同時に読み込む（何本目まで読めたかも出す）。／2026-11-25zl kincall リスト管理：「すべてのリスト」カード（非表示・アーカイブ・リサイクルも入れたkincallのリストの全部）。／2026-11-25zk kinXs アチコチバース（年間）の更新月＝納品メールを送った月の1年後（手で決めた更新月はそのまま）。／2026-11-25zj kinXs 担当企業の大きな画面：段階7つを横一列に並べ直し（崩れを直した）。／2026-11-25zi kincall リスト管理のメンバーごとの「箱」を取りやめ（元の表示に戻した）。／2026-11-25zg 要確認の行の高さ（指定の強さを直す）。／2026-11-25zf 要確認の行は定義が入る高さを保つ。／2026-11-25ze 担当企業の流れの要確認に定義を書く。／2026-11-25left MOCHICALL：今日かけるリストの「残り」を、今日まだかけていない会社の数にした（かけたらすぐ減る。掛け直し待ちは別に数える）／2026-11-25zd ホームの担当企業：流れの行を枠の高さいっぱいに広げて余白をなくす。／2026-11-25zc kinXs ステージの名前を「済」の形に（キックオフ未設定・設定済・実施済・検収書回収済・納品メール回収済・要確認・掲載・利用中）。オンボーディング中はなくした。／2026-11-25sk MOCHICALL：レポートに「飛ばした」会社の数を出す（飛ばすを押した記録をサーバーに残す。同じ会社は1社） ／ 2026-11-25nh3 MOCHICALL：BALES のジャッジ・コネクト情報・営業フォロー・次回アクションのあるリードを、所有者の担当で MOCHICALL へ引き継ぐ（全部すぐ「かける」に出す）。過ぎた予定は最近過ぎた順、90日より前は予定なし扱い ／ 2026-11-25kc MOCHICALL：ヒアリングの ⑥採用対象で「高卒」を選べるように ／ 2026-11-25zbkinXs：予定名の頭の「Zoom」などを外して会社に議事録をつなぐ（Zoom【ユ/フォ】暁飯島工業 など）。／2026-11-25za kinXs ステージ：キックオフの実施日が入っていれば（今日以前）実施済みとしてすぐ次の段へ。／2026-11-25z ホームの担当企業の下の会社の一覧をなくす。／2026-11-25y kinXs ホームの担当企業：段・納品待ちを押すと会社の一覧をモーダルで。／2026-11-25x kinXs ホームの担当企業：上の3つの数字をやめ、今月・来月の納品待ちを見出しのとなりに。／2026-11-25w kinXs ホームのタスク：期日の札を押すとカレンダーで期日を変えられる。／2026-11-25v 担当企業の流れのキックオフ未設定・要確認を大きく・点滅。／2026-11-25u 要アクションが0社のときは1行だけにする。／2026-11-25t kinXs ホームを作りかえ（案C）：左にタスク（ぜんぶ・期限切れ・今日の数、要アクションを赤い枠で上に固定、タスクの一覧）、右に担当企業・これからの更新（月ごとに縦）・情報不足。／2026-11-25s kinXs 担当企業の流れの先頭を「受注」から「キックオフ未設定」に。／2026-11-25r kinXs：初期費用なしの会社は検収書回収を飛ばす（道のりは「不要（初期なし）」と薄く出す）。／2026-11-25q ステージの判定：10月より前の納品済みは納品メール済み、受注日が無くても先が済めば受注済み、送った日が分からないときは納品日から数える。／2026-11-25p kinXs ステージをそろえる：受注→キックオフ設定→キックオフ実施→検収書回収→納品メール回収→オンボーディング中→要確認（納品メールから2か月・掲載/利用が未確認）→掲載・利用中。担当企業の流れと企業モーダルの道のりの両方で同じ判定。／2026-11-25o kinXs 企業モーダル：議事録のタブをやめ、活動記録の「いまどこ？」の下に議事録・接触の記録・要望をまとめる。／2026-11-25fs MOCHICALL：問い合わせフォームの「送る」が止まったままになるのを直した（1回の上限2分・相手のページを読む処理に待ち時間の上限・送っている間は秒数を出す・確認画面の「検索」「再入力する」を押さない・所在国は「日本」を選ぶ） ／ 2026-11-25n 担当企業の枠の虫めがねのカーソルをやめる。／2026-11-25m kinXs ホームの担当企業から「担当企業へ ›」をなくす（余白で大きく開けるため）。／2026-11-25l 担当企業の大きなモーダルは、ホームの自分／全員と選んでいた数字から始める。／2026-11-25k kinXs ホーム：担当企業の枠の余白を押すと、担当企業の画面を大きくモーダルで出す。／2026-11-25j kinXs：VR だけの会社の企業IDは VR の URL の .aticoti の前（polus.aticoti.com → polus）。／2026-11-25sg MOCHICALL：メール・問い合わせフォームの名乗りを「株式会社ネオキャリアの福井です」の形に／送る人ごとの署名（自分の署名・名乗り）／問い合わせフォームは署名から会社名・電話を入れ、自動で決められない必須の欄（クイズなど）は画面で答えて送れる ／ 2026-11-25i MOCHICALL 検討時期待ち：SF の検討開始時期・架電で聞いた検討時期が2か月より先の会社は「かける」に出さない（情報が1年以上前ならかける。人と約束した掛け直しは出す）。リスト管理に「検討時期待ち」の絞り込み。／2026-11-25talkmap MOCHICALL：リスト管理に「リストとトークの対応」を足し、リストごとのトーク A/B/C に、ほかのリストのトークを写して差し替え・外しができるように／2026-11-25i 拡張機能 2.2.34：DOC の AI の管理画面「ユーザー管理」を開くと、一覧のメール・企業ID・権限を kinXs に送る。kinXs の企業情報「AIの管理者のログイン情報」に、その会社のユーザーのメールを出す（押すとコピー）。パスワードは管理画面にも出ないので出さない。／2026-11-25talkmap MOCHICALL：リスト管理に「リストとトークの対応」を足し、リストごとのトーク A/B/C に、ほかのリストのトークを写して差し替え・外しができるように";
 const BUILD_FEATURES = [
   "MOCHICALL：今日かけるリストの「残り」を、今日まだかけていない会社の数にした（かけたらすぐ減る。掛け直し待ちは別に数える）",
   "MOCHICALL：BALES のナーチャリング（ジャッジ・コネクト情報・営業フォロー・次回アクションあり）を、MOCHICALL を使っている所有者の担当で「BALES 引き継ぎ（ナーチャリング）」へ自動で引き継ぐ。1回目は管理者が下見してから",

@@ -14038,6 +14038,18 @@ export async function fixPersonOwnerSwap(listId = null) {
   return r.rowCount;
 }
 
+// 担当者（相手の人）に、こちらの社員の名前が入ってしまった行を直すための読み書き（2026-11-26 田中さん「担当者が俺とか植野さんとか中村圭佑さんになっている」）
+//   直す前の名前は元の列「担当者（直す前）」に残す（消さない）
+export async function personFixCandidates(listId = null) {
+  if (!pool) return [];
+  const r = await pool.query(`SELECT id, lead_id, person FROM call_targets WHERE COALESCE(btrim(person),'') <> '' AND ($1::int IS NULL OR list_id = $1)`, [listId]);
+  return r.rows;
+}
+export async function setTargetPersonFixed(id, person, old) {
+  if (!pool) return;
+  await pool.query(`UPDATE call_targets SET person = $2, person_kana = NULL, extra = COALESCE(extra, '{}'::jsonb) || jsonb_build_object('担当者（直す前）', $3::text) WHERE id = $1`, [id, person || null, String(old || "")]);
+}
+
 // ===== kinXs：会社からの要望・問い合わせ（2026-11-17 久野さん「議事録からまとまって入る欄・解決したら消せるチェック・まとめた表」）=====
 //   kinxs_voices：1件＝1つの要望か問い合わせ。議事録（source_bot）から AI が拾ったものと、手で足したもの（manual）
 //   kinxs_voice_scans：読んだ議事録の印（同じ議事録を何度も読んで同じ要望を増やさないため）
