@@ -1208,6 +1208,29 @@ export function registerMcCall(app, deps) {
       rows: rows.map((r) => ({ key: r.k, label: label(r.k), ...num(r), ...fx(r.k) })).sort((a, b) => by === "day" ? 0 : b.calls - a.calls) });
   }));
 
+  // ---- 1日のタイムライン（2026-11-26 福井さん「PC時間分析レポートの1日のタイムラインみたいな表示をレポートに」） ----
+  //   その日の記録を時刻のまま返し、画面で「かける→記録」「記録→次のかける（間隔）」を横に並べて描く。
+  //   PC の操作は見ていないので、分かるのは MOCHICALL を押した時刻だけ（通話の長さは「かける」から記録までに含まれる）。
+  //   管理者は全員分、ほかの人は自分の分だけ。DB を読むだけ（AI・外のサービスは呼ばない）
+  app.get("/api/mccall/report/timeline", guard(async (req, res) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(req.query.day || ""));
+    const from = m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]) - 9 * 3600e3) : jstDayStart();
+    const to = new Date(from.getTime() + 86400e3);
+    const p = [from, to]; let w = "g.created_at >= $1 AND g.created_at < $2";
+    if (!isAdmin(req)) { p.push(me(req)); w += ` AND g.caller=$${p.length}`; }
+    const calls = (await P().query(`SELECT lower(g.caller) AS u, g.dialed_at, g.created_at, g.reach, g.outcome FROM mc_call_logs g
+      WHERE NOT g.undone AND ${w} ORDER BY g.created_at, g.id LIMIT 5000`, p)).rows;
+    const skips = (await P().query(`SELECT lower(g.caller) AS u, g.created_at FROM mc_call_skips g WHERE ${w} ORDER BY g.created_at LIMIT 5000`, p)).rows;
+    const names = await nameMap();
+    const people = new Map();
+    const of = (u) => { if (!people.has(u)) people.set(u, { key: u, label: names.get(u) || u, calls: [], skips: [] }); return people.get(u); };
+    // 時刻は数字（ミリ秒）で返す。並べ替えや差を画面で計算しやすいように
+    for (const c of calls) of(c.u).calls.push({ d: c.dialed_at ? +new Date(c.dialed_at) : null, t: +new Date(c.created_at), r: c.reach || "", o: c.outcome || "" });
+    for (const s of skips) of(s.u).skips.push(+new Date(s.created_at));
+    const rows = [...people.values()].sort((a, b) => b.calls.length - a.calls.length);
+    res.json({ ok: true, day: new Date(from.getTime() + 9 * 3600e3).toISOString().slice(0, 10), from: +from, gapSec: PACE.gapSec, breakSec: PACE.breakSec, rows });
+  }));
+
   // ---- リードの割り振り・他のリストへ移す（2026-11-17 福井さん。kinbot の利用状況で kincall の
   //      「複数人に分ける／この人たちに割り振る」約830回・「他のリストへ移す」85回/30日 と多く使われていたため） ----
   // かける順番（/queue）は assigned_to が空か自分のものだけ出すので、ここで assigned_to を埋めれば担当ごとに分かれる。

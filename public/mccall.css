@@ -652,3 +652,30 @@
 .mca-ed{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:99px;border:1px solid #5DCAA5;background:#fff;color:#1d9e75;cursor:pointer;}
 .mca-ed:hover{background:#E6F6F0;}
 .mca-empty{color:var(--c-muted);font-size:12.5px;padding:8px 2px;}
+/* 1日のタイムライン（2026-11-26 福井さん：PC時間分析レポートの「1日のタイムライン」と同じ見方をレポートで）。
+   横が時刻。帯の位置と幅は画面の JS が % で入れる。狭い画面では横にスクロールして時刻をつぶさない */
+.mcc-tml{overflow-x:auto;padding:4px 18px 0 0;}
+.mcc-tml-row{display:grid;grid-template-columns:150px minmax(560px,1fr);align-items:center;min-height:34px;}
+.mcc-tml-row>span{font-size:12px;font-weight:700;color:var(--c-ink);padding-right:10px;line-height:1.3;}
+.mcc-tml-row>span small{display:block;font-weight:400;color:var(--c-muted);font-size:11px;}
+.mcc-tml-name{border:0;background:none;padding:0;font:inherit;color:var(--c-deep);cursor:pointer;text-align:left;text-decoration:underline dotted;}
+.mcc-tml-trk{position:relative;height:34px;border-bottom:1px solid var(--c-line);}
+.mcc-tml-trk u{position:absolute;top:0;bottom:0;width:1px;background:var(--c-line);opacity:.7;}
+.mcc-tml-trk i{position:absolute;top:12px;height:14px;min-width:2px;border-radius:3px;}
+.mcc-tml-row.axis{min-height:20px;} .mcc-tml-row.axis .mcc-tml-trk{height:20px;border-bottom:0;}
+.mcc-tml-trk em{position:absolute;top:2px;transform:translateX(-50%);font-style:normal;font-size:11px;color:var(--c-muted);font-variant-numeric:tabular-nums;}
+.tml-call{background:#0d5b47;}
+.tml-ok{background:#5DCAA5;}
+.tml-over{background:#f0a43a;}
+.tml-brk{background:#dfe6e8;}
+.tml-skip{background:#9aa9ad;min-width:2px;}
+.mcc-tml-trk i.tml-skip,.mcc-tml-trk i.tml-mark{width:2px!important;}
+.tml-mark{background:#0d5b47;opacity:.55;}
+.mcc-tml-trk i.tml-sess{top:0;height:100%;border-radius:0;background:#1d9e75;opacity:.08;}
+.tml-pin{position:absolute;top:-2px;transform:translateX(-50%);font-size:10px;line-height:1;color:#1d9e75;}
+.tml-pin.apo{color:#d14343;font-size:13px;top:-4px;}
+.mcc-tml-key{display:inline-flex;align-items:center;gap:4px;margin-right:12px;white-space:nowrap;}
+.mcc-tml-key i{display:inline-block;width:14px;height:10px;border-radius:3px;}
+.mcc-tml-key i.tml-sess{background:#1d9e75;opacity:.25;}
+.mcc-tml-key .tml-pin{position:static;transform:none;}
+@media (max-width:640px){.mcc-tml-row{grid-template-columns:96px minmax(560px,1fr);}}

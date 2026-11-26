@@ -2351,7 +2351,7 @@
     const rank = (title, arr) => { if (!arr || !arr.length) return ""; const mx = Math.max(...arr.map((r) => r.n), 1);
       return `<div><h3>${title}</h3>${arr.map((r) => `<div class="mcc-rk"><span title="${esc(r.k)}">${esc(r.k)}</span><i><u style="width:${Math.round(r.n / mx * 100)}%"></u></i><b>${r.n}</b></div>`).join("")}</div>`; };
     const ranks = rank("受付で断られた文句", j.gateReasons) + rank("担当者に断られた理由", j.reasons) + rank("聞けて SF に入れた項目", j.fields);
-    res.innerHTML = `${paceCard(j.pace)}${j.rows.length ? `<div class="mcc-card">
+    res.innerHTML = `${paceCard(j.pace)}<div class="mcc-card" id="mccRtl"></div>${j.rows.length ? `<div class="mcc-card">
         <div class="mcc-chead"><h2>内訳</h2>
           <div class="mcc-chips" role="group" aria-label="分け方">${bys.map(([v, l]) => `<button class="mcc-chip" data-by="${v}" aria-pressed="${RP.by === v}">${l}</button>`).join("")}</div>
           <span class="mcc-sp"></span>
@@ -2363,6 +2363,99 @@
       <p class="mcc-note">数えているのは MOCHICALL で記録したものだけです（Bales で記録した過去の架電は入りません）。取り消した記録は数えません。</p>`;
     res.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => { RP.view = b.dataset.view; renderReport(); }));
     res.querySelectorAll("[data-by]").forEach((b) => b.addEventListener("click", () => { RP.by = b.dataset.by; drawReport(); }));
+    // 期間の外の日を見ていたら、期間の最後の日に戻す（期間を変えたのに前の日のタイムラインが残らないように）
+    if (!RP.tlDay || RP.tlDay < RP.from || RP.tlDay > RP.to) RP.tlDay = RP.to;
+    drawTimeline();
+  }
+
+  // ---- 1日のタイムライン（2026-11-26 福井さん「PC時間分析レポートの1日のタイムラインみたいな表示を MOCHICALL のレポートに」） ----
+  //   横が時刻。「かける」を押してから記録するまで（通話と記録）と、記録してから次の「かける」までの間隔を色の帯で並べる。
+  //   全員を見るときは1人1行（だれの手が止まっているかを見比べる）、1人を見るときは中身ごとに1行（PC時間分析と同じ形で、その人の1日をふり返る）。
+  //   日を変えてもレポート全体は読み直さず、ここだけ読み直す
+  async function drawTimeline() {
+    const box = $("mccRtl"); if (!box) return;
+    const day = RP.tlDay;
+    const shift = (n) => { const x = new Date(`${day}T00:00:00`); x.setDate(x.getDate() + n); return ymd(x); };
+    const head = (body) => `<div class="mcc-chead"><h2>1日のタイムライン</h2>
+        <div class="mcc-chips"><button class="mcc-chip" data-tld="-1" aria-label="前の日">‹</button><input type="date" class="mcc-sel" id="mccTlDay" value="${day}" aria-label="見る日" /><button class="mcc-chip" data-tld="1" aria-label="次の日">›</button></div>
+        <span class="mcc-sp"></span><span id="mccTlWho"></span></div>${body}`;
+    box.innerHTML = head(`<p class="mcc-note">読み込んでいます…</p>`);
+    const bind = () => {
+      box.querySelectorAll("[data-tld]").forEach((b) => b.addEventListener("click", () => { RP.tlDay = shift(+b.dataset.tld); drawTimeline(); }));
+      const d = $("mccTlDay"); if (d) d.addEventListener("change", () => { if (d.value) { RP.tlDay = d.value; drawTimeline(); } });
+    };
+    bind();
+    let t; try { t = await api(`/api/mccall/report/timeline?day=${encodeURIComponent(day)}`); }
+    catch (e) { box.innerHTML = head(`<p class="mcc-note">読めませんでした：${esc(e.message)}</p>`); bind(); return; }
+    if (RP.tlDay !== day || !$("mccRtl")) return;   // 読んでいる間に日を変えた・タブを移った
+    const GAP = t.gapSec || 120, BRK = t.breakSec || 1800;
+    // 管理者が1人を選んだら、その人だけ（中身ごとの行）にする。いない人を選んだままなら全員に戻す
+    if (RP.tlWho && !t.rows.some((r) => r.key === RP.tlWho)) RP.tlWho = "";
+    const rows = S.admin && !RP.tlWho ? t.rows : t.rows.filter((r) => !S.admin || r.key === RP.tlWho);
+    const whoSel = S.admin && t.rows.length ? `<select class="mcc-sel" id="mccTlSel" aria-label="だれを見るか"><option value="">全員（1人1行）</option>${t.rows.map((r) => `<option value="${esc(r.key)}" ${RP.tlWho === r.key ? "selected" : ""}>${esc(r.label)}</option>`).join("")}</select>` : "";
+    if (!rows.length || !rows.some((r) => r.calls.length || r.skips.length)) {
+      box.innerHTML = head(`<p class="mcc-note">この日の架電の記録はありません。</p>`); bind(); return;
+    }
+    // 1本ずつを「かける→記録」「間隔」に分ける。かけた時刻が無い記録（11/26 より前・折り返しの着信など）は記録した時刻の印だけにする
+    const parse = (r) => {
+      const segs = []; let prevT = null;
+      for (const c of r.calls) {
+        const d = c.d && c.d <= c.t && c.t - c.d < 2 * 3600e3 ? c.d : null;
+        if (d) segs.push({ k: "call", a: d, b: c.t, c }); else segs.push({ k: "mark", a: c.t, b: c.t, c });
+        if (d && prevT != null && d >= prevT) { const g = (d - prevT) / 1000; segs.push({ k: g > BRK ? "brk" : g > GAP ? "over" : "ok", a: prevT, b: d }); }
+        prevT = c.t;
+      }
+      for (const s of r.skips) segs.push({ k: "skip", a: s, b: s });
+      return segs;
+    };
+    const all = rows.map((r) => ({ r, segs: parse(r) }));
+    const times = all.flatMap((x) => x.segs.flatMap((s) => [s.a, s.b]));
+    const base = t.from;   // その日の 0:00（日本時間）
+    const hLo = Math.min(9, Math.floor((Math.min(...times) - base) / 3600e3));
+    const hHi = Math.max(19, Math.ceil((Math.max(...times) - base) / 3600e3));
+    const t0 = base + hLo * 3600e3, span = (hHi - hLo) * 3600e3;
+    const X = (ms) => ((ms - t0) / span * 100).toFixed(3);
+    const W = (a, b) => (Math.max(b - a, 0) / span * 100).toFixed(3);
+    const hm = (ms) => { const x = new Date(ms); return `${x.getHours()}:${String(x.getMinutes()).padStart(2, "0")}`; };
+    const what = (c) => [c.r === "person" ? "担当者と話せた" : c.r && c.r !== "none" ? "つながった" : "つながらなかった", c.o === "apo" ? "アポ" : ""].filter(Boolean).join("・");
+    const KIND = { call: "かける→記録", ok: `間隔 ${mmss(GAP)} 以内`, over: `間隔 ${mmss(GAP)} 超え`, brk: `休憩（${Math.round(BRK / 60)}分より空いた）`, skip: "飛ばした" };
+    const tip = (s) => s.k === "call" ? `${hm(s.a)} かける → ${hm(s.b)} 記録（${mmss((s.b - s.a) / 1000)}）${what(s.c)}`
+      : s.k === "mark" ? `${hm(s.a)} 記録（かけた時刻なし）${what(s.c)}`
+      : s.k === "skip" ? `${hm(s.a)} 飛ばした` : `${hm(s.a)} 記録 → ${hm(s.b)} かける（${mmss((s.b - s.a) / 1000)}）`;
+    const bar = (s) => `<i class="tml-${s.k}" style="left:${X(s.a)}%;width:${W(s.a, s.b)}%" title="${esc(tip(s))}"></i>`;
+    // 担当者と話せた（▼）・アポ（★）の印。どちらも記録した時刻に付ける
+    const pins = (segs) => segs.filter((s) => (s.k === "call" || s.k === "mark") && (s.c.r === "person" || s.c.o === "apo"))
+      .map((s) => `<b class="tml-pin ${s.c.o === "apo" ? "apo" : ""}" style="left:${X(s.b)}%" title="${esc(tip(s))}">${s.c.o === "apo" ? "★" : "▼"}</b>`).join("");
+    const grid = Array.from({ length: hHi - hLo + 1 }, (_, i) => `<u style="left:${(i / (hHi - hLo) * 100).toFixed(3)}%"></u>`).join("");
+    const axis = `<div class="mcc-tml-row axis"><span></span><div class="mcc-tml-trk">${Array.from({ length: hHi - hLo + 1 }, (_, i) => `<em style="left:${(i / (hHi - hLo) * 100).toFixed(3)}%">${hLo + i}:00</em>`).join("")}</div></div>`;
+    const sum = (segs, k) => segs.filter((s) => s.k === k).reduce((a, s) => a + (s.b - s.a), 0);
+    const hmLen = (ms) => { const m = Math.round(ms / 60e3); return m >= 60 ? `${Math.floor(m / 60)}時間${m % 60}分` : `${m}分`; };
+    let body;
+    if (S.admin && !RP.tlWho) {
+      // 全員：1人1行。名前を押すとその人の中身ごとの表示へ
+      body = all.map(({ r, segs }) => `<div class="mcc-tml-row"><span><button class="mcc-tml-name" data-tlw="${esc(r.key)}" title="${esc(r.label)}さんの1日を中身ごとに見る">${esc(r.label)}</button><small>${r.calls.length}本</small></span>
+        <div class="mcc-tml-trk">${grid}${segs.filter((s) => s.k !== "brk").map(bar).join("")}${pins(segs)}</div></div>`).join("");
+    } else {
+      // 1人：中身ごとに1行（PC時間分析のタイムラインと同じ形）。薄い帯＝続けてかけていたまとまり（休憩で区切る）
+      const { r, segs } = all[0];
+      const sess = []; for (const c of r.calls) { const a = c.d && c.d <= c.t ? c.d : c.t; const last = sess[sess.length - 1];
+        if (last && a - last.b <= BRK * 1000) last.b = Math.max(last.b, c.t); else sess.push({ a, b: c.t }); }
+      const band = sess.map((s) => `<i class="tml-sess" style="left:${X(s.a)}%;width:${W(s.a, s.b)}%"></i>`).join("");
+      const line = (k, inner) => `<div class="mcc-tml-row"><span>${KIND[k] || k}</span><div class="mcc-tml-trk">${grid}${band}${inner}</div></div>`;
+      const callRow = segs.filter((s) => s.k === "call" || s.k === "mark").map(bar).join("") + pins(segs);
+      const rest = ["ok", "over", "brk", "skip"].filter((k) => segs.some((s) => s.k === k));
+      const first = Math.min(...segs.map((s) => s.a)), lastT = Math.max(...segs.map((s) => s.b));
+      body = `<p class="mcc-note">${esc(r.label)}：${hm(first)} 〜 ${hm(lastT)}・<b>${r.calls.length}本</b>・続けてかけていた時間 <b>${hmLen(sess.reduce((a, s) => a + s.b - s.a, 0))}</b>・かける→記録 ${hmLen(sum(segs, "call"))}・間隔 ${hmLen(sum(segs, "ok") + sum(segs, "over"))}（うち ${mmss(GAP)} 超え ${segs.filter((s) => s.k === "over").length}回）・休憩 ${hmLen(sum(segs, "brk"))}</p>`
+        + line("call", callRow) + rest.map((k) => line(k, segs.filter((s) => s.k === k).map(bar).join(""))).join("");
+    }
+    const noDial = all.some(({ segs }) => segs.some((s) => s.k === "mark"));
+    box.innerHTML = head(`<div class="mcc-tml">${body}${axis}</div>
+      <p class="mcc-note" style="margin-top:8px"><span class="mcc-tml-key"><i class="tml-call"></i>かける→記録</span><span class="mcc-tml-key"><i class="tml-ok"></i>間隔 ${mmss(GAP)} 以内</span><span class="mcc-tml-key"><i class="tml-over"></i>間隔 ${mmss(GAP)} 超え</span>${S.admin && !RP.tlWho ? "" : `<span class="mcc-tml-key"><i class="tml-brk"></i>休憩</span><span class="mcc-tml-key"><i class="tml-sess"></i>続けてかけていたまとまり</span>`}<span class="mcc-tml-key"><i class="tml-skip"></i>飛ばした</span><span class="mcc-tml-key"><b class="tml-pin">▼</b>担当者と話せた</span><span class="mcc-tml-key"><b class="tml-pin apo">★</b>アポ</span></p>
+      <p class="mcc-note">MOCHICALL で「かける」を押した時刻と記録した時刻から描いています（PC の操作は見ていません）。通話の長さは「かける→記録」に入っています。${Math.round(BRK / 60)}分より空いたところは休憩として、間隔に数えません。${noDial ? "「かける」を押した時刻が無い記録（11/26 より前の記録・折り返しの着信など）は、記録した時刻に細い印だけを出しています。" : ""}帯にマウスを乗せると時刻が出ます。</p>`);
+    bind();
+    const who = $("mccTlWho"); if (who) who.innerHTML = whoSel;
+    const sel = $("mccTlSel"); if (sel) sel.addEventListener("change", () => { RP.tlWho = sel.value; drawTimeline(); });
+    box.querySelectorAll("[data-tlw]").forEach((b) => b.addEventListener("click", () => { RP.tlWho = b.dataset.tlw; drawTimeline(); }));
   }
   async function listDialog(l) {
     let reps = []; try { reps = (await api("/api/mochica/reps")).items || []; } catch {}
