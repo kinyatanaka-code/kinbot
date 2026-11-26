@@ -221,6 +221,16 @@ async function ensure() {
       count INT, reason TEXT, by_user TEXT, at TIMESTAMPTZ DEFAULT now())`);
     // 施策（リスト×トーク）・企業調査・録音の読み取り・折り返しの着信（2026-11-20 福井さん）。mcplay.js
     await ensurePlay(q);
+    // 受付ブロックを終わりにする前（2026-11-26 より前）に記録して、残ったままの会社を終わりにする（2026-11-26 福井さん「もうかけない（お断りと同じ）」）。
+    //   ①MOCHICALL で受付ブロックにしたもの（人が掛け直しの時刻を選んだものは残す）
+    //   ②BALES で受付ブロックになり、自動の掛け直しが入ったもの（次の時刻が BALES から入れたもののときだけ。そのあと MOCHICALL で記録していれば触らない）
+    //   消すのは次の時刻だけで、架電の記録は消さない。今は終わりにならない会社は無いので、2回目からは0件で終わる
+    try {
+      const a = await P().query(`UPDATE mc_call_leads SET done = true, next_at = NULL, next_why = NULL WHERE NOT done AND last_outcome = 'blocked' AND next_why IS DISTINCT FROM $1`, [WHY_HUMAN]);
+      const b = await q(`UPDATE mc_call_leads SET done = true, next_at = NULL, next_why = NULL WHERE NOT done AND COALESCE(bales_seen->>'kind','') = 'miss'
+          AND COALESCE(bales_seen->>'result','') ~ '受付(ブロック|NG|ＮＧ|拒否)' AND COALESCE(next_why,'') LIKE 'BALESで%'`);
+      if (a.rowCount || b.rowCount) console.log(`[mccall] 受付ブロックのまま残っていた会社を終わりにしました：MOCHICALL ${a.rowCount}件・BALES ${b.rowCount}件`);
+    } catch (e) { console.warn("[mccall] 受付ブロックの会社を終わりにできませんでした", e.message); }
   })().catch((e) => { _ready = null; throw e; });
   return _ready;
 }
@@ -3119,7 +3129,9 @@ export function registerMcCall(app, deps) {
     }
     if (outcome === "callback_req" && !nextAt) return res.status(400).json({ error: "掛け直す時刻を選んでください" });
     // 資料送付・問い合わせフォームは「送って終わり」。掛け直しの時刻を選んだときだけ残す
-    const done = FINAL.has(outcome) || ((outcome === "doc_send" || outcome === "inquiry") && !nextAt);
+    //   受付ブロックも、お断りと同じくもうかけない（2026-11-26 福井さん「受付ブロックにした企業が再架電設定になって今日かけるリストに出てくる」）。
+    //   これまでは終わりにも掛け直しにもならず、今日の分に残ったまま「かける」にまた出ていた。人が掛け直しの時刻を選んだときだけ残す
+    const done = FINAL.has(outcome) || ((outcome === "doc_send" || outcome === "inquiry" || outcome === "blocked") && !nextAt);
     const prev = { next_at: lead.next_at, next_why: lead.next_why, last_at: lead.last_at, last_outcome: lead.last_outcome, attempts: lead.attempts, done: lead.done, gate: lead.gate, hearing: lead.hearing, miss_streak: lead.miss_streak || 0, parked_at: lead.parked_at || null };
     // ヒアリングは担当者と話せたときだけ記録に付ける（受付・不在で前の値が SF に二重に書かれないように）
     const hNew = reach === "person" ? cleanHearing(b.hearing || {}) : null;

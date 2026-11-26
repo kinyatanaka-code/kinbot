@@ -205,7 +205,11 @@ await t("受付で断られた：断り文句を選んで記録 → 記録に残
   assert.deepEqual(rep.gateReasons, [{ k: meta.gateReasons[0], n: 1 }]);
   const d = await call(I1, "GET", `/api/mccall/leads/${id}`);
   assert.ok(d.timeline.some((x) => x.title.includes(meta.gateReasons[0]) && x.who), "これまでに断り文句とだれが出る");
+  // 受付ブロックはお断りと同じく終わり（2026-11-26）。「かける」にまた出ない・掛け直しも入らない
+  assert.equal(r.done, true, "受付ブロックは終わり"); assert.equal(r.nextAt, null, "受付ブロックに掛け直しは入らない");
+  assert.ok(!(await call(I1, "GET", "/api/mccall/queue")).items.some((x) => x.id === id), "受付ブロックの会社は「かける」に出ない");
   await call(I1, "POST", `/api/mccall/logs/${r.logId}/undo`); await call(I1, "POST", `/api/mccall/leads/${id}/release`);
+  assert.equal((await q(`SELECT done FROM mc_call_leads WHERE id=$1`, [id])).rows[0].done, false, "取り消すと終わりも戻る");
 });
 await t("飛ばす → 記録が残り、レポートの「飛ばした」に同じ会社は1社で数えられる（コールには数えない）", async () => {
   const before = await call(A, "GET", "/api/mccall/report?by=user");

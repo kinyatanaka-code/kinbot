@@ -736,7 +736,7 @@
       if (f.gate.hours || (S.d.lead.gate && S.d.lead.gate.hours) || !c || !c.next) return `次は <b>自動で掛け直し</b>（受付で聞いたいる時間に）`;
       return `次は <b>${esc(tm(c.next.at))}</b> に自動で掛け直し（${c.streak + 1}/${c.max}回目。前回と違う時間帯・1〜2日あけます）`;
     }
-    if (["invalid", "apo", "reject"].includes(f.outcome)) return "この会社は、このリストではこれで終わりです";
+    if (["invalid", "apo", "reject", "blocked"].includes(f.outcome)) return "この会社は、このリストではこれで終わりです";
     return "次の掛け直しはありません";
   }
   // この1本で確定させること（MOCHICA 科学化：1本の勝ち負けは「アポが取れたか」ではなく「何を確定できたか」で見る。不在でも担当者名・いる時間が取れれば前進）
