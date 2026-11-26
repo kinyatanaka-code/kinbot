@@ -126,9 +126,10 @@ const LK = "bales:試験";
 await q(`INSERT INTO mochica_bales_lists (list_key, name, status, cols, run_at) VALUES ($1,'試験',$2,$3,now())`, [LK, "done", JSON.stringify([{ key: "companyName" }, { key: "companyTel1" }, { key: "operatorName" }])]);
 const run = (await q(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [LK])).rows[0].run_at;
 // 森さんの手持ち（kinbot で割り振った会社）3社＋森さんが所有者の m9（割り振りなし）
+// 電話は10けたにする（MQL は9けたの番号を「発信できる番号が無い」として外すため。2026-11-27 リリースで MQL と一緒に載せたとき）
 for (const [k, owner, asg] of [["m1", "森 康晴", "森 康晴"], ["m2", "森 康晴", "森 康晴"], ["m3", "森 康晴", "森 康晴"], ["m9", "森 康晴", null]])
   await q(`INSERT INTO mochica_bales_rows (list_key, row_key, data, run_at, hot, assign_name) VALUES ($1,$2,$3,$4,2,$5)`,
-    [LK, k, JSON.stringify({ companyName: `株式会社 バレス${k}`, companyTel1: `03-1111-01${k.slice(1)}`, operatorName: owner }), run, asg]);
+    [LK, k, JSON.stringify({ companyName: `株式会社 バレス${k}`, companyTel1: `03-1111-010${k.slice(1)}`, operatorName: owner }), run, asg]);
 const rd = async () => (await call(A, "GET", "/api/mccall/readiness")).items;
 const who = (items, e) => items.find((x) => x.email === e);
 const mAhead = (k) => ((new Date().getMonth() + k) % 12) + 1;
