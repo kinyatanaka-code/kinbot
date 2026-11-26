@@ -39,6 +39,8 @@ export const HEAR_ITEMS = [
   { k: "role", no: "⑱", group: "more", label: "役職名", type: "text", ask: "ご担当者様の役職名" },
   { k: "cond", no: "⑲", group: "more", label: "採用条件", type: "text", ask: "採用に関する条件（勤務地・資格・人物像など）" },
   { k: "budgetYear", no: "⑳", group: "more", label: "想定年間採用予算", type: "text", ask: "想定されている年間の採用予算" },
+  // 2026-11-26 福井さん「ヒヤリングに予算検討時期を」：任意の枠だけ（アポの判定には使わない）。番号は ASUMO の並びを崩さないよう末尾の㉖にして、予算の隣に置く
+  { k: "budgetWhen", no: "㉖", group: "more", label: "予算検討時期", type: "month", hint: "次の予算を検討する月（未定も可）", ask: "採用予算をご検討される時期（○月ごろ・未定でも構いません）" },
   { k: "soon", no: "㉑", group: "more", label: "直近採用時期", type: "text", ask: "直近で採用をお考えの時期" },
   { k: "soonWhy", no: "㉒", group: "more", label: "直近採用の理由", type: "text", ask: "直近で採用をお考えの理由" },
   { k: "sfRank", no: "㉓", group: "more", label: "SFランク", type: "text", hint: "社内管理用", mail: false },

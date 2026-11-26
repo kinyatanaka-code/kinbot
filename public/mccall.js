@@ -961,6 +961,7 @@
     contact: ["説明会・面接の参加人数", "説明会参加人数", "説明会参加", "接触"], target: ["採用目標人数", "採用目標", "採用予定人数"],
     when: ["次卒の選考開始", "選考開始予定時期", "選考開始時期", "選考開始", "選考時期", "選考"],
     budget3m: ["3カ月以内の予算", "3ヶ月以内の予算", "3ヶ月以内の導入予算"],
+    budgetWhen: ["予算検討時期", "予算の検討時期", "予算時期"],
     need_who: ["採用種別", "ほしい人"], need_pains: ["採用課題", "困りごと"],
   };
   const memoMail = (v) => /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(v) && !/@(?:neo-career|neocareer|c-career)\./i.test(v);
@@ -1025,7 +1026,7 @@
     };
     // ラベルのある記述と単独のメールだけを拾い、同じ項目に別の値があれば入力を見送る。
     for (const line of memo.split(/[\r\n。；;]|、(?=\s*[^、：:\r\n]{2,24}[：:])/)) {
-      const text = line.trim().replace(/^[・•\-①-⑳㉑-㉕]\s*/, "").normalize("NFKC");
+      const text = line.trim().replace(/^[・•\-①-⑳㉑-㉖]\s*/, "").normalize("NFKC");
       if (memoMail(text)) { add("mail", text); continue; }
       const field = labels.find(([label]) => text.startsWith(label) && /^(?:\s*[:=]|は|\s|\d)/.test(text.slice(label.length)));
       if (!field) continue;
@@ -1097,7 +1098,7 @@
     ["連絡先・採用人数（必須）", (it) => FIRST_HEARING.has(it.k)],
     ["選考・予算・課題（必須）", (it) => it.group === "req" && !FIRST_HEARING.has(it.k)],
     ["採用状況・利用ツール（任意）", (it) => it.group === "more" && /^[⑧-⑭]$/.test(it.no)],
-    ["担当者・採用条件（任意）", (it) => it.group === "more" && /^[⑮-⑳]$/.test(it.no)],
+    ["担当者・採用条件（任意）", (it) => it.group === "more" && /^[⑮-⑳㉖]$/.test(it.no)],
     ["採用時期・引き継ぎ（任意）", (it) => it.group === "more" && /^[㉑-㉕]$/.test(it.no)],
   ];
   function hearingHtml() {
