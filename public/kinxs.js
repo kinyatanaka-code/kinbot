@@ -861,7 +861,7 @@ async function openDetail(id, reuse) {
     </div>
     <div data-pane="tl" hidden style="display:flex;flex-direction:column;gap:12px">
       <section class="kx-sec" data-voice-box="${esc(x.id)}"><div class="lb">要望・問い合わせ</div><div class="kx-note">読み込み中…</div></section>
-      ${kxSummarySection(x)}
+      ${""/* これまでのサマリ（全体のスケジュール）は出さない（2026-11-26 田中さん「消していいよ」。道のりと重なるため） */}
       <div class="kx-sec"><div class="lb">電話・メールなど（議事録のない接触）を記録する</div>
         <div style="display:flex;gap:8px"><select class="kx-in" data-ctype style="max-width:110px"><option>電話</option><option>メール</option><option>Chat</option><option>商談</option><option>その他</option></select><input class="kx-in" data-ctext placeholder="話した内容を短く" /><button type="button" class="kx-btn" data-add-contact style="white-space:nowrap">記録する</button></div></div>
       ${(() => {
@@ -2696,6 +2696,9 @@ function kxStageInfo(x) {
   const planPast = !!x.usePlanOn && String(x.usePlanOn).slice(0, 10) < today0;
   const touch60 = !!x.lastTouch && x.sinceTouch != null && x.sinceTouch <= 60;
   if (i < 0) i = pub ? 9 : planPast ? 7 : (x.usePlanOn && touch60) ? 8 : mailDays != null && mailDays >= 60 ? 7 : 6;
+  // 手で決めた段階があれば、それを使う（下げることもできる）
+  const mi = /^s[1-9]$/.test(String(x.stageManual || "")) ? Number(String(x.stageManual).slice(1)) : 0;
+  if (mi) return { i: mi, auto: i, manual: true, done: done.map((v, j) => j < mi), pub, mailDays, kenSkip, planPast, touch60 };
   return { i, done, pub, mailDays, kenSkip, planPast, touch60 };
 }
 const kxStageOf = (x) => kxStageInfo(x).i;
@@ -3882,7 +3885,8 @@ function kxNowCard(d) {
         if (s0.k === "受注") return `<div class="${cls2}" title="受注日は SF から入ります">${inner2}</div>`;
         return `<button type="button" class="${cls2}${i === 6 && si.i === 7 ? " warn" : ""} kx-a-stb" data-step-ed="${esc(s0.ed || s0.k)}" aria-expanded="false" title="押すと、${esc(s0.ed || s0.k)}を直す欄が開きます">${inner2}</button>`; }).join("")}</div>
       <div class="kx-a-ed" data-step-box hidden></div>
-      <div class="kx-note" style="margin-top:-6px">道のりの段を押すと、日付や済み／戻すを直せます</div>
+      <div class="kx-note" style="margin-top:-6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">道のりの段を押すと、日付や済み／戻すを直せます
+        <label style="margin-left:auto;display:inline-flex;align-items:center;gap:6px">段階を手で決める<select class="kx-in" data-stage-man style="width:auto;padding:3px 8px;font-size:12px"><option value="">自動${si.manual ? `（${esc(KX_STAGES[si.auto] ? KX_STAGES[si.auto].l : "")}）` : ""}</option>${KX_STAGES.slice(1).map((g) => `<option value="${g.k}" ${x.stageManual === g.k ? "selected" : ""}>${esc(g.l)}</option>`).join("")}</select></label>${si.manual ? '<span class="kx-src" title="自動の判定ではなく、手で決めた段階です。「自動」に戻すと自動の判定に戻ります">手で決めた</span>' : ""}</div>
     </section>
     ${top ? `<section class="kx-a-next"><div class="kx-a-nt"><small>次にやること</small><b>${esc(top.t)}</b>${top.sub || top.s ? `<span>${esc(top.sub || top.s)}</span>` : ""}</div><div class="kx-a-nb">${btn(top.act, true, top.hw)}</div></section>` : ""}
     ${cur === 3 && !x.kenshuNa ? `<section class="kx-sec" data-ken-sec-st><div class="lb">検収書を入れる<span class="kx-note" style="margin-left:8px">PDFを残して、回収をチャットで知らせます</span></div><div data-ken-list data-ken-mode="full" class="kx-note">読み込んでいます…</div></section>` : ""}
@@ -3912,6 +3916,8 @@ function kxNowMount(bg) {
   //   保存したら、モーダルの段階と、うしろのホーム（担当企業の段階の数）もすぐ描き直す（2026-11-26 田中さん「ボタンを押したらステージが更新されていくように」）
   const put = async (body, msg) => { try { await api(`/api/kinxs/accounts/${encodeURIComponent(id0)}`, { method: "PUT", body: JSON.stringify(body) }); lsData = null; if (window.kbToast && msg) window.kbToast(msg); await openDetail(id0, { bg, tab: "info" }); if (typeof VIEW !== "undefined" && VIEW === "home") loadHomeV2().catch(() => {}); } catch (e) { alert(`保存できませんでした：${e.message}`); } };
   const edBox = pane.querySelector("[data-step-box]");
+  const sm0 = pane.querySelector("[data-stage-man]");
+  if (sm0) sm0.addEventListener("change", () => { const v = sm0.value; put({ stage_manual: v }, v ? `段階を「${(KX_STAGES.find((g) => g.k === v) || {}).l}」にしました` : "段階を自動の判定に戻しました"); });
   const USAGES = ["活用：公開掲載", "活用：限定公開", "活用予定", "活用検討中", "不明", "発生済み未納品", "解約企業"];
   const edOf = (k, sub) => {
     const row = (inner) => `<div class="kx-a-edh"><b>${esc(k)}を直す</b><button type="button" class="kx-a-sec" data-ed-x>閉じる</button></div><div class="kx-a-edr">${inner}</div>`;
