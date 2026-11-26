@@ -2010,6 +2010,63 @@ export function registerMcCall(app, deps) {
     console.log(`[mccall] ナーチャリングの引き継ぎを動かしました by ${me(req)}`);
     res.json({ ok: true, ...r });
   }));
+  // ---- 今週（移行期間）の切り替え：昨日引き継いだうち、コネクト情報獲得・ジャッジ以外を元に戻す（2026-11-26 福井さん） ----
+  //   「今週は BALES から持ってくるリストを精査する週。MOCHICALL で配るのは未割り振り・SF リード・過去失注から。
+  //    週末に BALES のコネクト情報獲得とジャッジを丸ごと所有者の担当で移す」。そのため、
+  //   ・コネクト情報獲得・ジャッジの分は残す（週末にどのみち所有者へ移すため）
+  //   ・それ以外（営業フォロー・次回アクションだけで入った分）は、引き継ぐ前の担当・リスト・掛け直しに戻す（handover_prev）
+  //   ・引き継いだあとにかけ始めた（その人が記録した）リードは、その人の約束を消さないよう戻さない
+  //   ・BALES の行が見つからないもの（重複で別の形にあったものなど）は、決めきれないので戻さない（件数は出す）
+  //   ・自動の引き継ぎは週末まで止める（mcHandoverOn を外す。週末に管理者が POST /api/mccall/nurture-handover で、コネクト情報獲得・ジャッジだけを移す）
+  //   GET＝数えるだけ、POST＝戻す
+  async function handoverRevert(dry) {
+    const rows = (await P().query(`SELECT c.id, c.done, c.handover_prev, c.list_id, c.last_at, c.handover_at,
+        (c.locked_by IS NOT NULL AND c.locked_at >= now() - interval '10 minutes') AS busy,
+        b.row_key IS NOT NULL AS found, COALESCE(b.data->>'lastLeadStageName', '') AS stage
+      FROM mc_call_leads c
+      LEFT JOIN mochica_bales_lists l ON c.src = 'bales' AND l.list_key = split_part(c.src_key, '|', 1)
+      LEFT JOIN mochica_bales_rows b ON b.list_key = l.list_key AND b.run_at = l.run_at AND b.row_key = substr(c.src_key, length(split_part(c.src_key, '|', 1)) + 2)
+      WHERE c.biz = $1 AND c.handover_at IS NOT NULL`, [BIZ])).rows;
+    const bm = await balesMain();
+    const home = bm ? ((await P().query(`SELECT id FROM mc_call_lists WHERE bales_key = $1 ORDER BY id LIMIT 1`, [bm.listKey])).rows[0] || {}).id || null : null;
+    const out = { handed: rows.length, keep: 0, revert: 0, called: 0, unknown: 0, done: 0, busy: 0, reverted: 0 };
+    const back = [];
+    for (const r of rows) {
+      if (/(ジャッジ|コネクト情報)/.test(r.stage)) { out.keep++; continue; }
+      if (!r.found) { out.unknown++; continue; }
+      if (r.done) { out.done++; continue; }
+      if (r.last_at && new Date(r.last_at) >= new Date(r.handover_at)) { out.called++; continue; }
+      if (r.busy) { out.busy++; continue; }
+      const p = r.handover_prev || null;
+      back.push({ id: r.id, a: p ? p.assigned_to || null : null, l: p && p.list_id ? Number(p.list_id) : home, n: p ? p.next_at || null : null, w: p ? p.next_why || null : null });
+      out.revert++;
+    }
+    out.home = home;
+    if (dry) return out;
+    for (let i = 0; i < back.length; i += 500) {
+      const s = back.slice(i, i + 500);
+      const x = await P().query(`UPDATE mc_call_leads c SET assigned_to = u.a,
+          list_id = CASE WHEN u.l IS NOT NULL AND EXISTS (SELECT 1 FROM mc_call_lists ll WHERE ll.id = u.l)
+            AND NOT EXISTS (SELECT 1 FROM mc_call_leads d WHERE d.list_id = u.l AND d.src = c.src AND d.src_key = c.src_key AND d.id <> c.id) THEN u.l ELSE c.list_id END,
+          talk_label = CASE WHEN u.l IS NOT NULL AND u.l <> c.list_id THEN NULL ELSE c.talk_label END,
+          next_at = u.n, next_why = u.w, handover_at = NULL, handover_owner = NULL, handover_prev = NULL
+        FROM unnest($1::int[], $2::text[], $3::int[], $4::timestamptz[], $5::text[]) AS u(id, a, l, n, w)
+        WHERE c.id = u.id AND NOT c.done AND (c.locked_by IS NULL OR c.locked_at < now() - interval '10 minutes')
+          AND (c.last_at IS NULL OR c.last_at < c.handover_at)`,
+        [s.map((x) => x.id), s.map((x) => x.a), s.map((x) => x.l), s.map((x) => x.n), s.map((x) => x.w)]);
+      out.reverted += x.rowCount;
+    }
+    await saveSettings({ mcHandoverOn: false });   // 週末まで自動の引き継ぎを止める
+    const hid = ((await P().query(`SELECT id FROM mc_call_lists WHERE handover_src AND biz=$1 LIMIT 1`, [BIZ])).rows[0] || {}).id;
+    if (hid) { const mem = (await P().query(`SELECT DISTINCT assigned_to AS e FROM mc_call_leads WHERE list_id=$1 AND assigned_to IS NOT NULL`, [hid])).rows.map((r) => r.e);
+      await P().query(`UPDATE mc_call_lists SET members=$2 WHERE id=$1`, [hid, mem.length ? mem : ["-"]]); }
+    console.log(`[mccall] 引き継ぎのうちコネクト情報獲得・ジャッジ以外を元に戻しました：${JSON.stringify(out)}`);
+    return out;
+  }
+  app.get("/api/mccall/nurture-handover/revert", adminOnly(async (req, res) => { res.json({ ok: true, ...(await handoverRevert(true)) }); }));
+  app.post("/api/mccall/nurture-handover/revert", adminOnly(async (req, res) => {
+    const r = await handoverRevert(false); console.log(`[mccall] 引き継ぎを戻しました by ${me(req)}`); res.json({ ok: true, ...r });
+  }));
 
   // その人の今日の分を MOCHICALL に入れる（担当を付け、today_day に今日の日付）。同じ日の同じ中身なら10分に1回だけ（ほかの人が開いていて移せなかった分を拾い直す）
   const _todaySync = new Map();
