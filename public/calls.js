@@ -8391,9 +8391,10 @@ function nmRenderCards() {
     //   押すと、そのステージのリードを1つの表で開く（リストそのものは動かさない）
     { const sa = _nmStage.all || {};
       html += `<div class="nm-sec"><div class="nm-sec-h">ステージ別<span class="nm-sec-sub" style="font-weight:500;color:#6b857b;font-size:11px;margin-left:8px">すべてのリスト（非表示も含む）から</span></div><div class="nm-grid">`
-        + nmSpecialCard("kakeru", "かける", sa.kakeru, "ステージが空白・-・NEW・担当者未接触・コネクト情報獲得・ジャッジ")
-        + nmSpecialCard("recycle", "リサイクル", sa.recycle, "ステージ＝リサイクル")
+        + nmSpecialCard("kakeru", "かける", sa.kakeru, "ステージが空白・-・NEW・担当者未接触・コネクト情報獲得・ジャッジ（従業員数100〜500）")
+        + nmSpecialCard("recyclein", "リサイクル", sa.recycle, "ステージ＝リサイクル（従業員数100〜500）")
         + nmSpecialCard("archive", "アーカイブ", sa.archive, "ステージ＝アーカイブ・使われていない番号")
+        + nmSpecialCard("taishogai", "対象外", sa.taishogai, "かける・リサイクルのうち、従業員数が空白・-・99以下・501以上")
         + `</div></div>`; }
     if (!_nmTree) nmLoadTree().then(() => { if (!_nmSel && _nmMode !== "group") nmRenderCards(); });   // 全リストの隣のリストの種類（2026-11-08）
   }
@@ -8682,6 +8683,8 @@ function nmRenderSpecial(body) {
     archive: { name: "アーカイブ", vid: "archive" },
     crosslost: { name: "クロス失注", vid: "crosslost" },
     kakeru: { name: "かける（ステージ別）", vid: "kakeru" },
+    recyclein: { name: "リサイクル（ステージ別）", vid: "recycle-in" },
+    taishogai: { name: "対象外（従業員数）", vid: "taishogai" },
   }[_nmSel.key];
   if (!info) { body.innerHTML = '<div class="empty-state">表示できませんでした</div>'; return; }
   const member = _nmSel.member || "";

@@ -4552,9 +4552,17 @@ export async function addCallTargets(listId, items = [], { dedupe = false, takeO
 export const KAKERU_STAGE_SQL = `(btrim(COALESCE(t.stage,'')) IN ('', '-', '－', 'ー', '―') OR COALESCE(t.stage,'') ILIKE '%NEW%' OR COALESCE(t.stage,'') ~ '担当者未接触|コネクト情報獲得|ジャッジ')`;
 // ステージ別の件数を数えるための、軽い一覧（id・リード・電話・会社・ステージ・ステータスだけ）（2026-11-26）
 //   開いたときの一覧（listStageTargets）と同じく、リストに関係なく全部の架電先から
+// 従業員数が対象外（空白・-・99以下・501以上）か（2026-11-26 田中さん「かける・リサイクルの中で、従業員数が空白・-・99以下・501以上のものは対象外に」）
+//   「100〜300」のような書き方は、最初の数で見る
+export const EMP_NUM_SQL = `NULLIF(regexp_replace(split_part(split_part(COALESCE(t.employees,''),'〜',1),'~',1),'[^0-9]','','g'),'')`;
+export const EMP_OUT_SQL = `(${EMP_NUM_SQL} IS NULL OR length(${EMP_NUM_SQL}) > 7 OR ${EMP_NUM_SQL}::numeric <= 99 OR ${EMP_NUM_SQL}::numeric >= 501)`;
+export function empOutJs(v) {
+  const n = String(v == null ? "" : v).split(/[〜~]/)[0].replace(/[^0-9]/g, "");
+  if (!n || n.length > 7) return true; const k = Number(n); return k <= 99 || k >= 501;
+}
 export async function stageLeadsLight() {
   if (!pool) return [];
-  const { rows } = await pool.query(`SELECT t.id, t.lead_id, t.phone, t.company, t.stage, t.status FROM call_targets t`);
+  const { rows } = await pool.query(`SELECT t.id, t.lead_id, t.phone, t.company, t.stage, t.status, t.employees FROM call_targets t`);
   return rows;
 }
 export async function stageSummaryCounts() {
@@ -4723,7 +4731,11 @@ export async function listStageTargets(keyword, { q = "", limit = 2000, statusMa
   try {
     const p = [`%${keyword}%`];
     //   keyword が "__kakeru__" のときは「かける」ステージ（空白・-・NEW・担当者未接触・コネクト情報獲得・ジャッジ）
-    let stageOr = keyword === "__kakeru__" ? `(${KAKERU_STAGE_SQL} AND $1::text IS NOT NULL)` : `COALESCE(t.stage,'') ILIKE $1`;
+    //   "__kakeru__"・"__recycle_in__" は従業員数が対象（100〜500）のものだけ、"__taishogai__" はかける・リサイクルのうち従業員数が対象外のもの
+    let stageOr = keyword === "__kakeru__" ? `(${KAKERU_STAGE_SQL} AND NOT ${EMP_OUT_SQL} AND $1::text IS NOT NULL)`
+      : keyword === "__recycle_in__" ? `(COALESCE(t.stage,'') ILIKE '%リサイクル%' AND NOT ${EMP_OUT_SQL} AND $1::text IS NOT NULL)`
+      : keyword === "__taishogai__" ? `((${KAKERU_STAGE_SQL} OR COALESCE(t.stage,'') ILIKE '%リサイクル%') AND ${EMP_OUT_SQL} AND $1::text IS NOT NULL)`
+      : `COALESCE(t.stage,'') ILIKE $1`;
     // ステージだけでなく、指定したステータス（例：現在使われていない）も「その仮想ビュー」に含める
     for (const k of statusMatch) { p.push(`%${k}%`); stageOr += ` OR COALESCE(t.status,'') ILIKE $${p.length}`; }
     // ステータスに関係なく含めたい架電先（例：SFのクロス失注商談と会社名が一致したもの）
