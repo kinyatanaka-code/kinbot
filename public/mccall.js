@@ -32,6 +32,7 @@
     edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
     back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>',
     person: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>',
+    ban: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg>',
   };
 
   const S = { meta: null, admin: false, tab: "call", lists: [], listId: parseInt(ls.get("mcc_list") || "0", 10) || 0, queue: [], later: 0, skipped: skippedIds(), skippedInQueue: 0,
@@ -474,7 +475,7 @@
     // 電話番号は1本だけなら中央の発信ボタンと同じなので出さない（使えない番号のときは、それが分かるよう出す）。
     //   受付で聞けたこと（担当者名・いる時間・直通）は、担当者名の行にまとめる（下に同じ名前をもう一度出して1段使っていた。2026-11-23 福井さん「左と真ん中のスクロールをなくしたい」）
     $("mccLeft").innerHTML = `
-      <p class="mcc-co">${esc(L.company || "会社名なし")} <button class="mcc-btn mcc-edit" id="mccEdit" title="会社・担当者・電話・メールを直す">${ICO.edit}直す</button></p>
+      <p class="mcc-co">${esc(L.company || "会社名なし")} <button class="mcc-btn mcc-edit" id="mccEdit" title="会社・担当者・電話・メールを直す">${ICO.edit}直す</button><button class="mcc-btn mcc-edit" id="mccBan" title="先方に「もう連絡しないで」と言われたとき：全社のアプローチ禁止の登録フォームに、この会社の情報を入れて送る" style="color:#b42318">${ICO.ban}禁止申請</button></p>
       <div class="mcc-person">${esc(g.name || L.person || "担当者名はまだ分かりません")}${g.name && L.person && g.name !== L.person ? `<small style="color:var(--c-muted);font-weight:600">（リストでは ${esc(L.person)}）</small>` : ""}</div>
       ${g.hours || g.direct || g.biz ? `<div class="mcc-gatei">${g.hours ? `<span>いる時間 <b>${esc(g.hours)}</b></span>` : ""}${g.direct ? `<span>直通・内線 <b>${esc(g.direct)}</b></span>` : ""}${g.biz ? `<span>営業時間 <b>${esc(g.biz)}</b></span>` : ""}</div>` : ""}
       <div class="mcc-badges">${hotBadge(L.hot)}${L.cross_from ? `<span class="mcc-badge doc">${esc(L.cross_from)} から（部署をまたぐ）</span>` : ""}${d.ban ? '<span class="mcc-badge danger">アプローチ禁止</span>' : ""}${sum && sum.n ? `<span class="mcc-badge sf">SF の商談 ${sum.n}件${sum.won ? "・受注あり" : sum.lost ? "・失注あり" : ""}</span>` : ""}</div>
@@ -491,6 +492,7 @@
       ${L.src === "csv" ? (Object.keys(data).length ? `<details class="mcc-more"><summary>CSV の列（取り込んだままの中身）</summary>${kv(Object.entries(data).slice(0, 30))}</details>` : "") : bales.length ? `<h3>${L.src === "doc" ? "DOC のリスト" : "Bales"}</h3>${kv(bales)}` : ""}`;
     $("mccLeft").querySelectorAll("[data-ph]").forEach((a) => a.addEventListener("click", () => { S.f.phone = a.dataset.ph; S.f.dialed = true; S.f.dialAt = S.f.dialAt || Date.now(); loadSlots(); setTimeout(() => { drawLeft(); drawCenter(); drawTalk(); drawWork(); }, 0); }));
     $("mccEdit").addEventListener("click", editDialog);
+    $("mccBan").addEventListener("click", banDialog);
     const st = $("mccLst"); if (st) st.addEventListener("change", () => changeStatus(st.value));
     const sn = $("mccSfNew"); if (sn) sn.addEventListener("click", sfNewDialog);
   }
@@ -1590,6 +1592,102 @@
       <label class="mcc-field">名字（名乗りに使います。例：福井）<input id="mccSgSei" value="${esc(s.sei || "")}" autocomplete="off" /></label>
       <label class="mcc-field">名前のフリガナ（フォームで聞かれたときに入ります）<input id="mccSgKana" value="${esc(s.kana || "")}" placeholder="例：フクイ ショウ" autocomplete="off" /></label>
       <label class="mcc-field">署名${s.own ? "" : '<small style="font-weight:400">いまは自動で作った署名です。直して保存すると、こちらが使われます</small>'}<textarea id="mccSgSig" style="min-height:240px;font-family:inherit">${esc(s.sig || "")}</textarea></label></div>`);
+  }
+
+  // ---- アプローチ禁止の申請（2026-11-26 福井さん「kinbot の案件共有のように、禁止フォームを自動で入れて送信」）----
+  //   全社の「アプローチ禁止企業/メール配信停止登録フォーム」（社内限定の Google フォーム）に、いまの会社の情報を入れて送る。
+  //   案件共有・検収書と同じく、ブラウザから送るので、その人の Google のログインで回答が記録される（kinbot にフォームの鍵は要らない）。
+  //   フォームはページが分かれていて、選んだ「禁止の種類」「発生元」「範囲」で通るページが変わる。通るページの欄だけを出し、
+  //   送るときも通ったページの番号（pageHistory）を付ける（付けないと、そのページの答えが捨てられる）。
+  //   欄の番号はフォームのページ（FB_PUBLIC_LOAD_DATA_）から読んだもの。フォームの質問が作り直されたら、ここも直す。
+  const BAN_FORM = "https://docs.google.com/forms/d/e/1FAIpQLSeGqIC97F9VWsVn3YTCjw5TLfaJ4rsHXFi0Ht4CW-xm8uFQTA/viewform";
+  const BAN_DUP = ["重複なし（初回登録）", "重複あり（禁止範囲や一本化先などの変更）", "重複あり（重大SR）"];
+  const BAN_KIND = ["全社アプローチ禁止（全事業部アプローチ禁止）", "サービス特定アプローチ禁止（特定の事業部のみアプローチ禁止）", "ネオキャリア側窓口一本化", "メール配信停止のみ"];
+  const BAN_SRC = ["電話", "訪問（オンライン含む商談など）", "メール", "FAX", "代理店（PS以外選択不可）", "※公序良俗", "※取引停止（主にカスタマーセンターが使用）"];
+  const BAN_SCOPE = ["企業全体", "今回アプローチした事業所のみ", "今回アプローチした番号のみ", "グループ全体"];
+  // 欄：[キー, 見出し, 入れ方, 禁止のときの番号, メール配信停止のときの番号]（同じ質問でも、ページが違うと番号が違う）
+  const BAN_FIELDS = [
+    ["dup", "すでに登録のある企業ですか？", "sel", 193299413, 193299413], ["kind", "【ネオキャリア側】アプローチ禁止の種類", "sel", 1424475638, 1424475638],
+    ["svc", "アプローチ禁止対象はどの事業部か", "text", 1197924403], ["winBu", "【ネオキャリア側】窓口担当事業部", "text", 2142743268],
+    ["winWho", "【ネオキャリア側】窓口担当者", "text", 270761207], ["winTel", "【ネオキャリア側】窓口担当事業部の外線番号", "text", 620795806],
+    ["bu", "あなたの事業部", "text", 1292110792, 697133664], ["emp", "あなたの社員番号", "text", 256438450, 113838521], ["name", "あなたのお名前", "text", 1072905981, 56401978],
+    ["company", "企業名", "text", 853936078, 203308984], ["office", "事業所名", "text", 1488210102, 1327126124], ["dept", "先方部署名", "text", 1379699072, 1962922041],
+    ["url", "先方コーポレートサイトのURL", "text", 1629085513, 878003565], ["person", "先方担当者名", "text", 1179500082, 1960975408],
+    ["src", "アプローチ禁止発生元", "sel", 953603188], ["addr", "先方住所", "text", 365128586], ["email", "先方メールアドレス", "text", 1976368981, 274568725], ["fax", "先方FAX番号", "text", 59695684],
+    ["tel", "先方電話番号", "text", 2122675320], ["rep", "先方代表番号", "text", 1535057485], ["at", "アプローチ日時", "dt", 1499569656],
+    ["scope", "【先方企業側】先方のアプローチ禁止範囲", "sel", 1791917089], ["from", "配信元メールアドレス", "text", null, 1462674249],
+    ["reason", "【重要!!】アプローチ禁止/メール配信停止理由・注意点", "area", 833443906, 1778333626]];
+  const BAN_OPTS = { dup: BAN_DUP, kind: BAN_KIND, src: BAN_SRC, scope: BAN_SCOPE };
+  // 選んだ答えで、いま見せる欄と、通るページの番号を決める（フォームの分かれ方と同じ）
+  function banRoute(v) {
+    const mail = v.kind === BAN_KIND[3];
+    const show = new Set(["dup", "kind", "bu", "emp", "name", "company", "office", "dept", "url", "person", "reason"]);
+    if (mail) { show.add("email"); show.add("from"); return { mail, show, pages: [0, 1, 11] }; }
+    ["src", "tel", "rep", "at", "scope"].forEach((k) => show.add(k));
+    if (v.kind === BAN_KIND[1]) show.add("svc");
+    if (v.kind === BAN_KIND[2]) ["winBu", "winWho", "winTel"].forEach((k) => show.add(k));
+    const sp = { [BAN_SRC[1]]: ["addr", 5], [BAN_SRC[2]]: ["email", 6], [BAN_SRC[3]]: ["fax", 7] }[v.src];
+    if (sp) show.add(sp[0]);
+    const pages = [0, 1, ...(v.kind === BAN_KIND[1] ? [2] : v.kind === BAN_KIND[2] ? [3] : []), 4, ...(sp ? [sp[1]] : []), 8, ...(v.scope === BAN_SCOPE[3] ? [9] : []), 10];
+    return { mail, show, pages };
+  }
+  async function banDialog() {
+    if (!S.d) return; const d = S.d; const L = d.lead; const I = L.info || {};
+    let s = {}; try { s = await api("/api/mccall/my-sender"); } catch { /* 名前が取れなくても、手で入れれば送れる */ }
+    // 事業部と社員番号はフォームにしか要らないので、このパソコンに覚えておく（毎回入れなくてよいように）
+    let mine = {}; try { mine = JSON.parse(ls.get("mcc_ban_me") || "{}") || {}; } catch { mine = {}; }
+    const pad = (n) => String(n).padStart(2, "0");
+    const at0 = new Date((S.f && S.f.dialAt) || Date.now());
+    const phones = d.phones || [];
+    const rep = (phones.find((p) => /代表/.test(p.label || "")) || {}).number || L.phone || "";
+    const ct = (I.contacts || [])[0] || {};
+    const memo = (S.f && S.f.memo) || "";
+    const init = {
+      // 名簿に当たっている会社は、すでに登録があるかもしれないので、重複のありなしを人に選んでもらう
+      dup: d.ban ? "" : BAN_DUP[0], kind: BAN_KIND[0], src: BAN_SRC[0], scope: BAN_SCOPE[0],
+      bu: mine.bu || s.dept || "", emp: mine.emp || "", name: s.name || "",
+      company: L.company || "", office: "", dept: ct.role || "", url: I.web || "",
+      person: (L.gate && L.gate.name) || L.person || ct.name || "", email: ((d.mails || [])[0] || {}).addr || "",
+      tel: (S.f && S.f.phone) || L.phone || "", rep, at: `${at0.getFullYear()}-${pad(at0.getMonth() + 1)}-${pad(at0.getDate())}T${pad(at0.getHours())}:${pad(at0.getMinutes())}`,
+      from: (S.meta && S.meta.me) || "", reason: memo };
+    const input = ([k, label, how]) => {
+      const v = init[k] || "";
+      const ctl = how === "sel" ? `<select class="mcc-sel" style="max-width:none;width:100%" data-k="${k}">${v ? "" : '<option value="">選んでください</option>'}${BAN_OPTS[k].map((o) => `<option${o === v ? " selected" : ""}>${esc(o)}</option>`).join("")}</select>`
+        : how === "area" ? `<textarea data-k="${k}" placeholder="どう言われたか・気をつけること（例：受付で「今後一切の営業電話はお断り」と言われた）">${esc(v)}</textarea>`
+        : `<input data-k="${k}" type="${how === "dt" ? "datetime-local" : "text"}" value="${esc(v)}" autocomplete="off"${k === "office" || k === "dept" ? ' placeholder="分からなければ「不明」"' : ""} />`;
+      return `<label class="mcc-field" data-f="${k}">${esc(label)} <b style="color:#b42318">*</b>${ctl}</label>`;
+    };
+    const w = dialog(`アプローチ禁止の申請：${L.company || ""}`, "全社の「アプローチ禁止企業/メール配信停止登録フォーム」に、この会社の情報を入れて送ります。あなたの Google のログインで送るので、新しいタブに「回答を記録しました」が出れば完了です。登録は全事業部に効くので、言われた内容を確かめてから送ってください。", "この内容で送信",
+      (w) => {
+        const v = vals(w); const r = banRoute(v);
+        const miss = [...r.show].filter((k) => !String(v[k] || "").trim());
+        w.querySelectorAll("[data-k]").forEach((e) => { e.style.borderColor = miss.includes(e.dataset.k) ? "#b42318" : ""; });
+        if (miss.length) { const e = w.querySelector(".err") || Object.assign(document.createElement("p"), { className: "err" }); e.style.color = "#b42318"; e.textContent = `必須の欄が空です：${miss.map((k) => BAN_FIELDS.find((f) => f[0] === k)[1]).join("・")}（分からない欄は「不明」と入れてください）`; w.querySelector(".row").before(e); w.querySelector("[data-ok]").disabled = false; return false; }
+        try { ls.set("mcc_ban_me", JSON.stringify({ bu: v.bu, emp: v.emp })); } catch { /* 覚えられなくても送れる */ }
+        // ボタンを押したその場で送る（あとから開くとブラウザが新しいタブを止めるため、待ちを入れない）
+        const f = document.createElement("form"); f.method = "POST"; f.action = BAN_FORM.replace(/\/viewform.*$/, "/formResponse"); f.target = "_blank"; f.acceptCharset = "UTF-8"; f.style.display = "none";
+        const add = (k, val) => { const i = document.createElement("input"); i.type = "hidden"; i.name = k; i.value = val; f.appendChild(i); };
+        for (const [k, , how, eBan, eMail] of BAN_FIELDS) {
+          const id = r.mail ? eMail : eBan; if (!r.show.has(k) || !id) continue;
+          if (how === "dt") { const t = new Date(v[k]); add(`entry.${id}_year`, t.getFullYear()); add(`entry.${id}_month`, t.getMonth() + 1); add(`entry.${id}_day`, t.getDate()); add(`entry.${id}_hour`, pad(t.getHours())); add(`entry.${id}_minute`, pad(t.getMinutes())); }
+          else add(`entry.${id}`, String(v[k]).trim());
+        }
+        if (S.meta && S.meta.me) add("emailAddress", S.meta.me);
+        add("fvv", "1"); add("pageHistory", r.pages.join(","));   // フォームが送るときに付ける決まりの項目（通ったページ）
+        document.body.appendChild(f); f.submit(); setTimeout(() => f.remove(), 1000);
+        toast(`「${v.company}」のアプローチ禁止の申請を送りました。新しいタブに「回答を記録しました」が出ているか確かめてください`);
+      }, `<div style="display:grid;gap:8px;margin-top:12px" class="mcc-banf">${BAN_FIELDS.map(input).join("")}</div>
+      <p class="mcc-note" style="margin-top:10px">グループ全体を選んだときは、送ったあとでグループ企業を<b>ご自身で全て</b>登録してください（フォームの決まり）。<button type="button" class="mcc-btn" data-banopen style="margin-left:6px">フォームで確かめる</button></p>`);
+    w.firstElementChild.classList.add("wide");
+    function vals(w) { return Object.fromEntries([...w.querySelectorAll("[data-k]")].map((e) => [e.dataset.k, e.value])); }
+    const sync = () => { const r = banRoute(vals(w)); w.querySelectorAll("[data-f]").forEach((e) => { e.style.display = r.show.has(e.dataset.f) ? "" : "none"; }); };   // .mcc-field は display:flex なので hidden では隠れない
+    w.querySelectorAll("select[data-k]").forEach((e) => e.addEventListener("change", sync)); sync();
+    // 送る前にフォームの画面で見たいとき：入れた答えを入れた状態でフォームを開く（そこから送ってもよい）
+    w.querySelector("[data-banopen]").addEventListener("click", () => {
+      const v = vals(w); const r = banRoute(v); const q = new URLSearchParams(); q.set("usp", "pp_url");
+      for (const [k, , how, eBan, eMail] of BAN_FIELDS) { const id = r.mail ? eMail : eBan; if (r.show.has(k) && id && String(v[k] || "").trim()) q.append(`entry.${id}`, how === "dt" ? String(v[k]).replace("T", " ") : String(v[k]).trim()); }
+      window.open(`${BAN_FORM}?${q.toString()}`, "_blank", "noopener");
+    });
   }
 
   async function record() {

@@ -3257,7 +3257,8 @@ export function registerMcCall(app, deps) {
   const nanoriFix = (t) => String(t || "").replace(/MOCHICA\s*の\s*\{差出人\}\s*です/g, "{名乗り}です").replace(/\{差出人の会社名\}\s*の\s*\{差出人\}\s*と申します/g, "{名乗り}と申します");
   app.get("/api/mccall/my-sender", guard(async (req, res) => {
     const s = await senderOf(req);
-    res.json({ ok: true, name: s.name, sei: s.sei, kana: s.kana, sig: s.sig || (await mailSig(req)), own: !!s.sig, nanori: s.nanori, company: s.company, tel: s.tel });
+    res.json({ ok: true, name: s.name, sei: s.sei, kana: s.kana, sig: s.sig || (await mailSig(req)), own: !!s.sig, nanori: s.nanori, company: s.company, tel: s.tel,
+      dept: s.dept || "" });   // アプローチ禁止の申請の「あなたの事業部」の初期値に使う（2026-11-26）
   }));
   app.put("/api/mccall/my-sender", guard(async (req, res) => {
     const u = me(req); const b = req.body || {}; const st = await getSettings().catch(() => ({}));
