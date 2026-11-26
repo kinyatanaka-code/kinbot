@@ -13110,6 +13110,13 @@ async function ensureMcBales() {
   await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS hot_d JSONB`).catch(() => {});
   await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS hot_at TIMESTAMPTZ`).catch(() => {});
   await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS hot_v SMALLINT`).catch(() => {});
+  // 取り込み（生リード）ごとのリードソース名（2026-11-27 福井さん「リードソース名を画面で編集できるように」）。
+  //   その取り込みのリードに自分のリードソースが無いときに、そのリードのリード元として使う（Bales の行が持っているものは消さない）
+  await pool.query(`ALTER TABLE mochica_bales_lists ADD COLUMN IF NOT EXISTS lead_source TEXT`).catch(() => {});
+  // 統合リード（2026-11-27 福井さん）：全部の取り込みを会社名の鍵・電話の末尾10けたで1件にまとめたときの、残す行（代表）だけの控え。
+  //   ここから作り直せる写しなので、作り直すときは中身を入れ替える（元のリードの行は変えない）
+  await pool.query(`CREATE TABLE IF NOT EXISTS mochica_bales_uni (list_key TEXT, row_key TEXT, grp_n INT, PRIMARY KEY (list_key, row_key))`).catch(() => {});
+  await pool.query(`CREATE TABLE IF NOT EXISTS mochica_bales_uni_sig (id INT PRIMARY KEY, sig TEXT, made_at TIMESTAMPTZ, raw INT, uni INT)`).catch(() => {});
 }
 // ホット度をまだ付けていない（または古い）行に付ける。今の取り込みの行だけ。2000件ずつ
 export async function mcBalesHotFill(listKey) {
@@ -13247,7 +13254,7 @@ export async function mcBalesFinish(listKey, error = "") {
 }
 export async function mcBalesLists() {
   if (!pool) return []; await ensureMcBales();
-  return (await pool.query(`SELECT l.list_key, l.name, l.src, l.status, l.total, l.got, l.count, l.prev_count, l.cols, l.view, l.run_at, l.done_at, l.error,
+  return (await pool.query(`SELECT l.list_key, l.name, l.src, l.status, l.total, l.got, l.count, l.prev_count, l.cols, l.view, l.run_at, l.done_at, l.error, l.lead_source,
     (SELECT count(*)::int FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at AND r.detail_at IS NOT NULL) AS detail_n,
     (SELECT count(*)::int FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at AND r.sf IS NOT NULL AND r.sf ? 'lead') AS sf_n, l.sf_info,
     (SELECT count(*)::int FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at AND r.w_at IS NOT NULL AND r.w_err IS NULL) AS w_n,
@@ -13326,11 +13333,17 @@ export const BALES_HID = `(${BALES_MCU} OR ng IS TRUE OR ${BALES_OUT})`;
 const stgVis = (stg) => (stg === "archive" ? `(${BALES_HID} OR ${BALES_STG.archive.replace(/data->>/g, "r.data->>")})` : `NOT ${BALES_HID}${Object.hasOwn(BALES_STG, stg) ? ` AND ${BALES_STG[stg].replace(/data->>/g, "r.data->>")}` : ""}`);
 export const BALES_SRC_COLS = [0, 1, 2, 3, 4].map((i) => `data->>'leadSources.${i}.name'`).join(",");
 export function balesCr(v) { const t = String(v || ""); for (const [k, re] of BALES_CR) if (new RegExp(re).test(t)) return k; return "-"; }
-export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100, hot = "", sort = "", cr = "", col2 = "", val2 = "", sf = "", src = "", stg = "", pr = "" } = {}) {
+export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100, hot = "", sort = "", cr = "", col2 = "", val2 = "", sf = "", src = "", stg = "", pr = "", uni = "", tier = "" } = {}) {
   if (!pool) return { total: 0, rows: [] }; await ensureMcBales();
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return { total: 0, rows: [] };
   // まとめた重複は出さない。MOCHICA ユーザーもふだんは出さず、stg=mcuser のときだけ MOCHICA ユーザーを出す（アーカイブの中のカード：2026-11-23 田中さん）
   const w = [`list_key=$1`, `run_at=$2`, stg === "mcuser" ? `dup_of IS NULL AND ${BALES_MCU}` : stg === "ng" ? `dup_of IS NULL AND ng IS TRUE AND NOT ${BALES_MCU}` : stg === "out" ? `dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND ${BALES_OUT}` : stg === "archive" ? `dup_of IS NULL AND (${BALES_HID} OR ${BALES_STG.archive})` : `dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND NOT ${BALES_OUT}`]; const p = [listKey, l.run_at];
+  // 統合リード（2026-11-27 福井さん）：全部の取り込みを1件にまとめたときに残す行だけ（どのリストの行でも）。
+  //   温度・ステージの段の数と合うように、MOCHICAユーザー・アプローチ禁止・対象外も含める（ステージではアーカイブ）。$1・$2 は形だけ使う
+  if (uni === "1") { await mcBalesUniEnsure();
+    w[0] = `$1::text IS NOT NULL AND EXISTS (SELECT 1 FROM mochica_bales_uni u WHERE u.list_key = mochica_bales_rows.list_key AND u.row_key = mochica_bales_rows.row_key)`;
+    w[1] = `($2::timestamptz IS NULL OR TRUE)`; w[2] = "TRUE";
+    if (Object.hasOwn(BALES_TIER, tier)) w.push(BALES_TIER[tier]); }
   if (q) { p.push(`%${String(q).slice(0, 80)}%`); w.push(`EXISTS (SELECT 1 FROM jsonb_each_text(data) e WHERE e.value ILIKE $${p.length})`); }   // 項目の名前ではなく中身だけで探す
   //   今日かけるリストは下で今日の分の行だけにする（未割り振りから入れた過去失注もあるので、所有者では絞らない）
   if (col && stg !== "today") { p.push(String(col).slice(0, 80)); p.push(String(val)); w.push(`COALESCE(${colX(col, `$${p.length - 1}`)},'') = $${p.length}`);
@@ -13364,9 +13377,11 @@ export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset 
     p.push(t ? t.keys : []); const a = p.length; p.push(ext.map((x) => String(x[0]))); p.push(ext.map((x) => String(x[1])));
     w[0] = `((list_key=$1 AND run_at=$2 AND row_key = ANY($${a}::text[])) OR ((list_key, row_key) IN (SELECT u.a, u.b FROM unnest($${a + 1}::text[], $${a + 2}::text[]) AS u(a, b))
       AND run_at = (SELECT l2.run_at FROM mochica_bales_lists l2 WHERE l2.list_key = mochica_bales_rows.list_key)))`; w[1] = "TRUE"; }
+  //   自分のリードソースが無い行は、取り込みに付けたリードソース名（mochica_bales_lists.lead_source）をリード元として見る（2026-11-27）
+  const LSRC = `NULLIF((SELECT l3.lead_source FROM mochica_bales_lists l3 WHERE l3.list_key = mochica_bales_rows.list_key), '')`;
   const srcs = many(src); if (srcs.length) { const sw = []; const names = srcs.filter((x) => x !== "-");
-    if (names.length) { p.push(names); sw.push(`ARRAY[${BALES_SRC_COLS}] && $${p.length}::text[]`); }
-    if (srcs.includes("-")) sw.push(`COALESCE(array_to_string(ARRAY[${BALES_SRC_COLS}], ''), '') = ''`);
+    if (names.length) { p.push(names); sw.push(`(ARRAY[${BALES_SRC_COLS}] && $${p.length}::text[] OR (${SRC_BLANK()} AND ${LSRC} = ANY($${p.length}::text[])))`); }
+    if (srcs.includes("-")) sw.push(`(${SRC_BLANK()} AND ${LSRC} IS NULL)`);
     w.push(`(${sw.join(" OR ")})`); }
   // ホット度で絞る：hot（3つそろい）／warm（2つ）／cold（1つ以下）／warm+（2つ以上）
   const HW = { hot: "hot >= 3", warm: "hot = 2", cold: "COALESCE(hot,0) <= 1", "warm+": "hot >= 2" }; if (HW[hot]) w.push(HW[hot]);
@@ -13409,8 +13424,9 @@ export async function mcBalesSources(listKey, { col = "", val = null } = {}) {
   const stgSel = `, count(*) FILTER (WHERE ${BALES_STG.active.replace(/data->>/g, "r.data->>")}) AS active, count(*) FILTER (WHERE ${BALES_STG.nurture.replace(/data->>/g, "r.data->>")}) AS nurture`;
   const base = `FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1 AND r.dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND NOT ${BALES_OUT}${who}`;
   const more = (x) => ({ ...apoOf(x), active: Number(x.active || 0), nurture: Number(x.nurture || 0) });
-  const named = (await pool.query(`SELECT v, count(*) AS n, ${BAPO_SEL}${stgSel} ${base.replace("WHERE", ", LATERAL (SELECT DISTINCT x AS v FROM unnest(ARRAY[" + BALES_SRC_COLS.replace(/data->>/g, "r.data->>") + "]) x WHERE COALESCE(x,'') <> '') s WHERE")} GROUP BY v ORDER BY 2 DESC LIMIT 200`, args)).rows.map((x) => ({ v: x.v, n: Number(x.n), ...more(x) }));
-  const nr = (await pool.query(`SELECT count(*) AS n, ${BAPO_SEL}${stgSel} ${base} AND COALESCE(array_to_string(ARRAY[${BALES_SRC_COLS.replace(/data->>/g, "r.data->>")}], ''), '') = ''`, args)).rows[0]; const none = Number(nr.n);
+  //   自分のリードソースが無い行は、取り込みに付けたリードソース名で数える（2026-11-27。付けていなければ今までどおり「-」）
+  const named = (await pool.query(`SELECT v, count(*) AS n, ${BAPO_SEL}${stgSel} ${base.replace("WHERE", ", LATERAL (SELECT DISTINCT x AS v FROM unnest(ARRAY[" + BALES_SRC_COLS.replace(/data->>/g, "r.data->>") + ", CASE WHEN " + SRC_BLANK("r.") + " THEN NULLIF(l.lead_source,'') END]) x WHERE COALESCE(x,'') <> '') s WHERE")} GROUP BY v ORDER BY 2 DESC LIMIT 200`, args)).rows.map((x) => ({ v: x.v, n: Number(x.n), ...more(x) }));
+  const nr = (await pool.query(`SELECT count(*) AS n, ${BAPO_SEL}${stgSel} ${base} AND ${SRC_BLANK("r.")} AND COALESCE(l.lead_source,'') = ''`, args)).rows[0]; const none = Number(nr.n);
   return none ? [...named, { v: "-", n: none, ...more(nr) }] : named;
 }
 // MOCHICALL へ引き継ぐナーチャリング（2026-11-25 福井さん「ジャッジ・コネクト情報・営業フォロー・次回アクション設定のリードは
@@ -13469,6 +13485,89 @@ export async function mcBalesStages(listKey, { col = "", val = null } = {}) {
   return o;
 }
 // Bales のリストを消す（画面の「消す」から。リストと、その行を全部）（2026-11-15 田中さん「消せるように」）
+// ===== リスト管理の5段（2026-11-27 福井さん「生リード → 統合リード → 温度 → ステージ → メンバー別」）=====
+//   生リード＝取り込み1回ごとのまとまり（Bales・CSV・SF）。統合リード＝それを会社名の鍵・電話の末尾10けたで1件にまとめたもの。
+//   温度とステージは統合リードを分けたものなので、どちらも合計が統合リードと同じになる（同じ行の集まりを、重ならない条件で分ける）
+// 会社名の鍵（server/mcseg.js の ckeyOf と同じ形。db.js から mcseg.js を読むと読み込みが輪になるので、同じ式をここにも置く）
+const uniCkey = (name) => String(name || "").normalize("NFKC").toLowerCase()
+  .replace(/株式会社|有限会社|合同会社|合資会社|合名会社|\(株\)|\(有\)|\(同\)|㈱|㈲/g, "")
+  .replace(/[\s・,.、。'"「」()（）\-ー‐]/g, "");
+// 電話の末尾10けた。0000000000 のような仮の番号で別の会社どうしがまとまらないよう、同じ数字だけのものは使わない
+const uniTel = (v) => { const d = String(v || "").normalize("NFKC").replace(/[^0-9]/g, ""); if (d.length < 10) return ""; const t = d.slice(-10); return /^(\d)\1+$/.test(t) ? "" : t; };
+// ステージの段（下段）：ナーチャリング＝コネクト情報（獲得）・ジャッジ・営業フォロー・資料送付。MOCHICAユーザー・アプローチ禁止・対象外は
+//   いまのステージ別と同じくアーカイブに入れる。どれでもないもの（新規・担当者未接触など）は「そのほか」にして、合計を統合リードとそろえる。
+//   いまの BALES_STG.nurture（今日かけるリストやメンバー別で使っている）は変えず、この段だけコネクト情報も足す
+const T_NUR = `(${BST} !~ '(アーカイブ|リサイクル)' AND (${BST} ~ '(ジャッジ|コネクト情報)' OR ${BCR} ~ '(営業フォロー|資料送付)'))`;
+export const BALES_TIER = {
+  nurture: `(NOT ${BALES_HID} AND ${T_NUR})`,
+  recycle: `(NOT ${BALES_HID} AND ${BALES_STG.recycle})`,
+  archive: `(${BALES_HID} OR ${BALES_STG.archive})`,
+  other: `(NOT ${BALES_HID} AND ${BST} !~ '(アーカイブ|リサイクル)' AND NOT ${T_NUR})`,
+};
+// 自分のリードソースが無い行か（取り込みに付けたリードソース名を使う行）
+const SRC_BLANK = (a = "") => `COALESCE(array_to_string(ARRAY[${BALES_SRC_COLS.replace(/data->>/g, `${a}data->>`)}], ''), '') = ''`;
+// 統合リードの控え（mochica_bales_uni）を、取り込みが変わったときだけ作り直す。同時に頼まれても1回だけ作る
+const UNI_MAX_AGE = 30 * 60 * 1000;   // 重複のまとめ・取り込み直しのほかに、30分たったら念のため作り直す
+let _uniBusy = null;
+export async function mcBalesUniEnsure() {
+  if (!pool) return null; await ensureMcBales();
+  const sig = (await pool.query(`SELECT COALESCE(string_agg(list_key || '@' || COALESCE(run_at::text,'') || '#' || COALESCE(count,0), '|' ORDER BY list_key), '') AS s FROM mochica_bales_lists WHERE status IS DISTINCT FROM 'running'`)).rows[0].s;
+  const cur = (await pool.query(`SELECT sig, made_at, raw, uni FROM mochica_bales_uni_sig WHERE id=1`)).rows[0];
+  if (cur && cur.sig === sig && Date.now() - new Date(cur.made_at).getTime() < UNI_MAX_AGE) return cur;
+  if (_uniBusy) return _uniBusy;
+  _uniBusy = (async () => {
+    const main = await mcBalesMainKey();
+    // 残す行の順：主のリスト（Bales の全部）→ ほかの Bales → CSV・SF。同じ種類の中は新しい取り込みを先に
+    const rows = (await pool.query(`SELECT r.list_key, r.row_key, COALESCE(r.data->>'companyName', r.data->>'company_name', '') AS co,
+        COALESCE(NULLIF(r.data->>'companyTel1',''), NULLIF(r.data->>'company_tel1',''), r.data->>'personalTel', '') AS tel
+      FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key = r.list_key AND l.run_at = r.run_at
+      WHERE l.status IS DISTINCT FROM 'running'
+      ORDER BY (l.list_key = $1) DESC, (COALESCE(l.src,'') NOT IN ('csv','sf')) DESC, l.run_at DESC NULLS LAST, (r.dup_of IS NULL) DESC, r.seq`, [main])).rows;
+    // 会社名の鍵か電話のどちらかが同じなら同じ会社（つながったものは全部1つに）。先に出た行が残る
+    const par = rows.map((_, i) => i); const find = (i) => { while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; } return i; };
+    const seen = new Map();
+    rows.forEach((r, i) => { const ks = []; const ck = uniCkey(r.co); if (ck.length >= 2) ks.push("c" + ck); const t = uniTel(r.tel); if (t) ks.push("t" + t);
+      for (const k of ks) { if (!seen.has(k)) { seen.set(k, i); continue; } const a = find(seen.get(k)), b = find(i); if (a !== b) { if (a < b) par[b] = a; else par[a] = b; } } });
+    const size = new Map(); rows.forEach((_, i) => { const g = find(i); size.set(g, (size.get(g) || 0) + 1); });
+    const reps = rows.map((r, i) => [r, i]).filter(([, i]) => find(i) === i);
+    const c = await pool.connect();
+    try {
+      await c.query("BEGIN");
+      await c.query(`DELETE FROM mochica_bales_uni`);
+      for (let i = 0; i < reps.length; i += 5000) { const ch = reps.slice(i, i + 5000);
+        await c.query(`INSERT INTO mochica_bales_uni (list_key, row_key, grp_n) SELECT * FROM unnest($1::text[], $2::text[], $3::int[]) ON CONFLICT DO NOTHING`, [ch.map(([r]) => r.list_key), ch.map(([r]) => r.row_key), ch.map(([, j]) => size.get(j) || 1)]); }
+      await c.query(`INSERT INTO mochica_bales_uni_sig (id, sig, made_at, raw, uni) VALUES (1, $1, now(), $2, $3) ON CONFLICT (id) DO UPDATE SET sig = EXCLUDED.sig, made_at = EXCLUDED.made_at, raw = EXCLUDED.raw, uni = EXCLUDED.uni`, [sig, rows.length, reps.length]);
+      await c.query("COMMIT");
+    } catch (e) { await c.query("ROLLBACK").catch(() => {}); throw e; } finally { c.release(); }
+    return { sig, made_at: new Date(), raw: rows.length, uni: reps.length };
+  })().finally(() => { _uniBusy = null; });
+  return _uniBusy;
+}
+// 5段の件数。温度・ステージは統合リードと同じ行の集まりで数える
+export async function mcBalesTiers() {
+  if (!pool) return null; await ensureMcBales();
+  const meta = await mcBalesUniEnsure();
+  const apoSel = (k, c) => `count(*) FILTER (WHERE ${c}) AS ${k}, count(*) FILTER (WHERE ${c} AND ${BAPO}) AS ${k}_apo, count(*) FILTER (WHERE ${c} AND ${BCALLED}) AS ${k}_called`;
+  const parts = [["h_hot", "r.hot >= 3"], ["h_warm", "r.hot = 2"], ["h_cold", "COALESCE(r.hot,0) <= 1"], ...Object.entries(BALES_TIER).map(([k, c]) => [`s_${k}`, c.replace(/data->>/g, "r.data->>")])]
+    .map(([k, c]) => apoSel(k, c)).join(", ");
+  const t = (await pool.query(`SELECT count(*) AS total, ${BAPO_SEL}, ${parts}, count(*) FILTER (WHERE r.hot IS NULL) AS h_yet, count(*) FILTER (WHERE ${BALES_HID.replace(/data->>/g, "r.data->>")}) AS hid
+    FROM mochica_bales_uni u JOIN mochica_bales_rows r ON r.list_key = u.list_key AND r.row_key = u.row_key JOIN mochica_bales_lists l ON l.list_key = r.list_key AND l.run_at = r.run_at`)).rows[0] || {};
+  const o = Object.fromEntries(Object.entries(t).map(([k, v]) => [k, Number(v || 0)]));
+  // 取り込みごと：生の件数・統合リードに残った件数・自分のリードソースが無い件数（取り込みのリードソース名を使う行）
+  const per = (await pool.query(`SELECT l.list_key, count(*) AS raw, count(u.row_key) AS kept, count(*) FILTER (WHERE ${SRC_BLANK("r.")}) AS src_blank
+    FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key = r.list_key AND l.run_at = r.run_at
+    LEFT JOIN mochica_bales_uni u ON u.list_key = r.list_key AND u.row_key = r.row_key
+    WHERE l.status IS DISTINCT FROM 'running' GROUP BY l.list_key`)).rows.map((x) => ({ list_key: x.list_key, raw: Number(x.raw), kept: Number(x.kept), src_blank: Number(x.src_blank) }));
+  const raw = per.reduce((a, x) => a + x.raw, 0);
+  return { ...o, raw, merged: Math.max(0, raw - o.total), per, made_at: meta && meta.made_at };
+}
+// 取り込みのリードソース名を変える（空にすると、付けていない状態に戻す）
+export async function mcBalesSetLeadSource(listKey, name) {
+  if (!pool) return null; await ensureMcBales();
+  const v = String(name || "").replace(/[\r\n\t]/g, " ").trim().slice(0, 80) || null;
+  const r = await pool.query(`UPDATE mochica_bales_lists SET lead_source = $2 WHERE list_key = $1 RETURNING list_key, lead_source`, [String(listKey), v]);
+  return r.rows[0] || null;
+}
 export async function mcBalesDelete(listKey) {
   if (!pool) return 0; await ensureMcBales();
   const r = await pool.query(`DELETE FROM mochica_bales_rows WHERE list_key=$1`, [listKey]);

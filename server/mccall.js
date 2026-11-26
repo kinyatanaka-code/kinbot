@@ -38,6 +38,7 @@ import { PACE, gapStats, hourStats, overStreak, mmss } from "./mcpace.js";   // 
 import { startMcWatch, watchQueue, watchState, watchRecipients, weeklySummary, checkSfFail, checkSfConn, checkPace, sendWatch } from "./mcwatch.js";   // 止まる前の見張り・週次のまとめ（2026-11-27 福井さん）
 import { registerMcUsage } from "./mcusage.js";   // 使われない機能を数える（2026-11-27 福井さん。消すかどうかはオーナーが決める）
 import { ensureApo, startApo, registerMcApo } from "./mcapojob.js";   // アポ確率の予測と夜の学び直し（2026-11-27 オーナー「優先度の代わりにアポ確率で並べる」）
+import { registerMcCuts } from "./mccuts.js";   // 18の切り口で全件をつかむ（2026-11-27 福井さん）
 import { planFromBales, MAX_AGE_H } from "./mcbalessync.js";   // BALES でかけた結果で「かける」の順番を変える（2026-11-25）
 import { FILL_APIS, FILL_SOQL_FIELDS, readMemo, readInputs, planFills, pickedFields, hiresBucket } from "./mcsffill.js";
 import { isJunkCompany } from "./mcjunk.js";   // 「テスト山田」「ロープレ練習」など会社名ではないリードを見分ける（2026-11-26 福井さん）
@@ -604,7 +605,7 @@ const monthsAhead = (x) => `(CASE WHEN ${x} ~ '^[0-9]{4}-[0-9]{2}$' THEN (substr
   WHEN ${x} ~ '^[0-9]{1,2}$' THEN ((${x}::int - EXTRACT(MONTH FROM ${JST})::int + 12) % 12) END)`;
 // 検討時期：架電で聞いた月（新しい）→ SF の検討開始時期
 const WHEN_SRC = `COALESCE(CASE WHEN COALESCE(c.hearing->>'when','') ~ '^[0-9]{1,2}月$' THEN regexp_replace(c.hearing->>'when','月$','') END, NULLIF(c.seg->>'whenYm',''))`;
-const WHEN_M = monthsAhead(WHEN_SRC);
+export const WHEN_M = monthsAhead(WHEN_SRC);   // 切り口（server/mccuts.js）でも同じ月の数え方を使う
 // ---- 検討時期待ち（2026-11-25 福井さん「SF の検討開始時期が3月など、時期が違いすぎる会社は適切な時期以外かけない。
 //   ただし情報源が1年以上前なら古い情報の可能性があるのでかけてよい」） ----
 //   検討時期の WHEN_OPEN_M か月前になるまで「かける」に出さない（福井さん決定：2か月前から）。データは書き換えず毎回その場で判定する（月がたてば自然に出てくる）。
@@ -1284,6 +1285,7 @@ export function registerMcCall(app, deps) {
     res.json({ ok: true, sent, ...w });
   }));
   registerMcUsage(app, { adminOnly, guard, isAdmin });
+  registerMcCuts(app, { adminOnly, guard, isAdmin });   // リスト管理の「切り口」タブ（18の切り口・保存した絞り込み）（2026-11-27 福井さん）
 
   // ---- 1日のタイムライン（2026-11-26 福井さん「PC時間分析レポートの1日のタイムラインみたいな表示をレポートに」） ----
   //   その日の記録を時刻のまま返し、画面で「かける→記録」「記録→次のかける（間隔）」を横に並べて描く。

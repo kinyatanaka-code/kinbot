@@ -246,6 +246,38 @@
   /* 他メンバーとして操作中の帯（切りかえのボタンは 2026-11-23 に SHOBO から廃止） */
   .imp-banner-icon svg{vertical-align:-3px;}
   @media (max-width:900px){.mt-wrap{grid-template-columns:1fr;height:auto;}.mt-side{max-height:320px;}}
+  /* リスト管理の5段とタブ（2026-11-27 福井さん）：段で見る（生リード→統合リード→温度→ステージ→メンバー別）／切り口で見る */
+  .bl-tabs{display:flex;gap:2px;margin:10px 0 2px;border-bottom:1px solid #DDEFF2;} .bl-tabs button{border:0;background:transparent;font:inherit;font-size:13px;font-weight:800;color:#5C7377;padding:8px 14px;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-1px;} .bl-tabs button:hover{color:#0d5b47;} .bl-tabs button.on{color:#0d5b47;border-bottom-color:#1d9e75;}
+  .bl-tier-h{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;margin:14px 0 8px;padding-top:10px;border-top:1px solid #DDEFF2;} .bl-tier-h .no{width:20px;height:20px;border-radius:50%;background:#0d5b47;color:#fff;font-size:11px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;align-self:center;} .bl-tier-h h3{margin:0;font-size:15px;color:#0F3D44;} .bl-tier-h small{font-size:11.5px;color:#5C7377;}
+  .bl-src{font-size:10.5px;font-weight:800;color:#0d5b47;background:#E3F4EE;border-radius:999px;padding:1px 8px;}
+  .bl-lsrc{display:flex;align-items:center;gap:4px;font-size:11.5px;color:#3F5559;max-width:100%;} .bl-lsrc > span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .bl-lsrc em{font-style:normal;font-weight:800;color:#0F3D44;}
+  .bl-lsrc button{flex:none;border:1px solid #CDE9E0;background:#fff;color:#1d9e75;width:24px;height:24px;border-radius:50%;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;} .bl-lsrc button:hover{background:#E3F4EE;}
+  .bl-lc.uni{border-color:#5DCAA5;background:linear-gradient(160deg,#F1FAF6,#fff);} .bl-lc.uni .n{color:#0d5b47;}
+  .bl-lc.stg.other .n{color:#5C7377;} .bl-lc.stg.nurture .n{color:#1d9e75;}
+  .bl-lc-sub{margin-top:4px;border:1px solid #9FD9DF;background:#fff;color:#0B6E78;font:inherit;font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;cursor:pointer;} .bl-lc-sub:hover{background:#F2FAFB;}
+  .bl-tsum{margin:6px 2px 0;font-size:11.5px;font-weight:700;color:#5C7377;} .bl-tsum.ok{color:#1d9e75;} .bl-tsum.ng{color:#C2410C;}
+  /* 切り口で見る（public/mccuts.js） */
+  .ct-bar{position:sticky;top:0;z-index:5;background:#fff;border:1px solid #DDEFF2;border-radius:14px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;margin:10px 0;box-shadow:0 2px 8px rgba(13,91,71,.05);}
+  .ct-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;} .ct-big{font-size:22px;font-weight:800;color:#0d5b47;} .ct-big small{font-size:12px;margin-left:2px;color:#5C7377;} .ct-apo{color:#C2410C;}
+  .ct-seg{display:inline-flex;border:1px solid #CDE9E0;border-radius:999px;overflow:hidden;} .ct-seg button{border:0;background:#fff;font:inherit;font-size:12px;font-weight:700;color:#3F5559;padding:5px 10px;cursor:pointer;} .ct-seg button.on{background:#1d9e75;color:#fff;}
+  .ct-chips{display:flex;flex-wrap:wrap;gap:4px;min-width:0;} .ct-chip{display:inline-flex;align-items:center;gap:2px;font-size:12px;font-weight:700;border-radius:999px;padding:2px 2px 2px 10px;background:#E3F4EE;color:#0d5b47;} .ct-chip.exc{background:#FDECEC;color:#B42318;} .ct-chip button{border:0;background:transparent;color:inherit;cursor:pointer;font-size:14px;width:22px;height:22px;border-radius:50%;} .ct-chip button:hover{background:rgba(0,0,0,.06);}
+  .ct-inp{border:1px solid #CDE9E0;border-radius:10px;padding:6px 10px;font:inherit;font-size:12.5px;min-width:0;max-width:100%;box-sizing:border-box;}
+  .ct-sec{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:10px;margin-bottom:12px;} @media(max-width:760px){.ct-sec{grid-template-columns:minmax(0,1fr);}}
+  .ct-box{background:#fff;border:1px solid #DDEFF2;border-radius:14px;padding:12px 14px;min-width:0;} .ct-box h4,.ct-gh h4{margin:0 0 6px;font-size:14px;color:#0F3D44;} .ct-sub{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:800;color:#0F3D44;margin:8px 0 4px;}
+  .ct-gh{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;margin:14px 0 8px;} .ct-gh h4{margin:0;}
+  .ct-pills{display:flex;flex-wrap:wrap;gap:6px;} .ct-pill{border:1px solid #CDE9E0;background:#fff;border-radius:999px;font:inherit;font-size:12px;font-weight:700;color:#0F3D44;padding:4px 10px;cursor:pointer;} .ct-pill:hover{border-color:#1d9e75;} .ct-pill.inc{background:#1d9e75;color:#fff;border-color:#1d9e75;} .ct-pill.exc{background:#FDECEC;color:#B42318;border-color:#F5C2C0;text-decoration:line-through;} .ct-pill em{font-style:normal;margin-left:5px;opacity:.85;}
+  .ct-board{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;align-items:start;}
+  .ct-card{background:#fff;border:1px solid #DDEFF2;border-radius:14px;padding:10px 12px;display:flex;flex-direction:column;gap:2px;min-width:0;}
+  .ct-card-h{display:flex;align-items:center;gap:6px;margin-bottom:4px;} .ct-no{flex:none;width:20px;height:20px;border-radius:50%;background:#E3F4EE;color:#0d5b47;font-size:10.5px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;} .ct-card-h b{font-size:13px;color:#0F3D44;flex:1;min-width:0;}
+  .ct-st{flex:none;font-size:10px;font-weight:800;border-radius:999px;padding:1px 7px;white-space:nowrap;} .ct-st.ok{background:#E3F4EE;color:#0d5b47;} .ct-st.part{background:#FFF4DB;color:#8A5A00;} .ct-st.none{background:#F1F4F4;color:#6B7C80;}
+  .ct-vh,.ct-v{display:grid;grid-template-columns:minmax(0,1fr) 58px 48px;gap:6px;align-items:center;padding:3px 6px;} .ct-vh{font-size:10px;color:#8AA0A3;font-weight:700;} .ct-vh em,.ct-vh small{font-style:normal;text-align:right;}
+  .ct-v{position:relative;border:0;background:transparent;font:inherit;font-size:12px;color:#0F3D44;border-radius:8px;cursor:pointer;text-align:left;width:100%;box-sizing:border-box;} .ct-v:hover{background:#F1FAF6;} .ct-v.inc{background:#E3F4EE;font-weight:800;} .ct-v.exc{background:#FDECEC;color:#B42318;} .ct-v.exc span{text-decoration:line-through;} .ct-v.rest{cursor:default;color:#6B7C80;}
+  .ct-v span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .ct-v em{font-style:normal;text-align:right;font-weight:700;} .ct-v small{text-align:right;color:#C2410C;font-weight:800;font-size:11px;} .ct-v i{position:absolute;left:6px;bottom:1px;height:2px;background:#5DCAA5;border-radius:2px;max-width:calc(100% - 12px);}
+  .ct-src{font-size:10.5px;color:#6B7C80;line-height:1.5;margin-top:4px;}
+  .ct-empty{font-size:12px;color:#6B7C80;background:#F7F9F9;border:1px dashed #D5DEDF;border-radius:10px;padding:10px;line-height:1.6;}
+  .ct-saved{display:flex;flex-direction:column;gap:4px;max-height:210px;overflow:auto;} .ct-sv{display:flex;align-items:center;gap:6px;} .ct-sv button.go{flex:1;min-width:0;text-align:left;border:1px solid #DDEFF2;background:#fff;border-radius:10px;padding:6px 10px;font:inherit;font-size:12.5px;font-weight:700;color:#0F3D44;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .ct-sv button.go:hover{border-color:#1d9e75;background:#F1FAF6;} .ct-sv small{color:#6B7C80;font-weight:600;margin-left:6px;}
+  .ct-sv button.x{flex:none;border:0;background:transparent;color:#9AB0B3;font-size:16px;width:26px;height:26px;border-radius:50%;cursor:pointer;} .ct-sv button.x:hover{background:#FDECEC;color:#C43D3D;}
+  .ct-tbl{overflow:auto;background:#fff;border:1px solid #DDEFF2;border-radius:12px;} .ct-tbl table{width:100%;border-collapse:collapse;font-size:12px;} .ct-tbl th,.ct-tbl td{padding:6px 8px;border-bottom:1px solid #EEF4F4;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;} .ct-tbl th{color:#5C7377;font-size:11px;background:#F7FBFA;}
 </style>
 </head>
 <body>
@@ -327,7 +359,8 @@
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-  <script src="/mcbales.js?v=20261127apo"></script>
+  <script src="/mcbales.js?v=20261127tier"></script>
+  <script src="/mccuts.js?v=20261127tier"></script>
   <script src="/caseshare.js?v=20261116c"></script>
   <!-- kinbot のロボ（左上の顔を押すと相談できる窓）を MOCHICA にも（2026-11-16 田中さん） -->
   <script src="/kbchat.js?v=20261119f" defer></script>
