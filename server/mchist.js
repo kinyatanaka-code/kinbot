@@ -26,6 +26,7 @@ const jstDay = (t = Date.now()) => new Date(t + 9 * 3600e3).toISOString().slice(
 const BACKFILL_DAYS = 180;
 const ZS = { at: null, err: "", oldest: null, running: false };
 let _ready = null;
+export { ensure as ensureZoomHistory };
 function ensure() {
   if (_ready) return _ready;
   _ready = (async () => {

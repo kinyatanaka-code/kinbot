@@ -200,6 +200,30 @@ async function emailNames() {
 }
 
 // ───────────── シフト ─────────────
+export async function callbackShiftWindows(readSheet) {
+  const [rows, types] = await Promise.all([
+    readSheet(SHIFT_OWNER, SHIFT_SHEET_ID, "shifts!A1:C5000"),
+    readSheet(SHIFT_OWNER, SHIFT_SHEET_ID, "shiftTypes!A1:F30"),
+  ]);
+  const minute = value => {
+    const m = String(value || "").trim().match(/^(\d{1,2}):([0-5]\d)(?::00)?$/);
+    return m && +m[1] <= 24 ? Number(m[1])*60 + Number(m[2]) : null;
+  };
+  const periods = new Map(types.slice(1).map(r => {
+    const [start,end,bs,be] = r.slice(1,5).map(minute);
+    const rest = r[3] || r[4];
+    const windows = start == null || end == null || start >= end ? [] : rest ?
+      (bs != null && be != null && start <= bs && bs <= be && be <= end ? [[start,bs],[be,end]] : []) : [[start,end]];
+    return [String(r[0]).trim(),windows];
+  }));
+  const latest = new Map();
+  for (const [name,day,type] of rows.slice(1)) {
+    if (name && /^\d{4}-\d{2}-\d{2}$/.test(day)) latest.set(name+"|"+day,{name,day,type:String(type).trim()});
+  }
+  return [...latest.values()].flatMap(({name,day,type}) => (type==="off"?[]:periods.get(type)||[]).map(([start_min,end_min])=>({
+    email:"shift:"+name,name,day,start_min,end_min
+  })));
+}
 async function loadShifts(readSheet, asOf) {
   const [rows, types, sets] = await Promise.all([
     readSheet(SHIFT_OWNER, SHIFT_SHEET_ID, "shifts!A1:C5000"),

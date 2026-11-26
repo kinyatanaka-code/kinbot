@@ -106,7 +106,7 @@
     // 「リード管理」「リストの管理」のタブは一旦しまう（2026-11-23 田中さん「ここ消して」。割り振りは SHOWIN のリスト管理から）。
     //   中身（drawHub・drawLists）は消していないので、hideTab から外せばすぐ戻せる
     const hideTab = new Set(["leads", "lists"]);
-    const tabs = [["call", "かける"], ["report", "レポート"], ["insight", "数字"]].concat(S.admin ? [["measures", "施策"], ["leads", "リード管理"], ["lists", "リストの管理"], ["cross", "部署をまたいだ記録"]].filter(([k]) => !hideTab.has(k)) : []);
+    const tabs = [["call", "かける"], ["callbacks", "指定再架電"], ["report", "レポート"], ["insight", "数字"]].concat(S.admin ? [["measures", "施策"], ["leads", "リード管理"], ["lists", "リストの管理"], ["cross", "部署をまたいだ記録"]].filter(([k]) => !hideTab.has(k)) : []);
     $("mccTabs").innerHTML = tabs.map(([k, l]) => `<button role="tab" aria-selected="${S.tab === k}" data-t="${k}">${l}</button>`).join("");
     $("mccTabs").querySelectorAll("[data-t]").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.t)));
     if (tabs.length === 1) $("mccTabs").hidden = true;
@@ -116,6 +116,7 @@
     // キー操作の説明は、かける画面のキーだけなので、かける画面にだけ出す（ほかのタブで1段使っていた。2026-11-23 福井さん）
     $("mccCall").hidden = t !== "call"; $("mccAdmin").hidden = t === "call"; $("mccList").hidden = t !== "call"; $("mccFind").hidden = t !== "call"; $("mccHelpBtn").hidden = t !== "call"; showNotice();
     syncSide();
+    if (t === "callbacks") refreshCallbacks();
     if (t === "leads") drawHub(); if (t === "lists") drawLists(); if (t === "cross") drawCross(); if (t === "measures") drawMeasures(); if (t === "report") drawReport(); if (t === "insight") drawInsight();
   }
 
@@ -126,6 +127,7 @@
       drawTabs(); setTab(S.tab);
       await loadLists(); loadStats();
       if (!S.d) await loadQueue(true);
+      if (!S.callbackTimer) { refreshCallbacks(); S.callbackTimer = setInterval(refreshCallbacks, 60000); }
       if (!S.inTimer) S.inTimer = setInterval(pollInbound, 4000);
     } catch (e) { $("mccCenter").innerHTML = `<div class="mcc-empty">架電の画面を開けませんでした：${esc(e.message)}<br>少し待ってから、ページを読み込み直してください。</div>`; }
   }
@@ -269,13 +271,14 @@
   }
 
   // ---- 1社を開く（先読みしてあればすぐ出し、裏で最新を読み直す） ----
-  async function open(id) {
-    const cached = S.cache.get(id);
-    S.f = blankForm(); S.fill = null; S.f.memo = ls.get(memoKey(id)) || "";
+  async function open(id, callbackId = null) {
+    const cached = callbackId ? null : S.cache.get(id);
+    if (callbackId) S.d = null;
+    S.f = blankForm(); S.f.callbackId = callbackId; S.fill = null; S.f.memo = ls.get(memoKey(id)) || "";
     if (cached) { S.d = cached; drawAll(); }
     else { $("mccCenter").innerHTML = `<div class="mcc-empty">読み込んでいます…</div>`; }
     try {
-      const d = await api(`/api/mccall/leads/${id}?lock=1${S.inbound && S.inbound.leadId === id ? `&inbound=${S.inbound.id}` : ""}`); S.cache.delete(id);
+      const d = await api(`/api/mccall/leads/${id}?lock=1${callbackId ? `&callbackId=${callbackId}` : ""}${S.inbound && S.inbound.leadId === id ? `&inbound=${S.inbound.id}` : ""}`); S.cache.delete(id);
       if (S.d && S.d.lead.id === id && cached) { S.d = d; drawLeft(); drawRight(); drawNotices(); } else { S.d = d; drawAll(); }
       S.f.phone = (d.phones[0] && d.phones[0].number) || d.lead.phone || "";
       queueFill(0); if (!S.lst || S.lst.leadId !== id) loadStatus(id);
@@ -718,6 +721,9 @@
       const check = apoCheckC();
       if (check.block.length || check.budgetBlocked) return false;
     }
+    if (f.callbackSource === "customer" && ["gate","person"].includes(f.reach) && f.outcome !== "apo" && !f.nextAt) return false;
+    if (f.nextAt && ["gate","person"].includes(f.reach) && f.outcome !== "apo" &&
+      (!f.callbackSource || (f.callbackSource === "customer" && !f.customerQuote?.trim()))) return false;
     if (f.outcome === "callback_req" && !f.nextAt) return false;
     return true;
   }
@@ -763,7 +769,7 @@
     const f = S.f; if (!f || !S.d) return;
     f.person = on; f.talkManual = null; if (on) loadSlots();
     // 担当者につながったら、受付の段階で選んでいた結果は外す（プルダウンには担当者と話せたときの4つしか出なくなるため）
-    if (on && f.outcome && f.reach !== "person") Object.assign(f, { reach: "", outcome: "", reason: "", nextAt: "", nextLabel: "", noRetry: false, step: "reach" });
+    if (on && f.outcome && f.reach !== "person") Object.assign(f, { callbackSource:"", customerQuote:"", reach: "", outcome: "", reason: "", nextAt: "", nextLabel: "", noRetry: false, step: "reach" });
     drawCenter(); drawTalk(); drawWork();
   }
   //   担当者につながったら「前回」と「この1本で確定させること」は隠す（発信前に読むもの。右の「これまで」と「聞けたこと」に同じ中身がある）。
@@ -859,6 +865,11 @@
     }); apo.addEventListener("keydown", (e) => { if (e.key === "Enter" && ready()) { e.preventDefault(); record(); } }); if (!memoFocus) setTimeout(() => apo.focus(), 0); }
     // 欄のどこを押してもカレンダーが開くようにする（2026-11-26 福井さん「追いかけ時間はすべてカレンダーから選べるように」。
     //   Chrome は右端の小さな印を押さないと開かないため。開けないブラウザでは今までどおり手で打てる）
+    const source = $("mccCallbackSource");
+    if (source) {
+      source.onchange = () => { f.callbackSource = source.value; f.customerQuote = ""; $("mccCallbackQuote").value = ""; $("mccQuoteLabel").hidden = source.value !== "customer"; refreshFoot(); };
+      $("mccCallbackQuote").oninput = e => { f.customerQuote = e.target.value; refreshFoot(); };
+    }
     const na = $("mccNextAt"); if (na) { na.addEventListener("click", () => { try { na.showPicker && na.showPicker(); } catch { /* 開けないときは手入力のまま */ } }); na.addEventListener("input", () => pickManual(na.value)); na.addEventListener("keydown", (e) => { if (e.key === "Enter" && S.f.nextAt && ready()) { e.preventDefault(); record(); } }); }
     const nr = $("mccNoRetry"); if (nr) nr.addEventListener("click", () => { S.f.noRetry = true; drawCenter(); });
     c.querySelectorAll("[data-later]").forEach((b) => b.addEventListener("click", () => { S.f.nextAt = b.dataset.later; S.f.nextLabel = b.dataset.ll || ""; S.f.noRetry = !b.dataset.later ? S.f.noRetry : false; drawCenter(); }));
@@ -1200,7 +1211,7 @@
   async function saveHearing() {
     if (!S.d) return; const L = S.d.lead; const h = hearingBody(false);
     if (!Object.values(h).some((v) => v !== "" && v != null)) return;
-    try { const j = await post(`/api/mccall/leads/${L.id}/hearing`, { ...h, inbound: isInbound(L.id) ? S.inbound.id : null }); L.hearing = j.hearing; S.cache.delete(L.id); } catch (e) { setNotice([{ kind: "danger", text: `ヒアリングを保存できませんでした：${e.message}` }]); }
+    try { const j = await post(`/api/mccall/leads/${L.id}/hearing`, { ...h, callbackId:S.f.callbackId, inbound: isInbound(L.id) ? S.inbound.id : null }); L.hearing = j.hearing; S.cache.delete(L.id); } catch (e) { setNotice([{ kind: "danger", text: `ヒアリングを保存できませんでした：${e.message}` }]); }
   }
   function refreshFoot() { const b = $("mccRec"); if (b) b.disabled = !ready(); const h = $("mccHint"); if (h) h.textContent = footHint(); }
   function footHint() {
@@ -1219,6 +1230,7 @@
   function whenManualHtml(f) {
     const v = f.nextAt && f.nextLabel === MANUAL ? toLocalInput(f.nextAt) : "";
     return `<div class="mcc-gateform" style="margin-top:12px"><label class="mcc-field full">日時を指定して掛け直す<input type="datetime-local" id="mccNextAt" min="${toLocalInput(new Date().toISOString())}" step="300" value="${esc(v)}" /></label>
+      ${["gate","person"].includes(f.reach) ? `<label class="mcc-field full">日時を指定した人<select id="mccCallbackSource"><option value="">選択してください</option><option value="self" ${f.callbackSource==="self"?"selected":""}>自分の提案・自分の判断</option><option value="customer" ${f.callbackSource==="customer"?"selected":""}>相手が日時を指定</option></select></label><label class="mcc-field full" id="mccQuoteLabel" ${f.callbackSource==="customer"?"":"hidden"}>日時を指定した相手の言葉<input id="mccCallbackQuote" maxlength="400" value="${esc(f.customerQuote || "")}" placeholder="例：木曜の15時にもう一度お電話ください"></label>` : ""}
       <p class="mcc-note full" id="mccNextNote">${manualNote(f)}</p></div>`;
   }
   const MANUAL = "指定した日時";
@@ -1280,7 +1292,7 @@
   }
   // プルダウンで結果を選び直したら、前に選んだ結果の続き（理由・日時・掛け直し）を消してから選んだことにする
   function pickResult(k, label) {
-    Object.assign(S.f, { reach: "", outcome: "", reason: "", apoAt: "", apoWho: "", nextAt: "", nextLabel: "", noRetry: false, step: "reach" });
+    Object.assign(S.f, { callbackSource:"", customerQuote:"", reach: "", outcome: "", reason: "", apoAt: "", apoWho: "", nextAt: "", nextLabel: "", noRetry: false, step: "reach" });
     if (k) return choose(k, label, false);
     drawCenter(); drawTalk(); drawWork(); queueFill();
   }
@@ -1290,7 +1302,7 @@
     //   担当者につながった状態の1段目で戻ると、受付の段階（10個の結果）へ戻る
     if (f.step === "reach") { if (!f.person) return; f.person = false; f.talkManual = null; }
     else if (f.step === "ready" && f.outcome === "reject") { f.reason = ""; f.step = "reason"; }
-    else Object.assign(f, { reach: "", outcome: "", reason: "", apoAt: "", apoWho: "", nextAt: "", noRetry: false, step: "reach", talkManual: null });
+    else Object.assign(f, { callbackSource:"", customerQuote:"", reach: "", outcome: "", reason: "", apoAt: "", apoWho: "", nextAt: "", noRetry: false, step: "reach", talkManual: null });
     drawCenter(); drawTalk(); drawWork();
   }
 
@@ -1695,7 +1707,7 @@
     const f = S.f; const L = S.d.lead; const company = L.company;
     const gate = { name: f.gate.name || (L.gate && L.gate.name) || "", hours: f.gate.hours || (L.gate && L.gate.hours) || "", direct: f.gate.direct || (L.gate && L.gate.direct) || "", biz: f.gate.biz || (L.gate && L.gate.biz) || "" };
     const body = { reach: f.reach, outcome: f.outcome, reason: f.reason, apoWho: f.outcome === "apo" ? f.apoWho : "", memo: f.memo, phone: f.phone || L.phone, gate, noRetry: f.noRetry, hearing: f.reach === "person" ? hearingBody() : null,
-      nextAt: f.nextAt || null, apoAt: f.apoAt ? new Date(f.apoAt).toISOString() : null,
+      callbackId: f.callbackId, callbackSource: f.nextAt && ["gate","person"].includes(f.reach) && f.outcome !== "apo" ? f.callbackSource : "", customerQuote: f.customerQuote, nextAt: f.nextAt || null, apoAt: f.apoAt ? new Date(f.apoAt).toISOString() : null,
       talkId: S.d.talk ? S.d.talk.id : null, dialAt: f.dialAt || null, inbound: isInbound(L.id) ? S.inbound.id : null, sfPick: f.picks };
     try {
       const j = await post(`/api/mccall/leads/${L.id}/log`, body);
@@ -2265,6 +2277,37 @@
   const pc = (a, b) => (b ? `${(a / b * 100).toFixed(1)}%` : "—");
   // 役割の印と、この画面で何を決めるかの1行。もう片方のタブへの行き先も添える（どちらを見ればよいか迷わないように）
   const purpose = (text, go, goLabel) => `<p class="mcc-purpose"><span class="mcc-tag ok">${S.admin ? "管理者" : "かける人"}</span><span>${text}</span><button class="mcc-chip" data-go="${go}">${goLabel}</button></p>`;
+  let callbackRefresh = 0;
+  let callbackDays = 7;
+  async function refreshCallbacks() {
+    const sequence = ++callbackRefresh;
+    try {
+      const {items} = await api("/api/mccall/callbacks");
+      if (sequence !== callbackRefresh) return;
+      const urgent = items.filter(p => ["今かける","期限超過","未割当"].includes(p.status));
+      const tab = $("mccTabs").querySelector('[data-t="callbacks"]');
+      if (tab) tab.textContent = "指定再架電" + (urgent.length ? `（要対応 ${urgent.length}）` : "");
+      if (S.tab !== "callbacks") return;
+      const box = $("mccAdmin");
+      const today = new Date(Date.now()+9*3600000).toISOString().slice(0,10);
+      const since = Date.parse(today+"T00:00:00+09:00")-(callbackDays-1)*86400000;
+      const due = items.filter(p=>p.eligible && (!callbackDays || Date.parse(p.next_at)>=since)), met = due.filter(p=>p.onTime).length;
+      box.innerHTML = `<div class="mcc-card"><h2>相手指定の再架電</h2>
+        <p>期限内発信率（${callbackDays ? "直近"+callbackDays+"日" : "導入後累計"}・${S.admin?"チーム":"自分"}） <b>${due.length?(100*met/due.length).toFixed(1)+"%":"対象なし"}</b>　${met} / ${due.length}件　目標100%</p>
+        <p>相手が日時を指定した案件を、指定から15分以内に発信します。期限を過ぎた案件で集計し、Zoom発信履歴と照合します。不在でも発信は達成です。</p>
+        <p>実発信済み ${due.filter(p=>p.actual_at).length} / ${due.length}件（遅延を含む）　未割当 ${items.filter(p=>p.status==="未割当").length}件　照合待ち ${items.filter(p=>p.status==="発信照合待ち").length}件</p>
+        ${items.some(p=>p.sheetError) ? "<p role='alert'>シフトを取得できません。管理者が連携を確認してください。</p>" : ""}
+        <p>始業時・休憩後に確認してください。未割当は管理者がシフト・名簿を確認し、期限超過は勤務中の担当者が至急対応します。</p>
+        <label>KPIの期間 <select id="mccCbDays">${[[1,"今日"],[7,"7日"],[30,"30日"],[0,"累計"]].map(([n,l])=>`<option value="${n}" ${callbackDays===n?"selected":""}>${l}</option>`).join("")}</select></label>
+        <button class="mcc-chip" id="mccCbRefresh">更新</button>
+        <table><thead><tr><th>指定日時</th><th>会社・相手の発言</th><th>担当</th><th>状態</th></tr></thead><tbody>
+        ${items.map(p=>`<tr><td>${esc(tm(p.next_at))}</td><td>${esc(p.company || "登録解除済み")}<br>${esc(p.customer_quote)}</td>
+        <td>${esc(p.ownerName || "管理者対応")}</td><td>${esc(p.status)} ${p.mine && !p.attempt && p.company && Date.parse(p.next_at)<=Date.now() ? `<button class="mcc-chip" data-cb="${p.id}" data-lead="${p.lead_id}">架電画面へ</button>`:""}</td></tr>`).join("")}</tbody></table></div>`;
+      $("mccCbDays").onchange = e=>{callbackDays = Number(e.target.value);refreshCallbacks();};
+      $("mccCbRefresh").onclick = refreshCallbacks;
+      box.querySelectorAll("[data-cb]").forEach(b=>b.onclick=async()=>{setTab("call"); await open(Number(b.dataset.lead),Number(b.dataset.cb));});
+    } catch(e) { if (S.tab==="callbacks") $("mccAdmin").textContent = "指定再架電を読み込めませんでした：" + e.message; }
+  }
   async function drawReport() {
     const box = $("mccAdmin");
     if (!RP.from) { const n = new Date(); RP.to = ymd(n); RP.from = ymd(new Date(n.getTime() - 6 * 86400e3)); }

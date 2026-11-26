@@ -51,7 +51,14 @@ globalThis.fetch = async (input, init) => {
 const stub = "export const chromium={launch:async()=>{throw new Error('試験ではブラウザを使いません')}};export default {chromium, executablePath: async()=>'', args: []};";
 register("data:text/javascript," + encodeURIComponent(`export async function resolve(s, c, n) {
   if (s === "playwright-core" || s === "@sparticuz/chromium") return { url: "data:text/javascript," + encodeURIComponent(${JSON.stringify(stub)}), shortCircuit: true };
-  return n(s, c); }`));
+  return n(s, c); }
+  export async function load(url,ctx,next) {
+    const r = await next(url,ctx);
+    if (!url.endsWith("/server/google.js")) return r;
+    const signature = "export async function readSheet(owner, spreadsheetId, range) {";
+    const fixture = "if (range==='shifts!A1:C5000') return [[],['足立',new Date(Date.now()+32400000).toISOString().slice(0,10),'test']]; if (range==='shiftTypes!A1:F30') return [[],['test','00:00','24:00']];";
+    return {...r,source:String(r.source).replace(signature,signature+fixture)};
+  }`));
 
 // ---------- 環境変数 ----------
 // PGlite の場所は、下で MCCALL_ の環境変数を消す前に読んでおく（消したあとに読むと、指定しても効かない）
@@ -301,6 +308,30 @@ await t("リストとトークの対応：ほかのリストのトークを写�
     const left = (await q(`SELECT label, ver, active FROM mc_call_talks WHERE list_id=$1 ORDER BY id`, [L2])).rows;
     assert.deepEqual(left.map((r) => `${r.label}${r.ver}${r.active ? "+" : "-"}`), ["B1-", "A1+"], "外した欄は前の版として残る");
   } finally { await call(A, "PATCH", `/api/mccall/lists/${L2}`, { closed: true }); }
+});
+await t("相手指定だけを勤務者へ渡し、Zoom発信と合った時だけ達成になる", async () => {
+  const I2 = INTERNS[7].email;
+  const id = ids[0], url = `/api/mccall/leads/${id}/log`;
+  const follow = {reach:"person",outcome:"follow",nextAt:new Date(Date.now()+3600000).toISOString()};
+  const self = await call(I1,"POST",url,{...follow,callbackSource:"self"});
+  assert.equal((await call(A,"GET","/api/mccall/callbacks")).items.length,0);
+  await call(I1,"POST",`/api/mccall/logs/${self.logId}/undo`);
+  await assert.rejects(call(I1,"POST",url,{...follow,callbackSource:"customer"}));
+  const promise = await call(I1,"POST",url,{...follow,callbackSource:"customer",customerQuote:"今日の15時に電話してください"});
+  const dial = Date.now();
+  await q("UPDATE mc_call_logs SET next_at=$2 WHERE id=$1",[promise.logId,new Date(dial-1000)]);
+  const board = async who => (await call(who,"GET","/api/mccall/callbacks")).items;
+  assert.equal((await board(I1)).length,0);
+  assert.equal((await board(I2))[0].owner,I2);
+  const result = {callbackId:promise.logId,reach:"none",outcome:"no_answer",phone:"0300009000",dialAt:dial};
+  await assert.rejects(call(I1,"POST",url,result));
+  const attempt = await call(I2,"POST",url,result);
+  assert.equal((await board(A))[0].onTime,false);
+  await q("INSERT INTO mc_zoom_calls(id,at,direction,peer,owner_email) VALUES ('cb-fixture',$1,'outbound','0300009000',$2)",[new Date(dial),I2]);
+  assert.equal((await board(A))[0].onTime,true);
+  await call(I2,"POST",`/api/mccall/logs/${attempt.logId}/undo`);
+  assert.equal((await board(A))[0].onTime,false);
+  await call(I1,"POST",`/api/mccall/logs/${promise.logId}/undo`);
 });
 await t("アプローチ禁止の名簿が読めない：エラーにせず、止めている理由（stop=ban）を返す", async () => {
   await q(`ALTER TABLE approach_bans RENAME TO approach_bans_test_off`);

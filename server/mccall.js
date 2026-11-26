@@ -18,7 +18,8 @@ import { freeBusy, gmailSend, isConnected as googleConnected, createCalendarEven
 import { notifyPerson } from "./chat.js";
 import { teamOf, teamLabel, splitFree, slotScore, pickFs } from "./mcteam.js";   // IS と FS のチーム（2026-11-23）
 import { fixMojibake } from "./docs.js";
-import { pastApproach, balesItems, dedupeTimeline, startZoomSync, spokenText, spokenData } from "./mchist.js";   // リードの過去アプローチを BALES・SF・Zoom Phone・DOC から集める（2026-11-20）
+import { callbackBoard } from "./mccallback.js";
+import { ensureZoomHistory, pastApproach, balesItems, dedupeTimeline, startZoomSync, spokenText, spokenData } from "./mchist.js";   // リードの過去アプローチを BALES・SF・Zoom Phone・DOC から集める（2026-11-20）
 import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord, sfUpdateMany, connectionInfo as sfConnInfo, describeObject, sfCreateRecord, sfUserIdByEmail,
   convertLead, convertedLeadStatuses, findLeadField, ensureLeadApoDate, ensureLeadVisitDate, ensureLeadMeetingDate, ensureLeadFsNote } from "./salesforce.js";   // アポのあとの商談の立ち上げ（2026-11-26）
 import { judgeHot } from "./mchot.js";
@@ -40,7 +41,7 @@ import { planFromBales, MAX_AGE_H } from "./mcbalessync.js";   // BALES でか�
 import { FILL_APIS, FILL_SOQL_FIELDS, readMemo, readInputs, planFills, pickedFields, hiresBucket } from "./mcsffill.js";
 import { isJunkCompany } from "./mcjunk.js";   // 「テスト山田」「ロープレ練習」など会社名ではないリードを見分ける（2026-11-26 福井さん）
 import { formRun } from "./mcform.js";   // 問い合わせフォームの自動送信（2026-11-20）
-import { MCDASH_ROSTER } from "./mcdash.js";   // インサイド8名の名簿（「かける」の状態を管理者に見せるため）
+import { callbackShiftWindows, MCDASH_ROSTER } from "./mcdash.js";   // インサイド8名の名簿（「かける」の状態を管理者に見せるため）
 import { rosterHit, startsWithSurname, rosterForms, foldPersonName, pickBalesOwner } from "./mcname.js";   // 名前の照合（異体字・姓名の順などをそろえる）
 import { loadPeople, emailOf as rosterEmailOf, setPerson, rosterRows, PEOPLE_KINDS } from "./mcpeople.js";   // 名簿の人をメールで結びつける（2026-11-23）
 import { leadMails, sfLeadIdOf } from "./mcmail.js";   // 1社のメールを1か所で集める（SF・BALES・DOC のメールが画面に出なかったため。2026-11-24）
@@ -201,7 +202,11 @@ async function ensure() {
     await q(`ALTER TABLE mc_call_lists ADD COLUMN IF NOT EXISTS product TEXT NOT NULL DEFAULT 'mochica'`);
     await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS product TEXT`);
     // 「かける」を押した時刻（2026-11-26 福井さん「コールとコールの間隔は2分以内」）。前の記録からここまでを間隔として測る（server/mcpace.js）
-    await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS dialed_at TIMESTAMPTZ`);
+    await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS dialed_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS customer_quote TEXT, ADD COLUMN IF NOT EXISTS callback_owner TEXT, ADD COLUMN IF NOT EXISTS callback_for INT`);
+    await q(`CREATE UNIQUE INDEX IF NOT EXISTS ix_mc_callback_attempt ON mc_call_logs(callback_for) WHERE callback_for IS NOT NULL AND NOT undone`);
+    await q(`CREATE UNIQUE INDEX IF NOT EXISTS ix_mc_callback_slot ON mc_call_logs(lead_id,next_at) WHERE customer_quote IS NOT NULL AND NOT undone`);
+    await q(`CREATE INDEX IF NOT EXISTS ix_mc_customer_due ON mc_call_logs(next_at) WHERE customer_quote IS NOT NULL AND NOT undone`);
     // リスト管理の「今日かけるリスト」から「かける」を出す（2026-11-23 福井さん）。today_src＝その入れ先のリスト（1本だけ。閉じると今までの出し方に戻る）、
     //   today_day＝そのリードがだれかの今日かけるリストに入った日（日本時間の YYYY-MM-DD）
     await q(`ALTER TABLE mc_call_lists ADD COLUMN IF NOT EXISTS today_src BOOLEAN NOT NULL DEFAULT false`);
@@ -2379,6 +2384,78 @@ export function registerMcCall(app, deps) {
     res.json(out);
   }));
 
+  let shiftCache;
+  function shiftWindows() {
+    if (!shiftCache || Date.now()-shiftCache.at >= 60000) {
+      shiftCache = { at: Date.now(), data: callbackShiftWindows(deps.readSheet).catch(e => { shiftCache=null; throw e; }) };
+    }
+    return shiftCache.data;
+  }
+  async function callbacks(at = Date.now()) {
+    const promises = (await P().query(`SELECT g.id,g.lead_id,l.company,g.caller,g.next_at,g.customer_quote,g.callback_owner,
+        a.id AS attempt,a.caller AS actual_caller,a.dialed_at,a.phone AS attempt_phone
+      FROM mc_call_logs g LEFT JOIN mc_call_leads l ON l.id=g.lead_id
+      LEFT JOIN mc_call_logs a ON a.callback_for=g.id AND NOT a.undone
+      WHERE g.customer_quote IS NOT NULL AND NOT g.undone ORDER BY g.next_at,g.id`)).rows;
+    if (!promises.length) return [];
+    const [users, reg] = await Promise.all([listUsers(),loadPeople()]);
+    const members = [];
+    for (const u of users) {
+      const email = String(u.email || "").toLowerCase();
+      if (!email || !(await isMcIntern(email))) continue;
+      const p = MCDASH_ROSTER.is.find(r => rosterEmailOf(reg,"is",r.sf) === email) || rosterHit(u.name, MCDASH_ROSTER.is);
+      members.push({email, name:u.name || p?.sf || email, p});
+    }
+    const absences = (await P().query(`SELECT lower(email) email,name,to_char(day,'YYYY-MM-DD') AS day,start_min,end_min,absent
+      FROM inside_shifts WHERE absent AND day >= (now() AT TIME ZONE 'Asia/Tokyo')::date - 1`)).rows;
+    let sheetError = false;
+    const windows = await shiftWindows().catch(e => {
+      console.error("[mccall] 再架電シフトを取得できません", e.message);
+      sheetError = true;
+      return [];
+    });
+    const shifts = [...windows, ...absences];
+    const attempts = promises.filter(p => p.dialed_at && phoneKey(p.attempt_phone));
+    if (attempts.length) {
+      await ensureZoomHistory();
+      const calls = (await P().query(`SELECT t.id AS promise,z.id,z.at,z.owner_email,z.owner_name FROM
+        unnest($1::int[],$2::text[],$3::timestamptz[]) t(id,phone,dial)
+        JOIN mc_zoom_calls z ON z.peer=t.phone AND lower(z.direction) IN ('outbound','outgoing')
+        AND z.at BETWEEN t.dial - interval '1 minute' AND t.dial + interval '2 minutes'
+        ORDER BY abs(extract(epoch FROM z.at-t.dial)),t.id,z.id`,
+        [attempts.map(p=>p.id),attempts.map(p=>phoneKey(p.attempt_phone)),attempts.map(p=>p.dialed_at)])).rows;
+      const byId = new Map(attempts.map(p=>[p.id,p])), used = new Set();
+      for (const z of calls) {
+        const p = byId.get(z.promise), m = members.find(x=>x.email === p.actual_caller);
+        if (p.actual_at || used.has(z.id)) continue;
+        if (z.owner_email ? z.owner_email.toLowerCase() !== p.actual_caller :
+          !(m?.p && rosterHit(z.owner_name,[m.p]))) continue;
+        p.actual_at = z.at; used.add(z.id);
+      }
+    }
+    const board = callbackBoard(promises,shifts,members,at);
+    // Persist the working list, retaining eligible owners on refresh. A historical validation
+    // at the dial time may authorize a log but must never overwrite today's assignments.
+    if (!sheetError && Math.abs(Date.now()-at)<5000) {
+      const changed = board.filter(p=>!p.attempt && (p.callback_owner || "")!==p.owner);
+      if (changed.length) await P().query(`UPDATE mc_call_logs g SET callback_owner=u.owner
+        FROM unnest($1::int[],$2::text[],$3::text[]) u(id,previous,owner)
+        WHERE g.id=u.id AND g.callback_owner IS NOT DISTINCT FROM u.previous AND NOT g.undone`,
+        [changed.map(p=>p.id),changed.map(p=>p.callback_owner),changed.map(p=>p.owner || null)]);
+    }
+    return board.map(row => ({...row,sheetError}));
+  }
+  async function callbackAllows(req,id) {
+    const key = Number(req.body?.callbackId || req.query.callbackId);
+    if (!key) return false;
+    const dial = Number(req.body?.dialAt);
+    const at = Number.isFinite(dial) && dial <= Date.now() && dial >= Date.now()-7200000 ? dial : Date.now();
+    return (await callbacks(at)).some(p=>p.id===key && p.lead_id===id && !p.attempt && p.owner===me(req) && Date.parse(p.next_at)<=at);
+  }
+  app.get("/api/mccall/callbacks", guard(async(req,res)=>{
+    const rows = (await callbacks()).filter(p=>isAdmin(req) || p.owner===me(req));
+    res.json({ items: rows.map(({attempt_phone,...p})=>({...p,mine:p.owner===me(req)})) });
+  }));
   app.get("/api/mccall/queue", guard(async (req, res) => {
     let ids = await myListIds(req); const listId = parseInt(req.query.list, 10);
     const u = me(req);
@@ -2424,7 +2501,7 @@ export function registerMcCall(app, deps) {
         OR (next_at IS NOT NULL AND (assigned_to = $2 OR (assigned_to IS NULL AND (SELECT g.caller FROM mc_call_logs g WHERE g.lead_id = mc_call_leads.id AND NOT g.undone ORDER BY g.created_at DESC LIMIT 1) = $2))))` : "";
     const base = `list_id = ANY($1) AND NOT done AND dup_of IS NULL AND (next_at IS NULL OR next_at <= now())
         AND (assigned_to IS NULL OR assigned_to=$2) AND (locked_by IS NULL OR locked_by=$2 OR locked_at < now() - interval '10 minutes')${todayW}
-        AND NOT ${HOLD_Q}`;
+        AND NOT EXISTS (SELECT 1 FROM mc_call_logs g WHERE g.lead_id=mc_call_leads.id AND NOT g.undone AND g.customer_quote IS NOT NULL AND NOT EXISTS (SELECT 1 FROM mc_call_logs a WHERE a.callback_for=g.id AND NOT a.undone)) AND NOT ${HOLD_Q}`;
     const order = `(next_at IS NOT NULL) DESC, next_at, COALESCE(hot,0) DESC, attempts, id`;
     // 順番は mccadence.js の rankQueue で決める（約束の掛け直し → 時刻が来た掛け直し → ホット度・検討時期・在席時間の順）。SQL では候補を多め（300件）に絞るだけ
     //   候補の300件には、リスト管理で優先度を高にした会社を先に入れる（低は後ろ）（2026-11-25 福井さん）
@@ -2608,7 +2685,11 @@ export function registerMcCall(app, deps) {
     const lead = (await P().query(`SELECT * FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
     if (!lead) return res.status(404).json({ error: "このリードは見つかりません（リストから外された可能性があります）" });
     const viaInbound = await inboundAllows(u, id, req.query.inbound).catch(() => false);
-    if (!viaInbound && !(await myListIds(req)).includes(lead.list_id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
+    if (!viaInbound && !(await myListIds(req)).includes(lead.list_id) && !(await callbackAllows(req,id))) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
+    if (req.query.callbackId) {
+      if (!(await callbackAllows(req,id))) return res.status(409).json({error:"担当が変更されました。指定再架電を更新してください"});
+      if (lead.dup_of || (await approachBanHitLead(lead))) return res.status(403).json({error:"この企業は架電できません。管理者が対象を確認してください"});
+    }
     if (req.query.lock === "1") await P().query(`UPDATE mc_call_leads SET locked_by=$2, locked_at=now() WHERE id=$1`, [id, u]);
     // まだ企業調査が済んでいない会社を開いたら、先に調べるよう頼む（画面は「調査中」と出し、かけるのは止めない）
     // 前に調べられなかった会社（1日以上前）も、開いたときに先に調べ直す。いまの企業調査は AI を使わない無料の検索なので、お金は増えない
@@ -2738,7 +2819,7 @@ export function registerMcCall(app, deps) {
     const id = parseInt(req.params.id, 10);
     const lead = (await P().query(`SELECT list_id, hearing FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
     if (!lead) return res.status(404).json({ error: "このリードは見つかりません" });
-    if (!(await inboundAllows(me(req), id, (req.body || {}).inbound).catch(() => false)) && !(await myListIds(req)).includes(lead.list_id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
+    if (!(await inboundAllows(me(req), id, (req.body || {}).inbound).catch(() => false)) && !(await myListIds(req)).includes(lead.list_id) && !(await callbackAllows(req,id))) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
     const h = mergeHearing(lead.hearing, cleanHearing(req.body || {}));
     if (h) { h.at = new Date().toISOString(); h.by = me(req); }
     await P().query(`UPDATE mc_call_leads SET hearing=$2 WHERE id=$1`, [id, h]); res.json({ ok: true, hearing: h });
@@ -3141,7 +3222,7 @@ export function registerMcCall(app, deps) {
     const id = parseInt(req.params.id, 10); const b = req.body || {}; const u = me(req);
     const lead = (await P().query(`SELECT * FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
     if (!lead) return res.status(404).json({ error: "このリードは見つかりません" });
-    if (!(await inboundAllows(u, id, b.inbound).catch(() => false)) && !(await myListIds(req)).includes(lead.list_id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
+    if (!(await inboundAllows(u, id, b.inbound).catch(() => false)) && !(await myListIds(req)).includes(lead.list_id) && !(await callbackAllows(req,id))) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
     if (lead.dup_of) return res.status(403).json({ error: "重複で止めたリードなので記録できません（ほかのリードと会社名が同じで、電話・メール・Web ページ・法人番号のどれかも同じ）。管理者に知らせてください" });
     const ban = await approachBanHitLead(lead).catch(() => ({ reason: "アプローチ禁止の名簿を確認できなかったため、念のため止めています" }));
     if (ban) return res.status(403).json({ error: `「${lead.company}」はアプローチ禁止のため記録できません（理由：${ban.reason || "アプローチ禁止"}）` });
@@ -3180,9 +3261,16 @@ export function registerMcCall(app, deps) {
       const ck = apoCheck(hearing || lead.hearing, apoContact(lead, gate, b.phone), NEED_CHOICES);
       if (ck.block.length) return res.status(400).json({ error: `アポにするには、ヒアリングの必須項目を埋めてください：${ck.block.join("、")}`, missing: ck.block });
     }
-    const log = (await P().query(`INSERT INTO mc_call_logs (lead_id, list_id, caller, phone, reach, outcome, reason, gate, memo, next_at, apo_at, cross_from, prev, product)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,(SELECT COALESCE(product,'mochica') FROM mc_call_lists WHERE id=$2)) RETURNING id, created_at`,
-      [id, lead.list_id, u, clip(b.phone || lead.phone, 40), reach, outcome, reason || null, gate, clip(b.memo, 2000) || null, nextAt, apoAt, lead.cross_from, prev])).rows[0];
+    const quote = b.callbackSource === "customer" ? clip(b.customerQuote,400).trim() : "";
+    if (b.callbackSource === "customer" && (!quote || !b.nextAt || !nextAt || nextAt <= now || !["gate","person"].includes(reach) || done))
+      return res.status(400).json({error:"相手が指定した未来の再架電日時と、その発言を記録してください"});
+    const callbackId = Number(b.callbackId) || null;
+    if (callbackId && (!(await callbackAllows(req,id)) || !Number.isFinite(b.dialAt) || b.dialAt < Date.now()-7200000 || b.dialAt > Date.now()+60000))
+      return res.status(409).json({error:"担当・発信を確認してください。指定再架電の一覧を更新してください"});
+    const log = (await P().query(`INSERT INTO mc_call_logs (customer_quote,callback_for,dialed_at,lead_id, list_id, caller, phone, reach, outcome, reason, gate, memo, next_at, apo_at, cross_from, prev, product)
+      VALUES ($14,$15,$16,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,(SELECT COALESCE(product,'mochica') FROM mc_call_lists WHERE id=$2)) RETURNING id, created_at`,
+      [id, lead.list_id, u, clip(b.phone || lead.phone, 40), reach, outcome, reason || null, gate, clip(b.memo, 2000) || null, nextAt, apoAt, lead.cross_from, prev, quote || null, callbackId, callbackId ? new Date(b.dialAt) : null])).rows[0];
+    if (quote) await callbacks().catch(e => console.error("[mccall] 次回の一覧更新で再割当します",e.message));
     if (outcome === "apo" && b.apoWho) await P().query(`UPDATE mc_call_logs SET apo_who=$2 WHERE id=$1`, [log.id, clip(b.apoWho, 80)]);
     // 「かける」を押した時刻（間隔を測るため）。パソコンの時計のずれや古い画面の値で変な間隔にならないよう、直近2時間の中だけ受け取る
     { const t = Number(b.dialAt); if (Number.isFinite(t) && t <= Date.now() + 60e3 && t >= Date.now() - 2 * 3600e3) await P().query(`UPDATE mc_call_logs SET dialed_at=$2 WHERE id=$1`, [log.id, new Date(Math.min(t, Date.now()))]); }
