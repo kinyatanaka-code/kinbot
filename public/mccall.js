@@ -2071,10 +2071,11 @@
         <div class="mcc-card" id="mccTalkMap"></div>
         <div class="mcc-card" id="mccStock"></div>
         <div class="mcc-card" id="mccDups" hidden></div>
+        <div class="mcc-card" id="mccJunk" hidden></div>
         <div class="mcc-card"><h2>今日の数字（全員）</h2>${all.length ? `<table class="mcc-tbl"><thead><tr><th>名前</th><th class="num">コール</th><th class="num">担当者と話せた</th><th class="num">アポ</th><th class="num">部署をまたいだ架電</th></tr></thead><tbody>${all.map((r) => `<tr><td>${esc(r.name)}</td><td class="num">${r.calls}</td><td class="num">${r.person}</td><td class="num">${r.apo}</td><td class="num">${r.cross}</td></tr>`).join("")}</tbody></table>` : '<p class="mcc-note">今日はまだ記録がありません。</p>'}</div>`;
       drawReady();
       $("mccNew").addEventListener("click", () => listDialog());
-      drawDups();
+      drawDups(); drawJunk();
       $("mccTpl").addEventListener("click", tplDialog); $("mccFTpl").addEventListener("click", formTplDialog);
       box.querySelectorAll("[data-scr]").forEach((b) => b.addEventListener("click", () => talkDialog(S.lists.find((l) => l.id === +b.dataset.scr))));
       box.querySelectorAll("[data-prod]").forEach((b) => b.addEventListener("click", async () => {
@@ -2131,6 +2132,28 @@
       <div class="mcc-tblwrap"><table class="mcc-tbl"><thead><tr><th>止めたリード</th><th>リスト</th><th>先に入っていたリード</th><th>そのリスト・状態</th><th></th></tr></thead><tbody>
       ${j.items.map((r) => `<tr><td><b>${esc(r.company || "")}</b><small> ${esc(r.phone || "")}</small></td><td>${esc(r.list || "")}</td><td>${esc(r.ocompany || "")}<small> ${esc(r.ophone || "")}</small></td><td>${esc(r.olist || "")}${r.odone ? "（終わり）" : ""}${r.oout ? `<small> ${esc(r.oout)}</small>` : ""}</td><td><button class="mcc-btn" data-notdup="${r.id}">別の会社として残す</button></td></tr>`).join("")}</tbody></table></div>`;
     box.querySelectorAll("[data-notdup]").forEach((b) => b.addEventListener("click", () => dialog("別の会社として残しますか", "このリードを、先に入っていたリードとは別の会社としてかけられるようにします。同じ会社に2人がかけることにならないか確かめてから押してください。", "残す", async () => { await post(`/api/mccall/leads/${b.dataset.notdup}/not-dup`); toast("別の会社として残しました"); drawLists(); })));
+  }
+  // 会社名ではないリード（2026-11-26 福井さん「テスト山田・ロープレ練習のようなものをリードから消して」）。
+  //   見つかったときだけ出す。本物の会社が混ざっていないか一覧で確かめ、残したいものはチェックを外してから消す
+  async function drawJunk() {
+    const box = $("mccJunk"); if (!box) return;
+    let j; try { j = await api("/api/mccall/junk-leads"); } catch (e) { box.hidden = false; box.innerHTML = `<h2>会社名ではないリード</h2><p class="mcc-note">読めませんでした：${esc(e.message)}</p>`; return; }
+    if (!j.items.length) { box.hidden = true; return; }
+    box.hidden = false;
+    box.innerHTML = `<h2>会社名ではないリード（${j.items.length}件）</h2>
+      <p class="mcc-note">「テスト」「ロープレ」「練習」などが入っていて、株式会社などの付かない名前です。ロープレや確かめのために作ったものなら、チェックしたまま「選んだリードを消す」を押してください。本物の会社なら、チェックを外してから押します。消すのは MOCHICALL のリードだけで、架電の記録・Salesforce・BALES のデータは残ります。</p>
+      <div class="mcc-tblwrap"><table class="mcc-tbl"><thead><tr><th></th><th>名前</th><th>リスト</th><th>担当</th><th class="num">架電</th></tr></thead><tbody>
+      ${j.items.map((r) => `<tr><td><input type="checkbox" data-junk="${r.id}" checked aria-label="「${esc(r.company || "")}」を消す" /></td><td><b>${esc(r.company || "")}</b><small> ${esc(r.person || "")} ${esc(r.phone || "")}</small></td><td>${esc(r.list || "")}</td><td>${esc(r.assigned_to || "")}</td><td class="num">${r.attempts || 0}</td></tr>`).join("")}</tbody></table></div>
+      <div style="margin-top:8px"><button class="mcc-btn" id="mccJunkDel">選んだリードを消す</button></div>`;
+    $("mccJunkDel").addEventListener("click", () => {
+      const ids = [...box.querySelectorAll("[data-junk]:checked")].map((x) => +x.dataset.junk);
+      if (!ids.length) { toast("消すリードを選んでください"); return; }
+      dialog(`${ids.length}件のリードを消しますか`, "消したリードは元に戻せません（架電の記録は残ります）。同じ名前のものを取り込み直しても、もう入りません。", "消す", async () => {
+        const r = await post("/api/mccall/junk-leads/delete", { ids });
+        toast(`${r.deleted}件のリードを消しました${r.skipped && r.skipped.length ? `（いまかけている ${r.skipped.length}件は残しました）` : ""}`);
+        drawJunk(); drawLists();
+      });
+    });
   }
   // リスト×トークの対応表（2026-11-25 福井さん）。どのリストのどの欄（A/B/C）に、どのトークが入っているかを並べて見せ、
   //   欄ごとに「ほかのリストのトークを使う」「外す」を選べる。写すと新しい版になるので、前の版の数字は施策に残る。

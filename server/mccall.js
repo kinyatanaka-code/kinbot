@@ -35,6 +35,7 @@ import { CADENCE, BENCH, WHY_HUMAN, jstDayStart, jstAt, nextMissAt, hourRates, s
 import { PACE, gapStats, hourStats, overStreak, mmss } from "./mcpace.js";   // 1時間17コール・間隔2分以内（2026-11-26 福井さん）
 import { planFromBales, MAX_AGE_H } from "./mcbalessync.js";   // BALES でかけた結果で「かける」の順番を変える（2026-11-25）
 import { FILL_APIS, FILL_SOQL_FIELDS, readMemo, readInputs, planFills, pickedFields, hiresBucket } from "./mcsffill.js";
+import { isJunkCompany } from "./mcjunk.js";   // 「テスト山田」「ロープレ練習」など会社名ではないリードを見分ける（2026-11-26 福井さん）
 import { formRun } from "./mcform.js";   // 問い合わせフォームの自動送信（2026-11-20）
 import { MCDASH_ROSTER } from "./mcdash.js";   // インサイド8名の名簿（「かける」の状態を管理者に見せるため）
 import { rosterHit, startsWithSurname, rosterForms, foldPersonName, pickBalesOwner } from "./mcname.js";   // 名前の照合（異体字・姓名の順などをそろえる）
@@ -325,6 +326,8 @@ export async function addLeadUnique(cols, ctx = {}) {
   // どの取り込みから呼ばれても、最後にここで必ずアプローチ禁止をはじく（呼ぶ側の確かめ忘れがあっても入らないように）。
   //   電話は代表・追加・担当者の番号すべてと、元のデータの電話らしい項目も見る
   const dataPhones = Object.entries(ctx.data || {}).filter(([k, v]) => /電話|tel|phone|携帯|mobile/i.test(k) && (typeof v === "string" || typeof v === "number")).map(([, v]) => String(v));
+  //   ロープレ・動作確認用の会社名ではないリードも入れない（消しても取り込み直しで戻ってこないように。呼ぶ側では「入れなかった」として数える）
+  if (isJunkCompany(cols.company)) return { added: false, banned: true, junk: true };
   if (await approachBanHitLead({ company: cols.company, phone: cols.phone, info: cols.info, sf_lead_id: cols.sf_lead_id }, dataPhones)) return { added: false, banned: true };
   let keys = leadKeys({ company: cols.company, phone: cols.phone, info: cols.info, data: ctx.data });
   const c = await P().connect();
@@ -3012,6 +3015,37 @@ export function registerMcCall(app, deps) {
       FROM mc_call_leads c JOIN mc_call_lists l ON l.id=c.list_id LEFT JOIN mc_call_leads o ON o.id=c.dup_of LEFT JOIN mc_call_lists ol ON ol.id=o.list_id
       WHERE c.dup_of IS NOT NULL ORDER BY c.id DESC LIMIT 500`)).rows;
     res.json({ ok: true, items: rows.map((r) => ({ ...r, outcome: outcomeLabel(r.last_outcome), oout: outcomeLabel(r.oout) })) });
+  }));
+  // 会社名ではないリード（2026-11-26 福井さん「テスト山田・ロープレ練習のような企業名ではないものをリードから消して」）。
+  //   GET＝一覧を見るだけ。POST＝管理者が一覧で確かめて選んだ id だけ消す（判定に当たらない id は消さない）。
+  //   消すのは MOCHICALL のリードの行と重複を見る鍵だけ。架電の記録・SF・BALES のデータは残す（あとから調べられるように）。
+  //   いまだれかがかけている（10分以内に開いた）リードは消さない
+  const junkRows = async () => (await P().query(`SELECT c.id, c.company, c.phone, c.person, c.attempts, c.last_at, c.done, c.assigned_to, c.locked_by, c.locked_at, c.src, l.name AS list
+      FROM mc_call_leads c LEFT JOIN mc_call_lists l ON l.id=c.list_id
+      WHERE c.company ~* '(テスト|ﾃｽﾄ|てすと|ロープレ|ﾛｰﾌﾟﾚ|ろーぷれ|ロールプレイ|練習|ダミー|ﾀﾞﾐｰ|サンプル|ｻﾝﾌﾟﾙ|試験用|検証用|test|dummy|sample|ｔｅｓｔ)'
+      ORDER BY c.id`)).rows.filter((r) => isJunkCompany(r.company));
+  app.get("/api/mccall/junk-leads", adminOnly(async (req, res) => {
+    const rows = await junkRows();
+    res.json({ ok: true, items: rows.map((r) => ({ id: r.id, company: r.company, phone: r.phone, person: r.person, list: r.list, src: r.src, attempts: r.attempts, last_at: r.last_at, done: r.done, assigned_to: r.assigned_to })) });
+  }));
+  app.post("/api/mccall/junk-leads/delete", adminOnly(async (req, res) => {
+    const want = new Set((Array.isArray((req.body || {}).ids) ? req.body.ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0));
+    if (!want.size) return res.status(400).json({ error: "消すリードが選ばれていません。一覧で選んでから押してください" });
+    const busy = (r) => r.locked_by && r.locked_by !== me(req) && r.locked_at && Date.now() - new Date(r.locked_at).getTime() < 10 * 60e3;
+    const rows = (await junkRows()).filter((r) => want.has(r.id));
+    const skip = rows.filter(busy), ids = rows.filter((r) => !busy(r)).map((r) => r.id);
+    if (ids.length) {
+      const c = await P().connect();
+      try {
+        await c.query("BEGIN");
+        await c.query(`UPDATE mc_call_leads SET dup_of=NULL WHERE dup_of = ANY($1::int[])`, [ids]);
+        await c.query(`DELETE FROM mc_lead_keys WHERE lead_id = ANY($1::int[])`, [ids]);
+        await c.query(`DELETE FROM mc_call_leads WHERE id = ANY($1::int[])`, [ids]);
+        await c.query("COMMIT");
+      } catch (e) { await c.query("ROLLBACK").catch(() => {}); throw e; } finally { c.release(); }
+    }
+    console.log(`[mccall] 会社名ではないリードを ${ids.length}件消しました（${rows.filter((r) => ids.includes(r.id)).map((r) => `${r.id}:${r.company}`).join("、").slice(0, 400)}） by ${me(req)}`);
+    res.json({ ok: true, deleted: ids.length, skipped: skip.map((r) => ({ id: r.id, company: r.company, by: r.locked_by })), notFound: want.size - rows.length });
   }));
   // 「別の会社として残す」：同じ代表番号のグループ会社などで、本当に別の会社だったとき。
   //   空いている鍵だけをこのリードに付ける（先のリードの鍵は取らない）。かける順番に戻る
