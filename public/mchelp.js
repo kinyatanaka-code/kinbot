@@ -158,7 +158,8 @@
       if (Date.now() - lastSent < 30000) { msg("さっき送りました。30秒ほどあけてから、もう一度押してください。", true); return; }
       const send = $("mchSend"); send.disabled = true; msg("送っています…");
       try {
-        const r = await of("/api/dev-notes", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify(report(cut($("mchText").value, 300))) });
+        // 送り先は /api/mccall/help（MOCHICALL だけのインターン生も通れる道。/api/dev-notes は 403 になっていた・2026-11-26 福井さん）
+        const r = await of("/api/mccall/help", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify(report(cut($("mchText").value, 300))) });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(d.error || `サーバーが ${r.status} を返しました`);
         lastSent = Date.now();
