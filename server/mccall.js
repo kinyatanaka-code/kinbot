@@ -19,7 +19,8 @@ import { notifyPerson } from "./chat.js";
 import { teamOf, teamLabel, splitFree, slotScore, pickFs } from "./mcteam.js";   // IS と FS のチーム（2026-11-23）
 import { fixMojibake } from "./docs.js";
 import { pastApproach, balesItems, dedupeTimeline, startZoomSync, spokenText, spokenData } from "./mchist.js";   // リードの過去アプローチを BALES・SF・Zoom Phone・DOC から集める（2026-11-20）
-import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord, sfUpdateMany, connectionInfo as sfConnInfo, describeObject, sfCreateRecord, sfUserIdByEmail } from "./salesforce.js";
+import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord, sfUpdateMany, connectionInfo as sfConnInfo, describeObject, sfCreateRecord, sfUserIdByEmail,
+  convertLead, convertedLeadStatuses, findLeadField, ensureLeadApoDate, ensureLeadVisitDate, ensureLeadMeetingDate, ensureLeadFsNote } from "./salesforce.js";   // アポのあとの商談の立ち上げ（2026-11-26）
 import { judgeHot } from "./mchot.js";
 import { needDigest, looksTemplate } from "./mcneed.js";   // ひと目での採用ニーズを、失注理由と採用の数字だけにする（2026-11-26 福井さん）
 import { lookupMynaviFree } from "./mcresearch.js";   // マイナビの調べも AI・有料の検索を使わない（2026-11-20 福井さん）
@@ -158,6 +159,8 @@ async function ensure() {
     await q(`CREATE INDEX IF NOT EXISTS ix_mc_stage_norm_run ON mc_stage_norm(run_id)`);
     // アポのあとの流れ（担当 FS・カレンダーの予定・FS への知らせ）の結果（2026-11-23）。取り消したときに予定を消すのにも使う
     await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS apo_flow JSONB`);
+    // アポのあとの SF の商談の立ち上げ（コンバート）の結果（2026-11-26）。立ち上げ済みかどうか・できなかった理由を画面に出すため
+    await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS sf_launch JSONB`);
     // マイナビ（新卒）の掲載の有無と中身。会社ごとに1回だけ調べて持っておく（同じ会社を何度も検索しないため）
     await q(`CREATE TABLE IF NOT EXISTS mc_mynavi (ckey TEXT PRIMARY KEY, company TEXT, data JSONB, at TIMESTAMPTZ DEFAULT now())`);
     // 資料送付の記録。架電の記録（mc_call_logs）に入れるとコール数に数えてしまうので別にする（2026-11-17）
@@ -1117,14 +1120,16 @@ export function registerMcCall(app, deps) {
     FROM mc_call_logs g WHERE ${w}`;
   // レポートの「時間ごと」。リストの絞り込みはかけない（リストをまたいで続けてかけた間隔も、その人の間隔なので）。
   //   管理者は人ごと（2日以上なら1日あたりの平均）、ほかの人は自分の日ごと。間隔の数を全部返すので、長すぎる期間は出さない
-  async function paceReport(req, from, to, names) {
+  async function paceReport(req, from, to, names, who = "") {
     if (to - from > 31 * 86400e3) return { tooLong: true, target: PACE };
     const p = [from, to]; let w = "NOT g.undone AND g.created_at >= $1 AND g.created_at < $2";
     if (!isAdmin(req)) { p.push(me(req)); w += ` AND g.caller=$${p.length}`; }
+    else if (who) { p.push(who); w += ` AND lower(g.caller)=$${p.length}`; }
     const cells = (await P().query(`SELECT g.caller, to_char(g.created_at AT TIME ZONE 'Asia/Tokyo','YYYY-MM-DD') AS day, EXTRACT(HOUR FROM g.created_at AT TIME ZONE 'Asia/Tokyo')::int AS h, count(*)::int AS n
       FROM mc_call_logs g WHERE ${w} GROUP BY 1,2,3`, p)).rows;
     const gaps = (await P().query(`SELECT caller, day, array_agg(round(gap)::int) FILTER (WHERE gap IS NOT NULL) AS gaps FROM (${gapSql(w)}) x GROUP BY 1,2`, p)).rows;
-    const byPerson = isAdmin(req);
+    // 管理者が1人を選んで見ているときは、その人の日ごとにする（1行だけの人ごとでは進み具合が分からないため）
+    const byPerson = isAdmin(req) && !who;
     const keyOf = (r) => (byPerson ? String(r.caller || "").toLowerCase() : r.day);
     const groups = new Map();
     const grp = (k) => { if (!groups.has(k)) groups.set(k, { cells: [], gaps: [] }); return groups.get(k); };
@@ -1175,6 +1180,10 @@ export function registerMcCall(app, deps) {
     const key = { user: "g.caller", list: "g.list_id::text", day: "to_char(g.created_at AT TIME ZONE 'Asia/Tokyo','YYYY-MM-DD')" }[by];
     const p = [from, to]; let w = "NOT g.undone AND g.created_at >= $1 AND g.created_at < $2";
     if (!isAdmin(req)) { p.push(me(req)); w += ` AND g.caller=$${p.length}`; }
+    // 管理者は「全員」と「1人」を切り替えて見られる（2026-11-26 福井さん「レポート（全員）で全員の数字と個人の数字を変更できるように」）。
+    //   ほかの人の分を見られるのは管理者だけなので、管理者でないときは user を読まない
+    const who = isAdmin(req) ? String(req.query.user || "").toLowerCase().trim().slice(0, 200) : "";
+    if (who) { p.push(who); w += ` AND lower(g.caller)=$${p.length}`; }
     const listId = parseInt(req.query.list, 10); if (listId) { p.push(listId); w += ` AND g.list_id=$${p.length}`; }
     const cols = `count(*) AS calls, count(*) FILTER (WHERE g.reach <> 'none') AS reached, count(*) FILTER (WHERE g.reach='person') AS person,
       count(*) FILTER (WHERE g.outcome='apo') AS apo, count(*) FILTER (WHERE g.outcome='doc_send') AS doc, count(*) FILTER (WHERE g.outcome='follow') AS follow,
@@ -1213,8 +1222,12 @@ export function registerMcCall(app, deps) {
     const names = await nameMap();
     const lists = by === "list" ? new Map((await P().query(`SELECT id::text AS id, name FROM mc_call_lists`)).rows.map((r) => [r.id, r.name])) : null;
     const label = (k) => by === "user" ? names.get(String(k || "").toLowerCase()) || k : by === "list" ? lists.get(k) || `リスト ${k}` : k;
-    const pace = await paceReport(req, from, to, names);
-    res.json({ ok: true, by, from, to, all: isAdmin(req), days: Math.round(span / 86400e3), pace, prev: { ...num(prev), skipped: skipPrev }, total: { ...num(tot), ...ftot, invalid: [...inv.values()].reduce((a, b) => a + b, 0), skipped: skipTot }, reasons, gateReasons, fields,
+    const pace = await paceReport(req, from, to, names, who);
+    // 人を選ぶ欄に出す人：この期間か直近60日にかけた人（期間に記録が無い人も選べるように少し広めに取る）
+    const people = isAdmin(req) ? (await P().query(`SELECT DISTINCT lower(caller) AS k FROM mc_call_logs WHERE NOT undone AND caller IS NOT NULL AND caller <> ''
+      AND created_at >= LEAST($1::timestamptz, now() - interval '60 days') AND created_at < GREATEST($2::timestamptz, now())`, [from, to])).rows
+      .map((r) => ({ key: r.k, name: names.get(r.k) || r.k })).sort((a, b) => a.name.localeCompare(b.name, "ja")) : [];
+    res.json({ ok: true, by, from, to, all: isAdmin(req), who, whoName: who ? names.get(who) || who : "", people, days: Math.round(span / 86400e3), pace, prev: { ...num(prev), skipped: skipPrev }, total: { ...num(tot), ...ftot, invalid: [...inv.values()].reduce((a, b) => a + b, 0), skipped: skipTot }, reasons, gateReasons, fields,
       rows: rows.map((r) => ({ key: r.k, label: label(r.k), ...num(r), ...fx(r.k) })).sort((a, b) => by === "day" ? 0 : b.calls - a.calls) });
   }));
 
@@ -3160,6 +3173,8 @@ export function registerMcCall(app, deps) {
     // アポなら、担当 FS・予定・知らせまで済ませてから返す（kincall と同じく、画面にその結果を出す）。失敗しても記録は残す
     let apo = null;
     if (outcome === "apo") { try { apo = await afterApo(req, log.id); } catch (e) { console.error("[mccall] アポのあとの流れ", log.id, e.message); apo = { warn: [`担当 FS・予定・知らせの途中で止まりました（${String(e.message).slice(0, 120)}）。管理者に伝えてください`] }; } }
+    // SF の商談の立ち上げは、取り消せる時間をおいて30分後に（launchLater のコメント参照）
+    if (outcome === "apo") launchLater(log.id);
     res.json({ ok: true, logId: log.id, nextAt, why, done, parked: !!parkedAt, apo });
     // SF の活動（リードに付ける）。代理アカウントでも書ける。失敗しても架電の記録は残り、画面の知らせから書き直せる
     sfWrite(req, log.id).catch(() => {});
@@ -3199,6 +3214,8 @@ export function registerMcCall(app, deps) {
     }
     // アポの取り消し：ここで作った予定を消し、FS に知らせる
     if (g.outcome === "apo" && g.apo_flow) { const u2 = await undoApo(g).catch((e) => `予定の片付けが途中で止まりました（${String(e.message).slice(0, 80)}）`); if (u2) sf += `${sf ? "。" : ""}${u2}`; }
+    // SF はコンバートを取り消せない。立ち上げ済みなら、SF で片付けてもらうよう伝える（立ち上げ前なら、30分後の立ち上げは取り消しを見て止まる）
+    if (g.outcome === "apo" && g.sf_launch && g.sf_launch.ok && !g.sf_launch.already) sf += `${sf ? "。" : ""}SF の商談はもう立ち上げてあるので戻せません。SF で商談を失注にするか、消してください`;
     res.json({ ok: true, leadId: g.lead_id, sf });
   }));
 
@@ -3704,7 +3721,8 @@ export function registerMcCall(app, deps) {
   //     4) FS に Google Chat で1対1の知らせ（kincall の notifyPerson と同じ仕組み）
   //     SF の活動（Task）は記録のあとの sfWrite で、担当 FS と録音の場所も入れて書く。
   //   入れないもの：DOC の割り振り（closer_rotation・smart_links・アポの自動スキャン）。MOCHICA の人を DOC のアポ振り分けに入れない決まり（2026-11-14）。
-  //     先方への確定メールと SF の商談の立ち上げ（コンバート）は、MOCHICA の文面・商談の形が決まっていないのでまだしない（判断待ち・kinbot-memory 参照）。
+  //     先方への確定メールは、MOCHICA の文面が決まっていないのでまだしない（判断待ち・kinbot-memory 参照）。
+  //     SF の商談の立ち上げ（コンバート）は、記録から30分後に sfLaunch でする（2026-11-26 福井さん）。
   //   先方（お客様）には何も送らない。どこかで失敗しても記録は止めない。結果は mc_call_logs.apo_flow に残して画面に出す（黙って失敗しない）
   const pickCol = (o, re) => { for (const [k, v] of Object.entries((o && typeof o === "object") ? o : {})) if (re.test(k) && v != null && typeof v !== "object" && String(v).trim()) return clip(v, 200); return ""; };
   const pubBase = () => String(process.env.PUBLIC_URL || "").replace(/\/+$/, "");
@@ -3814,6 +3832,209 @@ export function registerMcCall(app, deps) {
     }
     return out.join("。");
   }
+  // ===== アポのあと SF の商談を自動で立ち上げる（2026-11-26 福井さん「アポとったら自動で商談立ち上げるようにして」）=====
+  //   記録から30分たってから立ち上げる。SF はコンバートを取り消せないので、記録の間違いに気づいて取り消せる時間をおく
+  //   （本人が取り消せるのは15分以内なので、それより長く）。取り消したアポ・SF ですでにコンバート済みのリードは立ち上げない。
+  //   決まり（福井さん）：商談の所有者は担当の FS。主キャンペーンソースは、インターン生（名簿 MCDASH_ROSTER.is の8名）が取ったら
+  //   「インターンアルバイト」にして、リードの「インターン」の項目でそのインターン生を選ぶ。社員（福井さん・本炭さんなど）が取ったら「BDRアウトバウンド」。
+  //   コンバートの前に、kincall と同じく空なら入れる：アポ獲得日（記録した日）・初回訪問予定日などの商談日（アポの日）・FS への案件パス情報（ヒアリング）。
+  //   コンバートのあと、商談の「初回商談対応者」が空なら担当 FS を入れる（空だと SS02 に上げるときに SF の入力規則で止まるため）。
+  //   タイマーは記録のたびに1つ（30分後に1回だけ）。再起動で消えた分は、起動の2分後に1回だけ拾い直す（ずっと回る処理は増やさない）。
+  //   AI・有料 API は使わない（SF の呼び出しだけ）。結果は mc_call_logs.sf_launch に残し、アポイントの画面に出す（黙って失敗しない）
+  const LAUNCH_WAIT = 30 * 60e3;
+  // この時刻より前に記録したアポは、自動では立ち上げない（昔のアポがまとめて立ち上がらないように）。画面の「立ち上げる」で1件ずつはできる
+  const LAUNCH_FROM = "2026-11-26T00:00:00+09:00";
+  const SRC_INTERN = "インターンアルバイト", SRC_STAFF = "BDRアウトバウンド";
+  const launching = new Set();
+  const jstDate = (d) => new Date(new Date(d).getTime() + 9 * 3600e3).toISOString().slice(0, 10);
+  const idOnly = (v) => String(v || "").replace(/[^a-zA-Z0-9]/g, "");
+  const fold = (v) => String(v || "").normalize("NFKC").replace(/[\s　]/g, "").toLowerCase();
+  // アポを取った人がインターン生か。名簿の8名なら、その人の SF の氏名も返す（リードの「インターン」の項目で選ぶため）
+  async function internOf(email, name) {
+    const reg = await loadPeople().catch(() => new Map());
+    for (const p of MCDASH_ROSTER.is) if (rosterEmailOf(reg, "is", p.sf) === email || (name && rosterHit(name, [p]))) return { p, name: p.sf };
+    if (await isMcIntern(email).catch(() => false)) return { p: null, name };
+    return null;
+  }
+  // 主キャンペーンソースを、決まりの値にする（キャンペーンの参照でも選択リストでも。すでに同じ値なら書かない）。
+  //   kincall の ensureLeadCampaignSource は「空のときだけ」入れるが、MOCHICALL はだれが取ったかで決まる値なので、入っていても書き換える（前の値は控える）
+  async function setCampaign(owner, leadId, value, dryRun) {
+    const f = await findLeadField(owner, { key: "campaignSource", apis: ["Primary_Campaign_Source__c", "CampaignSource__c"], re: /主?キャンペーン(ソース|元)/ });
+    if (!f) return { ok: false, reason: "リードに「主キャンペーンソース」の項目が見つかりません" };
+    let put = value;
+    if (f.type === "reference") {
+      const obj = idOnly((f.referenceTo || [])[0] || "Campaign") || "Campaign";
+      let hit = ((await sfQuery(owner, `SELECT Id, Name FROM ${obj} WHERE Name = '${soqlStr(value)}' LIMIT 1`)).records || [])[0];
+      if (!hit) {
+        // 名前に前後の文字が付いているとき（例：「【MOCHICA】インターンアルバイト」）。MOCHICA の名前が付いたものを先に
+        const like = String(value).replace(/['\\%_]/g, "");
+        const recs = (await sfQuery(owner, `SELECT Id, Name FROM ${obj} WHERE Name LIKE '%${like}%' ORDER BY CreatedDate DESC LIMIT 10`)).records || [];
+        hit = recs.find((r) => /mochica/i.test(r.Name)) || recs[0];
+      }
+      if (!hit) return { ok: false, field: f.name, reason: `「${value}」というキャンペーンが SF にありません` };
+      put = hit.Id;
+    } else if (f.type === "picklist") {
+      const opts = (f.picklistValues || []).filter((o) => o.active);
+      const hit = opts.find((o) => o.value === value || o.label === value) || opts.find((o) => fold(o.label).includes(fold(value)) || fold(o.value).includes(fold(value)));
+      if (!hit) return { ok: false, field: f.name, reason: `「${value}」は主キャンペーンソースの選択肢にありません（候補：${opts.slice(0, 8).map((o) => o.label).join("、")}）` };
+      put = hit.value;
+    }
+    const cur = ((((await sfQuery(owner, `SELECT ${f.name} FROM Lead WHERE Id='${idOnly(leadId)}'`)).records || [])[0]) || {})[f.name];
+    if (String(cur || "") === String(put)) return { ok: true, same: true, field: f.name };
+    if (!dryRun) await sfUpdateRecord(owner, "Lead", leadId, { [f.name]: put });
+    return { ok: true, field: f.name, old: cur || "", value };
+  }
+  // リードの「インターン」の項目でインターン生を選ぶ。項目の名前（API 名）が分からないので、ラベルに「インターン」が入る項目を探す
+  //   （選択リスト・参照・文字のどれでも）。名前は名簿の書き方（姓名の順・異体字）をそろえて照らし合わせる
+  async function setIntern(owner, leadId, who, dryRun) {
+    const d = await describeObject(owner, "Lead");
+    const rank = (f) => (/インターン生/.test(f.label) ? 0 : 1) + (f.type === "string" ? 2 : 0);
+    const f = (d.fields || []).filter((x) => x.updateable && /インターン/.test(String(x.label || "")) && !/キャンペーン/.test(String(x.label || "")) && ["picklist", "reference", "string"].includes(x.type)).sort((a, b) => rank(a) - rank(b))[0];
+    if (!f) return { ok: false, reason: "リードに「インターン」の項目が見つからないので、インターン生は SF で選んでください" };
+    const forms = who.p ? rosterForms(who.p) : new Set([foldPersonName(who.name)].filter(Boolean));
+    const sur = who.p ? who.p.name : "";
+    const pick = (list, nameOf) => list.find((x) => forms.has(foldPersonName(nameOf(x)))) || (sur ? (() => { const h = list.filter((x) => startsWithSurname(nameOf(x), sur)); return h.length === 1 ? h[0] : null; })() : null);
+    let put = "";
+    if (f.type === "picklist") {
+      const hit = pick((f.picklistValues || []).filter((o) => o.active), (o) => o.label || o.value);
+      if (!hit) return { ok: false, field: f.name, reason: `「${f.label}」の選択肢に ${who.name}さんが見つからないので、SF で選んでください` };
+      put = hit.value;
+    } else if (f.type === "reference") {
+      const obj = idOnly((f.referenceTo || [])[0] || "");
+      const key = String(sur || who.name || "").replace(/['\\%_]/g, "").slice(0, 20);
+      const recs = obj && key ? (await sfQuery(owner, `SELECT Id, Name FROM ${obj} WHERE Name LIKE '%${key}%' LIMIT 20`)).records || [] : [];
+      const hit = pick(recs, (r) => r.Name);
+      if (!hit) return { ok: false, field: f.name, reason: `「${f.label}」で ${who.name}さんが見つからないので、SF で選んでください` };
+      put = hit.Id;
+    } else put = String(who.name || "").slice(0, Math.max(1, f.length || 80));
+    if (!dryRun) await sfUpdateRecord(owner, "Lead", leadId, { [f.name]: put });
+    return { ok: true, field: f.name };
+  }
+  // 商談の「初回商談対応者」が空なら、担当 FS を入れる（ユーザーの参照・選択リスト・文字のどれでも）
+  async function setFirstFs(owner, oppId, fsName, fsUserId) {
+    const d = await describeObject(owner, "Opportunity");
+    const f = (d.fields || []).find((x) => x.updateable && /^初回商談対応者/.test(String(x.label || "").normalize("NFKC")));
+    if (!f) return { ok: false, skipped: true };
+    const cur = ((((await sfQuery(owner, `SELECT ${f.name} FROM Opportunity WHERE Id='${idOnly(oppId)}'`)).records || [])[0]) || {})[f.name];
+    if (cur != null && String(cur).trim() !== "") return { ok: true, already: true };
+    let put = "";
+    if (f.type === "reference") put = (f.referenceTo || []).includes("User") ? fsUserId : "";
+    else if (f.type === "picklist") {
+      const a = foldPersonName(fsName);
+      const hit = (f.picklistValues || []).filter((o) => o.active).find((o) => { const b = foldPersonName(o.label || o.value); return a && b && (a === b || a.startsWith(b) || b.startsWith(a)); });
+      put = hit ? hit.value : "";
+    } else if (f.type === "string") put = String(fsName || "").slice(0, Math.max(1, f.length || 80));
+    if (!put) return { ok: false, reason: `商談の「初回商談対応者」に ${fsName}さんを入れられませんでした。SF で選んでください` };
+    await sfUpdateRecord(owner, "Opportunity", oppId, { [f.name]: put });
+    return { ok: true, filled: true };
+  }
+  // SF のエラーの文を短く（「FIELD_CUSTOM_VALIDATION_EXCEPTION: 〜」の〜の部分が、SF の入力規則で決めた日本語の理由）
+  const sfWhy = (e) => { const m = String((e && e.message) || e || ""); const j = m.match(/(?:FIELD_CUSTOM_VALIDATION_EXCEPTION|REQUIRED_FIELD_MISSING|INVALID_[A-Z_]+)[:：]\s*([^\/\]"]+)/); return (j ? j[1] : m.replace(/^SF lead convert:\s*/, "")).trim().slice(0, 200); };
+  async function sfLaunch(logId, opt = {}) {
+    if (launching.has(logId)) return { ok: false, reason: "いま立ち上げているところです。少し待ってから開き直してください" };
+    launching.add(logId);
+    try { return await sfLaunchRun(logId, opt); } finally { launching.delete(logId); }
+  }
+  async function sfLaunchRun(logId, { dryRun = false, by = "" } = {}) {
+    const g = (await P().query(`SELECT g.id, g.caller, g.outcome, g.undone, g.apo_at, g.apo_flow, g.sf_launch, g.hearing, g.gate, g.memo, g.created_at,
+        c.company, c.person, c.sf_lead_id, c.hearing AS lead_hearing, c.gate AS lead_gate
+      FROM mc_call_logs g JOIN mc_call_leads c ON c.id=g.lead_id WHERE g.id=$1`, [logId])).rows[0];
+    if (!g || g.undone || g.outcome !== "apo") return { ok: false, skip: true, reason: "このアポの記録は見つからないか、取り消されています" };
+    if (g.sf_launch && g.sf_launch.ok) return { ...g.sf_launch, done: true };
+    const f = g.apo_flow || {};
+    const auto = !by;
+    const save = async (r) => {
+      if (!dryRun) await P().query(`UPDATE mc_call_logs SET sf_launch=$2 WHERE id=$1`, [logId, { ...r, at: new Date().toISOString(), by: by || "auto", tries: ((g.sf_launch && g.sf_launch.tries) || 0) + 1 }]).catch(() => {});
+      return r;
+    };
+    const ng = async (reason, extra = {}) => {
+      const r = await save({ ok: false, reason, ...extra });
+      // 自動で立ち上げられなかったら、担当 FS に知らせる（商談の持ち主になる人。画面の「立ち上げる」か SF で手で立ち上げられる）
+      if (auto && !dryRun && f.fs && f.fs.email) notifyPerson(f.fs.email, `⚠️ *SF の商談を自動で立ち上げられませんでした（MOCHICALL）*\n　${g.company || ""}${g.apo_at ? `　${dayText(g.apo_at)}` : ""}\n理由：${reason}\nkinbot のアポイントの画面の「立ち上げる」で、もう一度試せます。SF で手で立ち上げても大丈夫です。`).catch(() => {});
+      console.warn(`[mccall] SF の立ち上げ（記録 ${logId} ${g.company || ""}）できず：${reason}`);
+      return r;
+    };
+    if (!g.sf_lead_id) return ng("SF のリードと結びついていません。リードの画面で SF のリードを結びつけてから「立ち上げる」を押してください");
+    if (!f.fs || !f.fs.email) return ng("担当の FS が決まっていません。FS が決まってから「立ち上げる」を押してください");
+    try {
+      const setter = String(g.caller || "").toLowerCase();
+      const owner = await sfActor({ user: setter });   // アポを取った人が SF を連携していれば本人、無ければ代理のアカウント（インターン生は SF が無い）
+      const lead = ((await sfQuery(owner, `SELECT Id, Company, LastName, IsConverted, ConvertedOpportunityId, ConvertedAccountId FROM Lead WHERE Id='${idOnly(g.sf_lead_id)}'`)).records || [])[0];
+      if (!lead) return ng("SF のリードが見つかりません（消されたか、結びつけ先が違います）");
+      // だれかが SF で先に立ち上げていたら、二重に作らない
+      if (lead.IsConverted) return dryRun ? { ok: false, reason: "SF ですでにコンバート済みです" } : save({ ok: true, already: true, oppId: lead.ConvertedOpportunityId || "", accountId: lead.ConvertedAccountId || "", note: "SF ですでに立ち上げ済みでした" });
+      const fsUserId = await sfUserIdByEmail(owner, f.fs.email).catch(() => "");
+      if (!fsUserId) return ng(`担当 FS（${f.fs.name}さん）の SF のユーザーが見つかりません`);
+      const setterName = (await nameMap().catch(() => new Map())).get(setter) || setter;
+      const intern = await internOf(setter, setterName);
+      const src = intern ? SRC_INTERN : SRC_STAFF;
+      const person = clip((g.gate && g.gate.name) || (g.lead_gate && g.lead_gate.name) || g.person || lead.LastName || "", 40).replace(/\s*様$/, "");
+      const oppName = `${g.company || lead.Company || "会社名なし"}_${person || "ご担当者"}`.slice(0, 120);
+      const warn = [];
+      const c1 = await setCampaign(owner, lead.Id, src, dryRun);
+      if (!c1.ok) return ng(c1.reason, { src });
+      if (intern) { const c2 = await setIntern(owner, lead.Id, intern, dryRun); if (!c2.ok) warn.push(c2.reason); }
+      const plan = { src, intern: intern ? intern.name : "", fs: f.fs.name, oppName };
+      if (dryRun) return { ok: true, dryRun: true, ...plan, warn };
+      // コンバートで必須になっている項目を、空なら入れる（kincall の tryAutoLaunch と同じ）。入れられなくても、コンバートは試す（SF が理由を返す）
+      const fill = async (label, fn) => { try { const r = await fn(); if (r && r.ok === false && r.reason && !r.skipped) warn.push(`${label}：${r.reason}`); } catch (e) { warn.push(`${label}：${sfWhy(e)}`); } };
+      await fill("アポ獲得日", () => ensureLeadApoDate(owner, lead.Id, jstDate(g.created_at)));
+      if (g.apo_at) { await fill("初回訪問予定日", () => ensureLeadVisitDate(owner, lead.Id, jstDate(g.apo_at))); await fill("商談日", () => ensureLeadMeetingDate(owner, lead.Id, jstDate(g.apo_at))); }
+      const hear = hearingLines(g.hearing || g.lead_hearing);
+      await fill("FS への案件パス情報", () => ensureLeadFsNote(owner, lead.Id, clip([`MOCHICALL でアポ獲得（${setterName}）`, ...hear, g.memo ? `メモ：${g.memo}` : ""].filter(Boolean).join("\n"), 250)));
+      // ここから先は取り消せない
+      const sts = await convertedLeadStatuses(owner).catch(() => []);
+      const st = sts.find((s) => /コンバート/.test(s.label)) || sts[0] || {};
+      const args = { leadId: lead.Id, convertedStatus: st.value || "", opportunityName: oppName, ownerId: fsUserId };
+      let conv;
+      try { conv = await convertLead(owner, args); }
+      catch (e) {
+        if (!e.duplicate) throw e;
+        // 重複ルールで止められたら、同じ名前の MOCHICA の取引先があればそこへ付ける。無ければ重複を許して作る（DOC の取引先には付けない）
+        const acc = ((await sfQuery(owner, `SELECT Id FROM Account WHERE Name='${soqlStr(lead.Company)}' AND RecordType.Name='Mochica' ORDER BY LastModifiedDate DESC LIMIT 1`).catch(() => ({}))).records || [])[0];
+        conv = await convertLead(owner, acc ? { ...args, accountId: acc.Id } : { ...args, allowDuplicate: true });
+      }
+      // 「立ち上げた」と言う前に、SF に商談ができたかをリードから確かめる（商談の番号が返らないことがあるため）
+      const after = ((await sfQuery(owner, `SELECT ConvertedOpportunityId, ConvertedAccountId FROM Lead WHERE Id='${idOnly(lead.Id)}'`)).records || [])[0] || {};
+      const oppId = after.ConvertedOpportunityId || (conv && conv.opportunityId) || "";
+      const opp = oppId ? ((await sfQuery(owner, `SELECT Id, Name, StageName, Owner.Name FROM Opportunity WHERE Id='${idOnly(oppId)}'`)).records || [])[0] : null;
+      if (!opp) return ng("リードはコンバートされましたが、商談が見つかりません。SF で取引先を確かめてください", { converted: true, accountId: after.ConvertedAccountId || "" });
+      await fill("初回商談対応者", () => setFirstFs(owner, opp.Id, f.fs.name, fsUserId));
+      const inst = String((conv && conv.instanceUrl) || "").replace(/\/+$/, "");
+      const url = inst ? `${inst}/lightning/r/Opportunity/${opp.Id}/view` : "";
+      const r = await save({ ok: true, oppId: opp.Id, oppName: opp.Name || oppName, stage: opp.StageName || "", accountId: after.ConvertedAccountId || "", url, ...plan, warn });
+      console.log(`[mccall] SF の商談を立ち上げた：記録 ${logId} ${opp.Name} ${opp.StageName || ""} 所有者 ${f.fs.name} 主キャンペーンソース ${src}${warn.length ? ` 注意 ${warn.join("／")}` : ""}`);
+      notifyPerson(f.fs.email, [`🚀 *SF の商談を立ち上げました（MOCHICALL）*`, `　${opp.Name || oppName}`, `　${opp.StageName || ""}・所有者 ${f.fs.name}`,
+        `🙋 アポ獲得：${setterName}（主キャンペーンソース：${src}）`, warn.length ? `⚠️ SF で確かめてください：${warn.join("／")}` : "", url].filter(Boolean).join("\n")).catch(() => {});
+      return r;
+    } catch (e) { return ng(sfWhy(e) || "SF の立ち上げの途中で止まりました"); }
+  }
+  // 記録から30分後に1回だけ立ち上げる（その時に取り消されていれば sfLaunchRun が止める）
+  function launchLater(logId, ms = LAUNCH_WAIT) {
+    const t = setTimeout(() => { sfLaunch(logId).catch((e) => console.error("[mccall] SF の立ち上げ", logId, e.message)); }, Math.max(1000, ms));
+    if (t.unref) t.unref();
+  }
+  // 再起動（デプロイ）でタイマーが消えた分を、起動の2分後に1回だけ拾い直す。古いアポ（LAUNCH_FROM より前・7日より前）は拾わない
+  setTimeout(async () => {
+    try {
+      await ensure();
+      const rows = (await P().query(`SELECT id, created_at FROM mc_call_logs WHERE outcome='apo' AND NOT undone AND sf_launch IS NULL
+        AND created_at >= $1::timestamptz AND created_at >= now() - interval '7 days' ORDER BY created_at`, [LAUNCH_FROM])).rows;
+      rows.forEach((r, i) => launchLater(r.id, new Date(r.created_at).getTime() + LAUNCH_WAIT - Date.now() + i * 5000));   // 同時に SF を叩かないよう5秒ずつずらす
+      if (rows.length) console.log(`[mccall] SF の立ち上げ待ちのアポ：${rows.length}件`);
+    } catch (e) { console.error("[mccall] SF の立ち上げ待ちを読めませんでした", e.message); }
+  }, 120e3).unref?.();
+  // 画面の「立ち上げる」（自動で立ち上げられなかった・自動の対象より前のアポ）。押せるのは、アポを取った本人・担当の FS・管理者だけ。
+  //   dryRun なら、何を入れるか（主キャンペーンソース・インターン生・所有者・商談名）だけを返し、SF には書かない
+  app.post("/api/mccall/logs/:id/sf-launch", guard(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const g = (await P().query(`SELECT caller, apo_flow, outcome, undone FROM mc_call_logs WHERE id=$1`, [id])).rows[0];
+    if (!g || g.undone || g.outcome !== "apo") return res.status(404).json({ error: "このアポの記録は見つからないか、取り消されています" });
+    const u = me(req);
+    if (!(String(g.caller || "").toLowerCase() === u || (g.apo_flow && g.apo_flow.fs && g.apo_flow.fs.email === u) || isAdmin(req))) return res.status(403).json({ error: "立ち上げられるのは、アポを取った本人・担当の FS・管理者だけです" });
+    const r = await sfLaunch(id, { dryRun: !!(req.body && req.body.dryRun), by: u });
+    res.json(r);
+  }));
   // ===== アポの予定をあとから直す（2026-11-26 福井さん「アポとった後のカレンダーをあとから編集できるようにしたい」）=====
   //   afterApo で作った IS と FS の予定は別々の予定なので、カレンダーで片方だけ直すと中身がずれる。
   //   kinbot から直したときは、apo_flow に残した予定の番号を使って両方を同じ中身に書き換える（ほかの予定には触らない）。
@@ -3840,11 +4061,21 @@ export function registerMcCall(app, deps) {
     const p = [jstDayStart(new Date(Date.now() - days * 86400e3))]; let w = "NOT g.undone AND g.outcome='apo' AND g.apo_at >= $1";
     if (!isAdmin(req)) { p.push(me(req)); w += ` AND (lower(g.caller)=$${p.length} OR g.apo_flow->'fs'->>'email'=$${p.length})`; }
     const [rows, names] = await Promise.all([
-      P().query(`SELECT g.id, g.lead_id, g.caller, g.apo_at, g.apo_who, g.apo_flow, g.memo, g.created_at, c.company, c.person, c.phone, c.sf_lead_id, l.name AS list_name
+      P().query(`SELECT g.id, g.lead_id, g.caller, g.apo_at, g.apo_who, g.apo_flow, g.sf_launch, g.memo, g.created_at, c.company, c.person, c.phone, c.sf_lead_id, l.name AS list_name
         FROM mc_call_logs g JOIN mc_call_leads c ON c.id=g.lead_id LEFT JOIN mc_call_lists l ON l.id=g.list_id
         WHERE ${w} ORDER BY g.apo_at LIMIT 500`, p).then((r) => r.rows),
       nameMap().catch(() => new Map())]);
     const u = me(req);
+    // SF の商談の立ち上げの様子：済み（商談へのリンク）／待ち（自動で立ち上げる時刻）／できなかった（理由）／自動の対象外（昔のアポ）
+    const from = Date.parse(LAUNCH_FROM);
+    const sfOf = (g) => {
+      const s = g.sf_launch;
+      if (s && s.ok) return { state: "ok", url: s.url || "", name: s.oppName || "", note: s.note || "", warn: (s.warn || []).join("／") };
+      if (s) return { state: "ng", reason: s.reason || "" };
+      if (!g.sf_lead_id) return { state: "ng", reason: "SF のリードと結びついていません" };
+      const at = new Date(g.created_at).getTime();
+      return at >= from ? { state: "wait", at: new Date(at + LAUNCH_WAIT).toISOString() } : { state: "manual" };
+    };
     res.json({ ok: true, days, items: rows.map((g) => {
       const f = g.apo_flow || {}; const caller = String(g.caller || "").toLowerCase();
       return { id: g.id, leadId: g.lead_id, company: g.company || "", person: (g.person || "").slice(0, 40), phone: g.phone || "", sfLeadId: g.sf_lead_id || "",
@@ -3852,7 +4083,9 @@ export function registerMcCall(app, deps) {
         fs: (f.fs && f.fs.name) || g.apo_who || "", fsMine: !!(f.fs && f.fs.email === u), team: f.team || "",
         memo: String(g.memo || "").slice(0, 400),
         // 予定を直せるのは、kinbot が予定を作れたアポで、アポを取った本人・担当の FS・管理者だけ（apoEvLoad と同じ決まり）
-        canEdit: !!((f.isEv && f.isEv.ok) || (f.fsEv && f.fsEv.ok)) && (caller === u || !!(f.fs && f.fs.email === u) || isAdmin(req)) };
+        canEdit: !!((f.isEv && f.isEv.ok) || (f.fsEv && f.fsEv.ok)) && (caller === u || !!(f.fs && f.fs.email === u) || isAdmin(req)),
+        // 「立ち上げる」を押せるのは、アポを取った本人・担当の FS・管理者だけ（/api/mccall/logs/:id/sf-launch と同じ決まり）
+        sf: sfOf(g), canLaunch: caller === u || !!(f.fs && f.fs.email === u) || isAdmin(req) };
     }) });
   }));
   app.get("/api/mccall/logs/:id/apo-event", guard(async (req, res) => {

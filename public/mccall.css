@@ -679,3 +679,15 @@
 .mcc-tml-key i.tml-sess{background:#1d9e75;opacity:.25;}
 .mcc-tml-key .tml-pin{position:static;transform:none;}
 @media (max-width:640px){.mcc-tml-row{grid-template-columns:96px minmax(560px,1fr);}}
+/* SF の商談の立ち上げの様子（2026-11-26）：済み＝緑・待ち＝薄い緑・できなかった＝オレンジ */
+.mca-sf{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:6px;font-size:11.5px;color:var(--c-muted);}
+.mca-sf small{flex-basis:100%;font-size:11px;}
+.mca-sf small.warn,.mca-sf.ng small{color:#B4441F;}
+.mca-sf.ok a,.mca-sf.ok span{color:#0d5b47;font-weight:800;}
+.mca-sf.wait span{color:#1d9e75;}
+.mca-sf.ng span{color:#B4441F;font-weight:800;}
+.mca-sfb{display:inline-flex;align-items:center;gap:3px;font:inherit;font-size:11.5px;font-weight:800;border-radius:99px;border:1px solid #5DCAA5;background:#fff;color:#1d9e75;padding:2px 9px;cursor:pointer;}
+.mca-sfb:hover{background:#E6F6F0;}
+.mca-sfplan{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px;margin:8px 0;}
+.mca-sfplan dt{color:var(--c-muted);}
+.mca-sfplan dd{margin:0;font-weight:700;word-break:break-all;}

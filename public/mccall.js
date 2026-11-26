@@ -2255,7 +2255,12 @@
   //     かける人：自分がどの段階で止まっているかを確かめて、次のかけ方を決める → 自分の「日ごと」から始める
   //     管理者　：人・リストを比べて、だれに声をかけるか・どのリストを先にかけるかを決める → 「人ごと」から始める
   //   「いつ・何回かけるとよいか」の根拠は「数字」のタブに分けた（同じ中身を2つのタブに出さない）
-  const RP = { by: "", from: "", to: "", list: "", view: "result", j: null };
+  //   user＝管理者が1人に絞って見るときのメール（空なら全員）。people＝選ぶ欄に出す人（前に読んだ答えから取っておく）
+  const RP = { by: "", from: "", to: "", list: "", user: "", people: [], view: "result", j: null };
+  // 分け方の選択肢。1人分だけを見ているとき（かける人・管理者が1人を選んだとき）は「人ごと」を出しても1行だけなので外す
+  const repBys = () => (S.admin && !RP.user ? [["user", "人ごと"], ["list", "リストごと"], ["day", "日ごと"]] : [["day", "日ごと"], ["list", "リストごと"]]);
+  const repWhoOpts = () => `<option value="">人：全員</option>${(RP.user && !RP.people.some((m) => m.key === RP.user) ? [{ key: RP.user, name: RP.user }] : []).concat(RP.people)
+    .map((m) => `<option value="${esc(m.key)}" ${RP.user === m.key ? "selected" : ""}>${esc(m.name)}</option>`).join("")}`;
   const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const pc = (a, b) => (b ? `${(a / b * 100).toFixed(1)}%` : "—");
   // 役割の印と、この画面で何を決めるかの1行。もう片方のタブへの行き先も添える（どちらを見ればよいか迷わないように）
@@ -2264,25 +2269,34 @@
     const box = $("mccAdmin");
     if (!RP.from) { const n = new Date(); RP.to = ymd(n); RP.from = ymd(new Date(n.getTime() - 6 * 86400e3)); }
     // 自分の分しか出ない人に「人ごと」を出しても1行だけで比べるものが無いので、日ごとから始めて選択肢からも外す
-    const bys = S.admin ? [["user", "人ごと"], ["list", "リストごと"], ["day", "日ごと"]] : [["day", "日ごと"], ["list", "リストごと"]];
+    const bys = repBys();
     if (!bys.some(([v]) => v === RP.by)) RP.by = bys[0][0];
+    const whoName = RP.user ? ((RP.people.find((m) => m.key === RP.user) || {}).name || RP.user) : "";
     const pre = (l, days) => { const n = new Date(); const f = days === "month" ? new Date(n.getFullYear(), n.getMonth(), 1) : days === "lastmonth" ? new Date(n.getFullYear(), n.getMonth() - 1, 1) : new Date(n.getTime() - days * 86400e3);
       const t = days === "lastmonth" ? new Date(n.getFullYear(), n.getMonth(), 0) : n; return `<button class="mcc-chip" data-pre="${ymd(f)}|${ymd(t)}" aria-pressed="${RP.from === ymd(f) && RP.to === ymd(t)}">${l}</button>`; };
-    box.innerHTML = `<div class="mcc-card"><h2>レポート${S.admin ? "（全員）" : "（自分）"}</h2>
+    box.innerHTML = `<div class="mcc-card"><h2>レポート${S.admin ? (RP.user ? `（${esc(whoName)}）` : "（全員）") : "（自分）"}</h2>
       ${purpose(S.admin ? "メンバーとリストの結果を比べて、だれに声をかけるか・どのリストを先にかけるかを決めます。" : "自分の架電の結果をふり返って、どの段階で止まっているかを確かめます。", "insight", "いつ・何回かけるとよいかは「数字」")}
       <div class="mcc-filters">
         <input type="date" class="mcc-sel" id="mccRf" value="${RP.from}" aria-label="いつから" /><span>〜</span><input type="date" class="mcc-sel" id="mccRt" value="${RP.to}" aria-label="いつまで" />
         <div class="mcc-chips">${pre("今日", 0)}${pre("7日", 6)}${pre("30日", 29)}${pre("今月", "month")}${pre("先月", "lastmonth")}</div>
+        ${S.admin ? `<select class="mcc-sel" id="mccRu" aria-label="人">${repWhoOpts()}</select>` : ""}
         <select class="mcc-sel" id="mccRl" aria-label="リスト"><option value="">リスト：すべて</option>${S.lists.map((l) => `<option value="${l.id}" ${String(RP.list) === String(l.id) ? "selected" : ""}>${esc(l.name)}</option>`).join("")}</select>
       </div><div id="mccRfn"><p class="mcc-note">読み込んでいます…</p></div></div>
       <div id="mccRres" class="mcc-stack"></div>`;
-    const go = () => { RP.from = $("mccRf").value; RP.to = $("mccRt").value; RP.list = $("mccRl").value; drawReport(); };
-    ["mccRf", "mccRt", "mccRl"].forEach((id) => $(id).addEventListener("change", go));
+    const go = () => { RP.from = $("mccRf").value; RP.to = $("mccRt").value; RP.list = $("mccRl").value; if ($("mccRu")) RP.user = $("mccRu").value; drawReport(); };
+    ["mccRf", "mccRt", "mccRl", "mccRu"].forEach((id) => { if ($(id)) $(id).addEventListener("change", go); });
     box.querySelectorAll("[data-pre]").forEach((b) => b.addEventListener("click", () => { [RP.from, RP.to] = b.dataset.pre.split("|"); drawReport(); }));
     box.querySelector("[data-go]").addEventListener("click", () => setTab("insight"));
-    let j; try { j = await api(`/api/mccall/report?${new URLSearchParams({ from: RP.from, to: RP.to, by: RP.by, list: RP.list })}`); }
+    let j; try { j = await api(`/api/mccall/report?${new URLSearchParams({ from: RP.from, to: RP.to, by: RP.by, list: RP.list, user: RP.user })}`); }
     catch (e) { if ($("mccRfn")) $("mccRfn").innerHTML = `<p class="mcc-note">読めませんでした：${esc(e.message)}</p>`; return; }
-    RP.j = j; renderReport();
+    RP.j = j;
+    // 人を選ぶ欄は、読んだ答えの人で作り直す（最初に開いたときは「全員」しか無いため）
+    if (S.admin && Array.isArray(j.people)) {
+      RP.people = j.people;
+      if ($("mccRu")) $("mccRu").innerHTML = repWhoOpts();
+      if (RP.user && j.whoName) { const h = box.querySelector(".mcc-card h2"); if (h) h.textContent = `レポート（${j.whoName}）`; }
+    }
+    renderReport();
   }
   // 読んだ中身を描く。表の見方（結果／貢献）を切り替えるだけのときは、読み直さずにここだけ呼ぶ
   function renderReport() {
@@ -2344,7 +2358,7 @@
     const rowB = (l, r, sum) => `<tr class="${sum ? "sum top" : ""}"><td>${esc(l)}</td>${callTd(r, sum)}<td class="num fill">${r.fill || 0}<small> ${r.calls ? ((r.fill || 0) / r.calls).toFixed(2) : "—"}/コール</small></td><td class="num">${r.fillNew || 0}</td><td class="num">${r.fillFix || 0}</td><td class="num">${r.fillLeads || 0}</td><td class="num">${r.fillNoApo || 0}</td><td class="num">${r.invalid || 0}</td></tr>`;
     const fill = RP.view === "fill", row = fill ? rowB : rowA;
     const head = { user: "名前", list: "リスト", day: "日" }[j.by];
-    const bys = S.admin ? [["user", "人ごと"], ["list", "リストごと"], ["day", "日ごと"]] : [["day", "日ごと"], ["list", "リストごと"]];
+    const bys = repBys();
     const thead = fill
       ? `<th>${head}</th><th class="num">コール</th><th class="num fill" title="架電の内容から SF のリードの項目を埋めた・直した数（1項目＝1）">SF 項目</th><th class="num" title="空だった項目を埋めた">うち新規</th><th class="num" title="古い値を直した・課題感などに足した">うち更新</th><th class="num" title="項目を1つでも埋めた会社の数">埋まった会社</th><th class="num" title="アポにならなかった架電で埋めた数">アポ以外の架電で</th><th class="num" title="「番号が使えない」と記録した数">使えない番号</th>`
       : `<th>${head}</th><th class="num">コール</th><th class="num">会社数</th><th class="num" title="「飛ばす」を押した会社の数（同じ会社を何度飛ばしても1社）">飛ばした</th><th class="num" title="小さい字はコールのうちの割合">つながった</th><th class="num" title="小さい字はコールのうちの割合">担当者と話せた</th><th class="num" title="小さい字はコールのうちの割合">アポ</th><th class="num">話せたうちアポ</th><th class="num">資料</th><th class="num">フォロー</th><th class="num">断り</th>`;
@@ -3367,6 +3381,7 @@
         <div class="mca-body"><div class="mca-co" title="${esc(a.company)}">${esc(a.company || "会社名なし")}</div>
           <div class="mca-sub">${[a.person && `${a.person} 様`, a.phone].filter(Boolean).map(esc).join("　") || "担当者名なし"}</div>
           <div class="mca-meta"><span class="${a.mine ? "me" : ""}">獲得 ${esc(a.setter)}（${esc(dayHead(a.gotAt))}）</span>${a.fs ? `<span class="${a.fsMine ? "me" : ""}">FS ${esc(a.fs)}</span>` : `<span>FS 未定</span>`}${a.team ? `<span>${esc(a.team)}</span>` : ""}${a.list ? `<span>${esc(a.list)}</span>` : ""}</div>
+          ${sfLine(a)}
           ${a.memo ? `<div class="mca-memo" title="押すと全部見られます">${esc(a.memo)}</div>` : ""}</div>
         ${a.canEdit ? `<button type="button" class="mca-ed" data-apoed="${a.id}" title="カレンダーの予定を直す" aria-label="カレンダーの予定を直す">${ico}</button>` : ""}</div>`;
     // これからのアポは日ごとに見出しを付ける（今日・明日に何件あるかがひと目で分かるように）
@@ -3387,6 +3402,31 @@
     box.querySelectorAll("[data-days]").forEach((b) => b.addEventListener("click", () => { APO.days = +b.dataset.days; ls.set("mca_days", String(APO.days)); apoView(); }));
     box.querySelectorAll(".mca-memo").forEach((m) => m.addEventListener("click", () => m.classList.toggle("open")));
     box.querySelectorAll("[data-apoed]").forEach((b) => b.addEventListener("click", () => editApoEvent(b.dataset.apoed, apoView)));
+    box.querySelectorAll("[data-sfl]").forEach((b) => b.addEventListener("click", () => launchApo(b.dataset.sfl)));
+  }
+  // SF の商談の立ち上げの様子（2026-11-26 福井さん「アポとったら自動で商談立ち上げる」）。
+  //   済み＝商談へのリンク／待ち＝自動で立ち上げる時刻／できなかった・昔のアポ＝理由と「立ち上げる」ボタン
+  const sfIco = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V6M6.5 11.5 12 6l5.5 5.5"/></svg>';
+  function sfLine(a) {
+    const s = a.sf || {};
+    const btn = a.canLaunch && s.state !== "ok" && s.state !== "wait" ? `<button type="button" class="mca-sfb" data-sfl="${a.id}">${sfIco}立ち上げる</button>` : "";
+    if (s.state === "ok") return `<div class="mca-sf ok">${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">SF 商談 立ち上げ済み</a>` : "<span>SF 商談 立ち上げ済み</span>"}${s.note ? `<small>${esc(s.note)}</small>` : ""}${s.warn ? `<small class="warn">${esc(s.warn)}</small>` : ""}</div>`;
+    if (s.state === "wait") return `<div class="mca-sf wait"><span>SF 商談は ${esc(hhmm(s.at))} ごろ自動で立ち上げます</span></div>`;
+    if (s.state === "ng") return `<div class="mca-sf ng"><span>SF 商談を立ち上げられませんでした</span><small>${esc(s.reason || "")}</small>${btn}</div>`;
+    return `<div class="mca-sf"><span>SF 商談：自動の立ち上げより前のアポです</span>${btn}</div>`;
+  }
+  // 立ち上げは SF で取り消せないので、先に何を入れるか（dryRun）を見せて、確かめてから立ち上げる
+  async function launchApo(id) {
+    let p;
+    try { p = await post(`/api/mccall/logs/${id}/sf-launch`, { dryRun: true }); } catch (e) { toast(e.message); return; }
+    if (p.done) { toast("この商談はもう立ち上げてあります"); apoView(); return; }
+    if (!p.ok) { toast(p.reason || "立ち上げられませんでした"); apoView(); return; }
+    const rows = [["商談名", p.oppName], ["所有者（担当 FS）", p.fs], ["主キャンペーンソース", p.src], p.intern ? ["インターン生", p.intern] : null].filter(Boolean);
+    dialog("SF の商談を立ち上げる", "リードをコンバートして商談を作ります。SF では取り消せません。", "立ち上げる", async () => {
+      const r = await post(`/api/mccall/logs/${id}/sf-launch`, {});
+      if (!r.ok) throw new Error(r.reason || "立ち上げられませんでした");
+      toast(r.note || `立ち上げました：${r.oppName || ""}`); apoView();
+    }, `<dl class="mca-sfplan">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v || "")}</dd>`).join("")}</dl>${(p.warn || []).length ? `<p class="mcc-note" style="color:#B4441F">${esc(p.warn.join("／"))}</p>` : ""}`);
   }
   window.mcApoView = apoView;
 })();

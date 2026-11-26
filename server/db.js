@@ -13489,7 +13489,7 @@ export const BALES_TODAY_N = 150, BALES_TODAY_MIN = 100;   // 多くて150件・
 export const BALES_TODAY_PL = 50;
 //   人に足したリストから1日に入れる件数（2026-11-25 福井さん）。足したリストだけで今日の分が埋まらないよう、過去失注の枠と同じ50件にする
 export const BALES_TODAY_EXT = 50;
-const BALES_TODAY_V = 10;   // 10＝BALES の所有者がほかの人の会社を手持ち・補充から外す（2026-11-26 福井さん）。作り方を変えたら上げる（その日の保存が古い作り方なら作り直す）。8＝優先度と人に足したリスト（2026-11-25）
+const BALES_TODAY_V = 11;   // 11＝本人のコネクト情報獲得を毎日の選び直しで入れ替えず、今日の分に必ず入れる（2026-11-26 福井さん）。10＝BALES の所有者がほかの人の会社を手持ち・補充から外す（2026-11-26 福井さん）。作り方を変えたら上げる（その日の保存が古い作り方なら作り直す）。8＝優先度と人に足したリスト（2026-11-25）
 //   9＝手持ち300件から選び方で100件（2026-11-26）。上げ忘れて、朝に前の作り方（過去失注50件の枠＋アポ率の高い順）で作った分が
 //   その日ずっと使われ、コールド育成にしても過去失注の多いアポ率の高いリストのままだった（2026-11-26 福井さん）
 const jstDay = (t = Date.now()) => new Date(t).toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
@@ -13606,7 +13606,7 @@ async function mcTodayHold(listKey, run_at, col, val, day, rate) {
   const R = TODAY_MODES[mode].r;
   const STG = `COALESCE(r.data->>'lastLeadStageName','')`;
   const pick0 = `r.list_key, r.row_key, COALESCE(NULLIF(r.data->>'leadSources.0.name',''),'-') AS s, (${BALES_PL}) AS pl, LEAST(GREATEST(COALESCE(r.hot,0),1),3) AS h, r.prio AS pr,
-      (${STG} ~ '(ジャッジ|コネクト情報)' OR COALESCE(r.data->>'callResult','') ~ '(営業フォロー|資料送付)') AS nur, r.data->>'lastCalledAt' AS lc,
+      (${STG} ~ '(ジャッジ|コネクト情報)' OR COALESCE(r.data->>'callResult','') ~ '(営業フォロー|資料送付)') AS nur, (${STG} ~ 'コネクト情報') AS cx, r.data->>'lastCalledAt' AS lc,
       (SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(r.data) e WHERE e.key ~ '^nextActions\\.[0-9]+\\.(reservedAt|isDone|id)$') AS na`;
   const canCall = bCanCall(), own = `COALESCE(${colX(col, "$3", "r.")},'')`;
   // 手持ち（主のリスト）：kinbot で割り振った会社＋本人のコネクト情報獲得・ジャッジ
@@ -13620,8 +13620,10 @@ async function mcTodayHold(listKey, run_at, col, val, day, rate) {
     if (String(na[`nextActions.${i}.isDone`]) === "true") continue; const x = Date.parse(na[`nextActions.${i}.reservedAt`]); if (Number.isFinite(x) && (t == null || x < t)) t = x; } return t == null ? "" : jstDay(t); };
   const toL = (c) => { const nd = nextDay(c.na), h = Number(c.h) || 1, ext = c.list_key !== listKey;
     return { k: c.row_key, l: c.list_key, ext, id: ext ? `${c.list_key}\t${c.row_key}` : c.row_key, pv: c.pr == null ? 2 : Number(c.pr), h, p: rate(c.s, c.pl, c.h), pl: c.pl, nd, due: !!nd && nd <= day,
-      lc: c.lc ? Date.parse(c.lc) || 0 : 0, cat: c.nur || !!nd || h >= 3 ? 0 : h === 2 ? 1 : 2 }; };
-  const H = new Map(); for (const c of [...mine, ...other]) { const x = toL(c); if (!H.has(x.id)) H.set(x.id, x); }
+      lc: c.lc ? Date.parse(c.lc) || 0 : 0, cat: c.nur || !!nd || h >= 3 ? 0 : h === 2 ? 1 : 2, pin: false }; };
+  //   本人の手持ちのコネクト情報獲得は、ナーチャリングとして毎日の選び直しで入れ替えない（pin）（2026-11-26 福井さん）。
+  //   補充で配る候補（未割り振り・SF リード）はまだ本人のものと決まっていないので pin にしない
+  const H = new Map(); for (const c of [...mine, ...other]) { const x = toL(c); x.pin = !!c.cx; if (!H.has(x.id)) H.set(x.id, x); }
   // 補充：300件に足りない分を、未割り振り・SF リードから選び方の割合に合わせて配る
   let refilled = 0;
   const need = HOLD_N - H.size;
@@ -13656,14 +13658,20 @@ async function mcTodayHold(listKey, run_at, col, val, day, rate) {
   // 今日の100件：選び方の割合で種類ごとに取る（種類の中は 優先度 → 予定日が今日以前 → ホット度 → 見込みアポ率 → 最後にかけたのが古い順）。足りない種類の分はほかの種類で埋める
   const ord = (a, b) => b.pv - a.pv || (b.due ? 1 : 0) - (a.due ? 1 : 0) || b.h - a.h || b.p - a.p || a.lc - b.lc;
   const all = [...H.values()], taken = new Set(), out = [];
-  for (let c = 0; c < 3; c++) for (const x of all.filter((y) => y.cat === c).sort(ord)) { if (out.filter((o) => o.cat === c).length >= R[c]) break; taken.add(x.id); out.push(x); }
+  //   本人のコネクト情報獲得（pin）は先に全部入れる（2026-11-26 福井さん「自分の所持してるリードのコネクト情報獲得はナーチャリングとして、毎日のリサイクルで取り替えられないように」）。
+  //   これまでは種類0（ナーチャリング・ホット）の枠を、次回アクション・ホットなどと取り合い、選ばれなかった日は「かける」から消えていた。
+  //   pin はナーチャリングの枠に数え、枠を超えた分は、残りの件数をウォームとコールドに割合のまま分ける（pin が枠以内なら今までと同じ件数）
+  for (const x of all.filter((y) => y.pin).sort(ord)) { taken.add(x.id); out.push(x); }
+  const P = out.length, q0 = Math.max(R[0], P), rest = Math.max(0, TODAY_N - q0), q1 = R[1] + R[2] ? Math.round(rest * R[1] / (R[1] + R[2])) : 0;
+  const Q = [q0, q1, rest - q1];
+  for (let c = 0; c < 3; c++) for (const x of all.filter((y) => y.cat === c).sort(ord)) { if (out.filter((o) => o.cat === c).length >= Q[c]) break; if (taken.has(x.id)) continue; taken.add(x.id); out.push(x); }
   if (out.length < TODAY_N) for (const x of all.sort(ord)) { if (out.length >= TODAY_N) break; if (taken.has(x.id)) continue; taken.add(x.id); out.push(x); }
   const byCat = (arr) => [0, 1, 2].map((c) => arr.filter((x) => x.cat === c).length);
   const info = { n: out.length, exp: out.length ? out.reduce((t, x) => t + x.p, 0) / out.length : 0, mode, mode_label: TODAY_MODES[mode].label, ratio: R,
     hold: H.size, hold_target: HOLD_N, refilled, cats: byCat(out), hold_cats: byCat(all),
     prio_hi: out.filter((x) => x.pv >= 3).length, due_nurture: out.filter((x) => x.cat === 0 && x.due).length, due_other: out.filter((x) => x.cat !== 0 && x.due).length,
     pastlost: out.filter((x) => !x.due && x.pl).length, newlist: out.filter((x) => !x.due && !x.pl).length, pl_free: 0, pool: H.size,
-    ext_n: out.filter((x) => x.ext).length, ext_pool: all.filter((x) => x.ext).length, cold_left: all.filter((x) => !taken.has(x.id) && x.cat === 2).length, v: BALES_TODAY_V };
+    ext_n: out.filter((x) => x.ext).length, ext_pool: all.filter((x) => x.ext).length, cold_left: all.filter((x) => !taken.has(x.id) && x.cat === 2).length, pin: P, v: BALES_TODAY_V };
   return { keys: out.filter((x) => !x.ext).map((x) => x.k), ext: out.filter((x) => x.ext).map((x) => [x.l, x.k]), info };
 }
 async function mcTodayBuild(listKey, run_at, col, val, day, ok = "") {
