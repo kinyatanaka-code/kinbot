@@ -920,8 +920,8 @@ async function openDetail(id, reuse) {
     const scroll = (bg.querySelector(".kx-drawer") || {}).scrollTop || 0;
     await openDetail(id, { bg, tab, scroll, msg });
   };
-  const refresh = async () => { if (VIEW === "list") await loadList(); else if (VIEW === "board") await loadBoard(); else if (VIEW === "pub") return renderPub(); else if (VIEW === "voice") return renderVoices(); else if (VIEW === "home") { lsData = null; return loadHomeV2(); } else if (VIEW === "missing") return; else await load(); };   // ホームも数え直す（2026-11-26 田中さん「ステージを変えたらすぐに変えてほしい。今はページを更新しないと変わらない」）
-  const put = async (body, redraw = true) => { try { const r0 = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }); refresh().catch(() => {});
+  const refresh = async () => { if (VIEW === "list") await loadList(); else if (VIEW === "board") await loadBoard(); else if (VIEW === "pub") return renderPub(); else if (VIEW === "voice") return renderVoices(); else if (VIEW === "home") return kxRefreshAll(); else if (VIEW === "missing") return; else await load(); };   // ホームも数え直す（2026-11-26 田中さん「ステージを変えたらすぐに変えてほしい。今はページを更新しないと変わらない」）
+  const put = async (body, redraw = true) => { try { const r0 = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }); refresh().catch(() => {}); if (VIEW !== "home" && document.querySelector("[data-mine-big]")) kxRefreshAll();
       // 情報不足（ホームの枠・情報不足のページ）も読み直す（2026-11-10 久野さん）
       if (typeof kh2 !== "undefined" && kh2 && VIEW === "home") api("/api/kinxs/missing").then((d) => { kh2.miss = d; renderHomeV2(); }).catch(() => {});
       if (VIEW === "missing" && typeof loadMissing === "function") loadMissing(false); // 担当者を SF の取引先責任者に入れた結果も知らせる（2026-11-17）
@@ -2719,6 +2719,20 @@ function kxStageNote(x, gi) {
   if (gi === 8) return `オンボーディング中・最後の接点 ${x.sinceTouch}日前・掲載開始の予定 ${x.usePlanOn ? x.usePlanOn.slice(5).replace("-", "/") : "—"}`;
   return `掲載 ${x.publishedOn || "日付なし"}${(x.places || []).length ? `・${x.places.map((p) => p.where).filter(Boolean).slice(0, 2).join("・")}` : ""}`;
 }
+// 企業モーダルで保存したら、うしろに出ている画面（ホーム・担当企業の大きな画面・一覧）をすぐ読み直す
+//   （2026-11-26 田中さん「ステージを戻してモーダルを閉じたら、すぐうつるようにして」）
+let _kxRefT = 0;
+function kxRefreshAll() {
+  clearTimeout(_kxRefT);
+  _kxRefT = setTimeout(async () => {
+    try { lsData = await api(kxUsersUrl()); } catch { lsData = null; return; }
+    document.querySelectorAll("[data-mine-big]").forEach((b) => renderMine(b, { big: true, items: lsData.items || [], who: (window.__mineB && window.__mineB.who) || "", k: window.__mineB && window.__mineB.k }));
+    if (VIEW === "home") { try { renderHomeV2(); } catch {} }
+    else if (VIEW === "mine") renderMine();
+    else if (VIEW === "list") loadList();
+    else if (VIEW === "board") loadBoard();
+  }, 150);
+}
 function kxMineBig() {
   const bg = document.createElement("div"); bg.className = "kx-drawer-bg";
   bg.innerHTML = `<aside class="kx-drawer kx-mine-big" role="dialog" aria-label="担当企業"><div class="kx-mine-big-h"><h2>担当企業</h2><button type="button" class="kx-btn" data-x style="margin-left:auto">閉じる</button></div><div data-mine-big></div></aside>`;
@@ -2741,7 +2755,7 @@ async function renderMine(boxArg, opts = {}) {
   // ホームでは、要アクションの「自分／全員」にそろえる（担当のプルダウンとタスクは出さない）（2026-11-24 田中さん「ホームの場合、担当企業のタスクはいらない」「自分と全員で選択するから担当企業のプルダウンはいらない」）
   //   ホームと担当企業の画面で、選んだ数（k）が混ざらないように覚え場所を分ける
   // 大きなモーダル（kxMineBig）は、開いたときのホームの「自分／全員」から始める（2026-11-25）
-  const st = home ? (window.__mineH || (window.__mineH = { who: "", k: "all" })) : opts.big ? (window.__mineB = { who: opts.who || "", k: (window.__mineH && window.__mineH.k) || "all" }) : (window.__mine || (window.__mine = { who: "", k: "all" }));
+  const st = home ? (window.__mineH || (window.__mineH = { who: "", k: "all" })) : opts.big ? (window.__mineB = { who: opts.who || "", k: opts.k || (window.__mineH && window.__mineH.k) || "all" }) : (window.__mine || (window.__mine = { who: "", k: "all" }));
   if (home) { st.who = opts.who || ""; if (st.k === "tk") st.k = "all"; }
   else if (!opts.big && !st.who) { const me0 = kxSurname(window.__kxMe || ""); st.who = me0 || ""; }
   const names = [...new Set(all.map((x) => kxSurname(x.cs) || "").filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
@@ -3915,7 +3929,7 @@ function kxNowMount(bg) {
   const now0 = window.__kxNow || {}; const id0 = now0.id || (bg.querySelector("[data-na-box]") || {}).dataset?.naBox || bg.dataset.kxId;
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
   //   保存したら、モーダルの段階と、うしろのホーム（担当企業の段階の数）もすぐ描き直す（2026-11-26 田中さん「ボタンを押したらステージが更新されていくように」）
-  const put = async (body, msg) => { try { await api(`/api/kinxs/accounts/${encodeURIComponent(id0)}`, { method: "PUT", body: JSON.stringify(body) }); lsData = null; if (window.kbToast && msg) window.kbToast(msg); await openDetail(id0, { bg, tab: "info" }); if (typeof VIEW !== "undefined" && VIEW === "home") loadHomeV2().catch(() => {}); } catch (e) { alert(`保存できませんでした：${e.message}`); } };
+  const put = async (body, msg) => { try { await api(`/api/kinxs/accounts/${encodeURIComponent(id0)}`, { method: "PUT", body: JSON.stringify(body) }); lsData = null; if (window.kbToast && msg) window.kbToast(msg); await openDetail(id0, { bg, tab: "info" }); kxRefreshAll(); } catch (e) { alert(`保存できませんでした：${e.message}`); } };
   const edBox = pane.querySelector("[data-step-box]");
   const sm0 = pane.querySelector("[data-stage-man]");
   if (sm0) sm0.addEventListener("change", () => { const v = sm0.value; put({ stage_manual: v }, v ? `段階を「${(KX_STAGES.find((g) => g.k === v) || {}).l}」にしました` : "段階を自動の判定に戻しました"); });
