@@ -34,6 +34,8 @@ import { segOf, SEG_V, SF_LEAD_FIELDS, sfLeadRow, balesCarry, sfLeadWhere } from
 import { ensurePlay, talkForLead, activeTalks, saveTalks, listsWithTalk, measures, researchGate, researchSoon, researchState, inboundFor, inboundAllows, startPlayPumps, TALK_LABELS } from "./mcplay.js";
 import { CADENCE, BENCH, WHY_HUMAN, jstDayStart, jstAt, nextMissAt, hourRates, slotNow, rankQueue, STALE_NEXT_DAYS } from "./mccadence.js";
 import { PACE, gapStats, hourStats, overStreak, mmss } from "./mcpace.js";   // 1時間17コール・間隔2分以内（2026-11-26 福井さん）
+import { startMcWatch, watchQueue, watchState, watchRecipients, weeklySummary, checkSfFail, checkSfConn, checkPace, sendWatch } from "./mcwatch.js";   // 止まる前の見張り・週次のまとめ（2026-11-27 福井さん）
+import { registerMcUsage } from "./mcusage.js";   // 使われない機能を数える（2026-11-27 福井さん。消すかどうかはオーナーが決める）
 import { planFromBales, MAX_AGE_H } from "./mcbalessync.js";   // BALES でかけた結果で「かける」の順番を変える（2026-11-25）
 import { FILL_APIS, FILL_SOQL_FIELDS, readMemo, readInputs, planFills, pickedFields, hiresBucket } from "./mcsffill.js";
 import { isJunkCompany } from "./mcjunk.js";   // 「テスト山田」「ロープレ練習」など会社名ではないリードを見分ける（2026-11-26 福井さん）
@@ -1171,7 +1173,7 @@ export function registerMcCall(app, deps) {
   // ---- レポート（期間・人・リスト・日ごと）（2026-11-18 福井さん。BALES のレポートのかわり） ----
   //   数えるのは SHOBO で記録した架電だけ（Bales で記録した過去の架電は入らない）。取り消した記録は数えない。
   //   管理者は全員分、ほかの人は自分の分だけ
-  app.get("/api/mccall/report", guard(async (req, res) => {
+  const reportHandler = guard(async (req, res) => {
     const dayOf = (s, def) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || "")); return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]) - 9 * 3600e3) : def; };
     const from = dayOf(req.query.from, jstDayStart(new Date(Date.now() - 6 * 86400e3)));
     const to = new Date(dayOf(req.query.to, jstDayStart()).getTime() + 86400e3);
@@ -1229,7 +1231,28 @@ export function registerMcCall(app, deps) {
       .map((r) => ({ key: r.k, name: names.get(r.k) || r.k })).sort((a, b) => a.name.localeCompare(b.name, "ja")) : [];
     res.json({ ok: true, by, from, to, all: isAdmin(req), who, whoName: who ? names.get(who) || who : "", people, days: Math.round(span / 86400e3), pace, prev: { ...num(prev), skipped: skipPrev }, total: { ...num(tot), ...ftot, invalid: [...inv.values()].reduce((a, b) => a + b, 0), skipped: skipTot }, reasons, gateReasons, fields,
       rows: rows.map((r) => ({ key: r.k, label: label(r.k), ...num(r), ...fx(r.k) })).sort((a, b) => by === "day" ? 0 : b.calls - a.calls) });
+  });
+  app.get("/api/mccall/report", reportHandler);
+  // 週次のまとめは、このレポートの処理をそのまま呼ぶ（数え方を画面とずらさないため。管理者として全員分を読む）
+  const runReport = (query, user) => new Promise((resolve, reject) => {
+    const r = { statusCode: 200, status(c) { this.statusCode = c; return this; }, json(b) { if (this.statusCode >= 400) reject(new Error((b && b.error) || `HTTP ${this.statusCode}`)); else resolve(b); return this; } };
+    reportHandler({ user, mcCallAdmin: true, query, path: "/api/mccall/report" }, r).catch(reject);
+  });
+  // ---- 見張り（2026-11-27 福井さん「止まる前に知らせる」）。中身は server/mcwatch.js ----
+  startMcWatch({ P, nameMap, SF_FAIL, gapSql, runReport, isMcIntern, sfActor });
+  // 管理者：いまの見張りの様子（送らずに数えるだけ）と、送った知らせの直近30件
+  app.get("/api/mccall/watch", adminOnly(async (req, res) => {
+    const [sf, conn, pace] = await Promise.all([checkSfFail({ dry: true }), checkSfConn({ dry: true }), checkPace({ dry: true })]);
+    res.json({ ok: true, to: await watchRecipients(), ...watchState(), now: { sf, conn, pace } });
   }));
+  // 管理者：週次のまとめの下見（send=1 で送り先に送る）。week＝その週の月曜（無ければ先週）
+  app.post("/api/mccall/watch/weekly", adminOnly(async (req, res) => {
+    const w = await weeklySummary(String((req.body && req.body.week) || req.query.week || ""), { owner: me(req) });
+    let sent = false;
+    if (req.body && req.body.send) sent = await sendWatch("weekly", w.text);
+    res.json({ ok: true, sent, ...w });
+  }));
+  registerMcUsage(app, { adminOnly, guard, isAdmin });
 
   // ---- 1日のタイムライン（2026-11-26 福井さん「PC時間分析レポートの1日のタイムラインみたいな表示をレポートに」） ----
   //   その日の記録を時刻のまま返し、画面で「かける→記録」「記録→次のかける（間隔）」を横に並べて描く。
@@ -2359,6 +2382,8 @@ export function registerMcCall(app, deps) {
   app.get("/api/mccall/queue", guard(async (req, res) => {
     let ids = await myListIds(req); const listId = parseInt(req.query.list, 10);
     const u = me(req);
+    // 見張り：「かける」が空で返ったら、理由を管理者に知らせる（2026-11-27）。インターン生が「担当のリストすべて」で開いたときだけ。返す中身は変えない
+    { const j0 = res.json.bind(res); res.json = (b) => { if (b && Array.isArray(b.items) && !b.items.length && !req.query.list) isMcIntern(u).then((it) => watchQueue(u, b, { intern: it })).catch(() => {}); return j0(b); }; }
     // 商材で分ける（2026-11-24 福井さん）。list=-1 は「キャリミキのリストすべて」。
     //   「担当のリストすべて」（list なし）は MOCHICA のリストだけにする（キャリミキの会社が MOCHICA のトークの流れに混ざらないように）
     const prod = ids.length ? new Map((await P().query(`SELECT id, product FROM mc_call_lists WHERE id = ANY($1)`, [ids])).rows.map((r) => [r.id, r.product || "mochica"])) : new Map();

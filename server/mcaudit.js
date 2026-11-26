@@ -3,6 +3,7 @@
 //   これまでは代理ログイン中の操作だけを console に出していたため、再起動で消え、ふだんの操作は何も残っていなかった。
 //   残すのは「送った内容と対象ID・結果」まで（変更前後の差分は取らない＝各APIを直さずに済む A 案）。
 import { dbPool } from "./db.js";
+import { countApi } from "./mcusage.js";
 
 const P = () => dbPool();
 
@@ -136,6 +137,10 @@ function だれ(req) {
 
 // Express の middleware。body を読んだあと・各ルートより前に置く。
 export function mcAuditMiddleware(req, res, next) {
+  // 使われ方の数え（読むだけの操作も含む・2026-11-27 引き算の候補を出すため）。終わってから道の形（req.route）で数える
+  if (/^\/api\/(mccall|mochica)(\/|$)/.test(req.path)) res.on("finish", () => countApi(req, res));
+  // 画面のボタンの回数を送るだけの道は監査ログに残さない（数分ごとに届くので、肝心の記録が埋もれるため）
+  if (req.path === "/api/mccall/ui-usage") return next();
   if (!書き込み.has(req.method) || !対象パス.test(req.path)) return next();
   const t0 = Date.now();
   const path = req.path;
