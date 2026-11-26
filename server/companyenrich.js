@@ -13,14 +13,25 @@ function withTimeout(url, opts = {}, ms = 12000) {
   return fetch(url, { ...opts, signal: c.signal });
 }
 
+// Brave は1秒に1回まで（契約による）。同時にたくさん投げると断られて（429）、従業員数の取得で Brave が0件になっていた。
+//   1つずつ、1.1秒あけて順番に投げる（2026-11-26 田中さん「Brave は使って OK」なのに Brave で取れていなかった）
+let _braveChain = Promise.resolve(), _braveLast = 0;
+export const braveStat = { ok: 0, ng: 0, lastStatus: 0, at: "" };
+function braveSlot() {
+  const p = _braveChain.then(async () => { const w = _braveLast + 1100 - Date.now(); if (w > 0) await new Promise((r) => setTimeout(r, w)); _braveLast = Date.now(); });
+  _braveChain = p.catch(() => {});
+  return p;
+}
 // Braveで会社名を検索して、上位の結果（URL・タイトル・説明）を返す
 async function braveSearch(query, count = 6) {
   if (!BRAVE_KEY()) return [];
   try {
+    await braveSlot();
     const u = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}&country=jp&search_lang=jp`;
     const r = await withTimeout(u, {
       headers: { "Accept": "application/json", "X-Subscription-Token": BRAVE_KEY() },
     }, 12000);
+    braveStat.lastStatus = r.status; braveStat.at = new Date().toISOString(); if (r.ok) braveStat.ok++; else braveStat.ng++;
     if (!r.ok) return [];
     const d = await r.json().catch(() => null);
     const items = (d && d.web && d.web.results) || [];
@@ -43,10 +54,10 @@ export async function findJobMediaLinks(company) {
   const k = ck(name); if (k.length < 2) return { ok: true, items: [] };
   // Brave は1秒に1回までのことがあるので、2回は少し間をあけて順に（同時に投げると片方が断られる）。断られたときは理由を返す
   let status = 0;
-  const one = async (q) => { try { const r = await withTimeout(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=10&country=jp&search_lang=jp`, { headers: { "Accept": "application/json", "X-Subscription-Token": BRAVE_KEY() } }, 12000);
+  const one = async (q) => { try { await braveSlot(); const r = await withTimeout(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=10&country=jp&search_lang=jp`, { headers: { "Accept": "application/json", "X-Subscription-Token": BRAVE_KEY() } }, 12000);
     status = status && status !== 200 ? status : r.status; if (!r.ok) return []; const d = await r.json().catch(() => null);
     return ((d && d.web && d.web.results) || []).map((x) => ({ url: x.url || "", title: x.title || "", desc: x.description || "" })).filter((x) => x.url); } catch { status = status || -1; return []; } };
-  const a = await one(`${name} 求人`); await new Promise((r) => setTimeout(r, 1100)); const b = await one(`${name} 新卒採用`);
+  const a = await one(`${name} 求人`); const b = await one(`${name} 新卒採用`);   // 間隔は braveSlot があける
   const seen = new Map();
   for (const r of [...a, ...b]) {
     if (!ck(`${r.title} ${r.desc}`).includes(k)) continue;
