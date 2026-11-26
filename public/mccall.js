@@ -430,6 +430,10 @@
     const kv = [["掲載年度", (m.years || []).map((y) => `${y}卒`).join("・")], ["採用予定人数", m.plannedHires], ["職種", (m.jobs || []).join("・")], ["勤務地", m.area], ["プレエントリー", m.preEntry], ["業種", m.industry], ["ひとこと", m.note]].filter(([, v]) => v);
     return head("ok", `<div><small>掲載あり${m.checkedAt ? `（${esc(day(m.checkedAt))} に確認）` : ""}${m.url ? ` <a href="${esc(m.url)}" target="_blank" rel="noopener">ページを開く</a>` : ""}</small>${kv.map(([k, v]) => `<span class="mcc-mn"><em>${esc(k)}</em>${esc(v)}</span>`).join("")}</div>`);
   }
+  // アポ確率（2026-11-27 オーナー）：毎晩学び直した「次にかけたときにアポになる確率」と、何で上がった・下がったかの上位3つ
+  const apoWhy = (L) => (Array.isArray(L.apo_why) ? L.apo_why : []).slice(0, 3).map((w) => `<span class="${w.up ? "up" : "dn"}">${esc(w.label)}「${esc(w.v)}」${w.pt > 0 ? "+" : ""}${esc(w.pt)}pt</span>`).join("");
+  function apoBadge(L) { if (L.apo_p == null) return ""; const p = Number(L.apo_p);
+    return `<span class="mcc-badge apo${p >= 0.1 ? " hi" : ""}" title="次にかけたときにアポになる確率（これまでの架電の記録と SF のコンバートから毎晩学び直しています）">アポ確率 ${(p * 100).toFixed(p < 0.1 ? 1 : 0)}%</span>`; }
   function hotBadge(h) { const n = Number(h || 0); return n >= 3 ? '<span class="mcc-badge hot">ホット</span>' : n === 2 ? '<span class="mcc-badge warm">ウォーム</span>' : '<span class="mcc-badge cold">コールド</span>'; }
   // BALES の未完了次回アクションのうち最も早い予約（予約日時がなければコメント付き先頭）を返す
   function balesNext(data = {}) {
@@ -481,7 +485,8 @@
       <p class="mcc-co">${esc(L.company || "会社名なし")} <button class="mcc-btn mcc-edit" id="mccEdit" title="会社・担当者・電話・メールを直す">${ICO.edit}直す</button><button class="mcc-btn mcc-edit" id="mccBan" title="先方に「もう連絡しないで」と言われたとき：全社のアプローチ禁止の登録フォームに、この会社の情報を入れて送る" style="color:#b42318">${ICO.ban}禁止申請</button></p>
       <div class="mcc-person">${esc(g.name || L.person || "担当者名はまだ分かりません")}${g.name && L.person && g.name !== L.person ? `<small style="color:var(--c-muted);font-weight:600">（リストでは ${esc(L.person)}）</small>` : ""}</div>
       ${g.hours || g.direct || g.biz ? `<div class="mcc-gatei">${g.hours ? `<span>いる時間 <b>${esc(g.hours)}</b></span>` : ""}${g.direct ? `<span>直通・内線 <b>${esc(g.direct)}</b></span>` : ""}${g.biz ? `<span>営業時間 <b>${esc(g.biz)}</b></span>` : ""}</div>` : ""}
-      <div class="mcc-badges">${hotBadge(L.hot)}${L.cross_from ? `<span class="mcc-badge doc">${esc(L.cross_from)} から（部署をまたぐ）</span>` : ""}${d.ban ? '<span class="mcc-badge danger">アプローチ禁止</span>' : ""}${sum && sum.n ? `<span class="mcc-badge sf">SF の商談 ${sum.n}件${sum.won ? "・受注あり" : sum.lost ? "・失注あり" : ""}</span>` : ""}</div>
+      <div class="mcc-badges">${apoBadge(L)}${hotBadge(L.hot)}${L.cross_from ? `<span class="mcc-badge doc">${esc(L.cross_from)} から（部署をまたぐ）</span>` : ""}${d.ban ? '<span class="mcc-badge danger">アプローチ禁止</span>' : ""}${sum && sum.n ? `<span class="mcc-badge sf">SF の商談 ${sum.n}件${sum.won ? "・受注あり" : sum.lost ? "・失注あり" : ""}</span>` : ""}</div>
+      ${L.apo_p != null && apoWhy(L) ? `<div class="mcc-apowhy">${apoWhy(L)}</div>` : ""}
       ${freqHtml(d)}
       ${statusHtml()}
       ${researchHtml(L)}
@@ -2417,12 +2422,32 @@
         <tbody>${j.rows.length > 1 ? row("合計", T, true) : ""}${j.rows.map((r) => row(lbl(r), r, false)).join("")}</tbody></table></div>
         ${fill ? '<p class="mcc-note" style="margin-top:8px">アポが取れなくても、聞けたことで SF のリードを埋めた・使えない番号を見つけた数です。空を埋めた・古い値を直した・課題感などに足したものを1項目1つで数え、SF と同じ値の確認は数えません。</p>' : ""}</div>` : ""}
       ${ranks ? `<div class="mcc-card"><h2>なぜ取れなかったか・何を聞けたか</h2><div class="mcc-ranks">${ranks}</div></div>` : ""}
+      ${S.admin ? '<div class="mcc-card" id="mccApoChk"></div>' : ""}
       <p class="mcc-note">数えているのは MOCHICALL で記録したものだけです（Bales で記録した過去の架電は入りません）。取り消した記録は数えません。</p>`;
     res.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => { RP.view = b.dataset.view; renderReport(); }));
     res.querySelectorAll("[data-by]").forEach((b) => b.addEventListener("click", () => { RP.by = b.dataset.by; drawReport(); }));
     // 期間の外の日を見ていたら、期間の最後の日に戻す（期間を変えたのに前の日のタイムラインが残らないように）
     if (!RP.tlDay || RP.tlDay < RP.from || RP.tlDay > RP.to) RP.tlDay = RP.to;
     drawTimeline();
+    drawApoCheck();
+  }
+
+  // ---- アポ確率の当たり具合（管理者だけ。2026-11-27 オーナー「確率が当たっているかを、学び直すたびに過去の分で確かめて見られるように」） ----
+  //   古い 8 割で学び、新しい 2 割に出した確率の帯ごとに、実際のアポ率を並べる（予測10%帯なら実際も10%前後なら当たっている）。
+  //   「画面に出していた確率で」は、その日に「かける」に出していた確率で実際どうだったか（学び直す前の数字なので、いちばん正直）
+  async function drawApoCheck() {
+    const box = $("mccApoChk"); if (!box) return;
+    let j; try { j = await api("/api/mccall/apo/model"); } catch (e) { box.innerHTML = `<h2>アポ確率の当たり具合</h2><p class="mcc-note">読めませんでした：${esc(e.message)}</p>`; return; }
+    const pct = (v, d = 1) => (v == null ? "－" : `${(v * 100).toFixed(d)}%`);
+    const tbl = (bins) => `<table class="mcc-apot"><thead><tr><th>予測の帯</th><th>架電</th><th>アポ</th><th>予測の平均</th><th>実際のアポ率</th></tr></thead><tbody>${(bins || []).map((b) =>
+      `<tr><td>${pct(b.lo, 0)}〜${b.hi >= 1 ? "" : pct(b.hi, 0)}</td><td>${b.n.toLocaleString()}</td><td>${b.apo}</td><td>${pct(b.pred)}</td><td><b>${b.n ? pct(b.act) : "－"}</b></td></tr>`).join("")}</tbody></table>`;
+    const bt = j.check && j.check.backtest, lv = j.check && j.check.live;
+    box.innerHTML = `<div class="mcc-chead"><h2>アポ確率の当たり具合</h2><span class="mcc-sp"></span><button class="mcc-chip" id="mccApoRun" title="夜を待たずに学び直します（数分かかります）">今すぐ学び直す</button></div>
+      ${!j.model && j.note ? `<p class="mcc-note">${esc(j.note)}</p>` : `<p class="mcc-note">学んだ日時 ${esc(new Date(j.made_at).toLocaleString("ja-JP"))}・架電 ${Number(j.n || 0).toLocaleString()}件（アポ ${j.pos}件・全体 ${pct(j.base)}）${j.cost ? `・かかった時間 ${Math.round((j.cost.ms || 0) / 1000)}秒・SF ${j.cost.sf_calls || 0}回` : ""}</p>${j.cost && j.cost.skipped ? `<p class="mcc-note">${esc(j.cost.skipped)}</p>` : ""}
+      ${bt && bt.ok ? `<h3>過去の分で確かめた（古い8割で学び、新しい2割 ${bt.test.n.toLocaleString()}件を当てた）</h3>${tbl(bt.bins)}<p class="mcc-note">並びのよさ（AUC）${bt.auc ?? "－"}（0.5＝でたらめ・1＝完全）／ ずれ（ブライアスコア）${bt.brier}（全体の率だけで当てたとき ${bt.brier_base}。小さいほどよい）</p>` : `<p class="mcc-note">${esc((bt && bt.why) || "まだ確かめられていません")}</p>`}
+      ${lv && lv.n ? `<h3>画面に出していた確率で（${lv.n.toLocaleString()}件）</h3>${tbl(lv.bins)}` : ""}
+      ${(j.feats || []).length ? `<h3>効いている切り口（重みの大きい順）</h3><div class="mcc-apof">${j.feats.map((f) => `<span title="${esc(f.values.slice(0, 8).map((v) => `${v.v}：${v.n}件中 ${v.apo}件`).join(" / "))}">${esc(f.label)} <b>${f.w.toFixed(2)}</b></span>`).join("")}</div>` : ""}`}`;
+    const rb = $("mccApoRun"); if (rb) rb.addEventListener("click", async () => { rb.disabled = true; try { await api("/api/mccall/apo/run", { method: "POST" }); rb.textContent = "学び直しています…（数分後に開き直してください）"; } catch (e) { alert(`学び直せませんでした：${e.message}`); rb.disabled = false; } });
   }
 
   // ---- 1日のタイムライン（2026-11-26 福井さん「PC時間分析レポートの1日のタイムラインみたいな表示を MOCHICALL のレポートに」） ----

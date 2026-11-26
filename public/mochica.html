@@ -9,7 +9,7 @@
 <link rel="icon" href="/favicon-mochica-32.png" sizes="32x32" type="image/png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon-mochica.png" />
 <link rel="stylesheet" href="/style.css?v=20261116d" />
-<link rel="stylesheet" href="/mccall.css?v=20261126sfl" />
+<link rel="stylesheet" href="/mccall.css?v=20261127apo" />
 <style>
   .side-brand .brand-mark{background-image:url("/shobo.svg") !important;filter:drop-shadow(0 2px 6px rgba(94,234,212,.4)) !important;}
   .side-brand > span:last-child{white-space:nowrap;}
@@ -191,9 +191,9 @@
   .bl-hds{display:inline-flex;gap:2px;vertical-align:middle;} .bl-hd{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;font-size:10px;font-weight:700;border:1px solid #C9D6D3;color:#8AA09B;background:#fff;}
   .bl-hd.ok{background:#1d9e75;border-color:#1d9e75;color:#fff;} .bl-hd.no{background:#DDE5E3;border-color:#DDE5E3;color:#5C7377;} .bl-hotc{white-space:nowrap;}
   .bl-hsort{display:inline-flex;align-items:center;gap:4px;font-size:12.5px;color:#0F3D44;white-space:nowrap;}
-  /* 企業の優先度（2026-11-25）：高は緑で目立たせ、低は薄く */
-  .bl-prc{width:58px;} .bl-pr{border:1px solid #DDEFF2;border-radius:8px;padding:2px 4px;font-size:12px;font-weight:700;background:#fff;color:#9AB0B3;cursor:pointer;}
-  .bl-pr.p3{background:#E6F6EF;color:#0d5b47;border-color:#5DCAA5;} .bl-pr.p2{color:#0F3D44;} .bl-pr.p1{background:#F4F6F7;color:#9AB0B3;}
+  /* アポ確率（2026-11-27。前の「優先度」の列の代わり）：10%以上は濃い緑、3%以上は緑、それより下は薄く */
+  .bl-prc{width:58px;} .bl-ap{display:inline-block;min-width:40px;text-align:center;border-radius:8px;padding:2px 6px;font-size:12px;font-weight:700;background:#F4F6F7;color:#7C9296;cursor:help;}
+  .bl-ap.mid{background:#E6F6EF;color:#0d5b47;} .bl-ap.hi{background:#1d9e75;color:#fff;} .bl-ap.none{background:transparent;color:#C2D0D2;}
   @media (max-width:640px){.bl-hotbar{grid-template-columns:minmax(0,1fr);}}
   .bl-sfc{display:inline-block;font-size:11px;font-weight:700;border-radius:99px;padding:2px 8px;background:#DDF5F7;color:#0B6E78;white-space:nowrap;} .bl-sfc.won{background:#E1F5EE;color:#085041;} .bl-sfc.lost{background:#FDF0D8;color:#8A5A00;}
   .bl-sflinks{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;} .bl-sflinks a{text-decoration:none;} .bl-sub{display:block;font-size:10px;color:#9AB0B3;} .bl-row{cursor:pointer;} .bl-row:hover td{background:#F2FAFB;}
@@ -327,7 +327,7 @@
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-  <script src="/mcbales.js?v=20261126hold"></script>
+  <script src="/mcbales.js?v=20261127apo"></script>
   <script src="/caseshare.js?v=20261116c"></script>
   <!-- kinbot のロボ（左上の顔を押すと相談できる窓）を MOCHICA にも（2026-11-16 田中さん） -->
   <script src="/kbchat.js?v=20261119f" defer></script>
@@ -335,7 +335,7 @@
   <script src="/mchelp.js?v=20261126help"></script>
   <!-- ボタン・タブの使われ方を数える（使われない機能を消すかどうかオーナーが決める材料。何も消さない）。数え終わったらこの1行を消す（2026-11-27 福井さん） -->
   <script src="/mcusage.js?v=20261127use"></script>
-  <script src="/mccall.js?v=20261127callback"></script>
+  <script src="/mccall.js?v=20261127apo"></script>
   <!-- MOCHICALL の使い方・機能の案内（右上のボタンと、初めての人への自動の案内）。mccall.js が置いた部品を使うので、その後に読む（2026-11-23 福井さん） -->
   <script src="/mctour.js?v=20261123b"></script>
   <!-- MOCHICALL の解説の吹き出し（部品にカーソルを2秒合わせると、その機能の解説が出る）（2026-11-23 福井さん） -->

@@ -37,6 +37,7 @@ import { CADENCE, BENCH, WHY_HUMAN, jstDayStart, jstAt, nextMissAt, hourRates, s
 import { PACE, gapStats, hourStats, overStreak, mmss } from "./mcpace.js";   // 1時間17コール・間隔2分以内（2026-11-26 福井さん）
 import { startMcWatch, watchQueue, watchState, watchRecipients, weeklySummary, checkSfFail, checkSfConn, checkPace, sendWatch } from "./mcwatch.js";   // 止まる前の見張り・週次のまとめ（2026-11-27 福井さん）
 import { registerMcUsage } from "./mcusage.js";   // 使われない機能を数える（2026-11-27 福井さん。消すかどうかはオーナーが決める）
+import { ensureApo, startApo, registerMcApo } from "./mcapojob.js";   // アポ確率の予測と夜の学び直し（2026-11-27 オーナー「優先度の代わりにアポ確率で並べる」）
 import { planFromBales, MAX_AGE_H } from "./mcbalessync.js";   // BALES でかけた結果で「かける」の順番を変える（2026-11-25）
 import { FILL_APIS, FILL_SOQL_FIELDS, readMemo, readInputs, planFills, pickedFields, hiresBucket } from "./mcsffill.js";
 import { isJunkCompany } from "./mcjunk.js";   // 「テスト山田」「ロープレ練習」など会社名ではないリードを見分ける（2026-11-26 福井さん）
@@ -216,8 +217,10 @@ async function ensure() {
     //   前の人の記録に引っぱられずにかけるため、架電画面の「これまで」は自分の記録だけにする。kincall の設定とは別に持つ
     await q(`ALTER TABLE mc_call_lists ADD COLUMN IF NOT EXISTS hide_history BOOLEAN NOT NULL DEFAULT false`);
     await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS today_day TEXT`);
-    // 企業の優先度（リスト管理で付けたもの。3＝高・2＝中・1＝低・空＝未設定）（2026-11-25 福井さん）。かける順番で高を先に・低を後ろに
+    // 企業の優先度（リスト管理で付けたもの。3＝高・2＝中・1＝低・空＝未設定）（2026-11-25 福井さん）。
+    //   2026-11-27 から読まない（並びはアポ確率で決める。オーナー「優先度という概念を削除」）。付けた値は消さずに残す
     await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS prio SMALLINT`);
+    await ensureApo(P);   // アポ確率の列（apo_p など）と学ぶ材料の表（2026-11-27）
     // BALES でかけた結果をどこまで順番に入れたか（at＝BALES の最終架電日時・result・kind・why・prev＝入れる前の値）（2026-11-25 福井さん）
     await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS bales_seen JSONB`);
     // BALES のナーチャリングを MOCHICALL へ引き継いだ印（2026-11-25 福井さん）。handover_at＝はじめて引き継いだ日時、
@@ -1265,6 +1268,9 @@ export function registerMcCall(app, deps) {
   });
   // ---- 見張り（2026-11-27 福井さん「止まる前に知らせる」）。中身は server/mcwatch.js ----
   startMcWatch({ P, nameMap, SF_FAIL, gapSql, runReport, isMcIntern, sfActor });
+  // ---- アポ確率（2026-11-27 オーナー）。毎晩3時台に学び直す。SF は見張りの送り先（管理者）の SF で集計だけ読む。中身は server/mcapojob.js ----
+  startApo(P, { sfOwner: async () => { const to = await watchRecipients().catch(() => []); return to[0] ? await sfActor({ user: to[0] }) : ""; } });
+  registerMcApo(app, { adminOnly, guard });
   // 管理者：いまの見張りの様子（送らずに数えるだけ）と、送った知らせの直近30件
   app.get("/api/mccall/watch", adminOnly(async (req, res) => {
     const [sf, conn, pace] = await Promise.all([checkSfFail({ dry: true }), checkSfConn({ dry: true }), checkPace({ dry: true })]);
@@ -2301,10 +2307,6 @@ export function registerMcCall(app, deps) {
     // 終わったリード（アポ・NG など）と、ほかの人が今開いているリードは動かさない。トークはリストごとなので、移したリードは選び直す
     const mv = ids.length ? await P().query(`UPDATE mc_call_leads SET talk_label = CASE WHEN list_id = $2 THEN talk_label ELSE NULL END, list_id=$2, assigned_to=$3, today_day=$4
       WHERE id = ANY($1::int[]) AND NOT done AND dup_of IS NULL AND (locked_by IS NULL OR locked_by=$3 OR locked_at < now() - interval '10 minutes') AND ${NOT_IN_CM()}`, [[...new Set(ids)], tid, u, day]) : { rowCount: 0 };
-    // リスト管理で付けた企業の優先度を写す（かける順番で高を先に）（2026-11-25）。src_key は「リストの印|行の印」（リストの印に「|」は入らない）
-    if (ids.length) await P().query(`UPDATE mc_call_leads c SET prio = b.prio FROM mochica_bales_rows b
-      WHERE c.id = ANY($1::int[]) AND c.src = 'bales' AND b.list_key = split_part(c.src_key, '|', 1) AND b.row_key = substr(c.src_key, length(split_part(c.src_key, '|', 1)) + 2)
-        AND c.prio IS DISTINCT FROM b.prio`, [[...new Set(ids)]]).catch((e) => console.warn("[mccall] 今日かけるリストの優先度を写せませんでした", e.message));
     const res = { owner, n: pairs.length, ready: mv.rowCount, added, banned, exp: t.exp || 0, due_nurture: t.due_nurture || 0, due_other: t.due_other || 0, pastlost: t.pastlost || 0, newlist: t.newlist || 0, prio_hi: t.prio_hi || 0, ext_n: t.ext_n || 0, made_at: t.made_at };
     if (added || mv.rowCount < res.n) console.log(`[mccall] 今日かけるリスト ${u}（${owner}）：${res.n}件中 ${mv.rowCount}件を「かける」へ（新しく入れた ${added}・禁止 ${banned}）`);
     _todaySync.set(u, { ck, at: Date.now(), res }); return res;
@@ -2532,10 +2534,10 @@ export function registerMcCall(app, deps) {
         AND NOT EXISTS (SELECT 1 FROM mc_call_logs g WHERE g.lead_id=mc_call_leads.id AND NOT g.undone AND g.customer_quote IS NOT NULL AND NOT EXISTS (SELECT 1 FROM mc_call_logs a WHERE a.callback_for=g.id AND NOT a.undone)) AND NOT ${HOLD_Q}${mqlGate ? ` AND ${MQL_OK_SQL}` : ""}`;
     const order = `(next_at IS NOT NULL) DESC, next_at, COALESCE(hot,0) DESC, attempts, id`;
     // 順番は mccadence.js の rankQueue で決める（約束の掛け直し → 時刻が来た掛け直し → ホット度・検討時期・在席時間の順）。SQL では候補を多め（300件）に絞るだけ
-    //   候補の300件には、リスト管理で優先度を高にした会社を先に入れる（低は後ろ）（2026-11-25 福井さん）
+    //   候補の300件には、アポ確率の高い会社を先に入れる（2026-11-27 オーナー。前は人が付けた優先度で選んでいた）
     //   候補を選ぶときも、90日より前に過ぎた予定は「予定なし」と同じに数え、過ぎた予定は最近過ぎたものから選ぶ（rankQueue と同じ決まり。2026-11-25 福井さん）
-    const rankOrder = `(next_at IS NOT NULL AND next_at > now() - interval '${STALE_NEXT_DAYS} days') DESC, COALESCE(next_why = $3, false) DESC, COALESCE(prio,2) DESC, next_at DESC NULLS LAST, COALESCE(hot,0) DESC, attempts, id`;
-    const cols = `id, list_id, company, person, hot, attempts, next_at, next_why, last_outcome, cross_from, miss_streak, hearing, gate, phone, info, sf_lead_id, prio, src, src_key, mql, (research_at IS NOT NULL) AS researched`;
+    const rankOrder = `(next_at IS NOT NULL AND next_at > now() - interval '${STALE_NEXT_DAYS} days') DESC, COALESCE(next_why = $3, false) DESC, apo_p DESC NULLS LAST, next_at DESC NULLS LAST, COALESCE(hot,0) DESC, attempts, id`;
+    const cols = `id, list_id, company, person, hot, attempts, next_at, next_why, last_outcome, cross_from, miss_streak, hearing, gate, phone, info, sf_lead_id, apo_p, apo_why, src, src_key, mql, (research_at IS NOT NULL) AS researched`;
     // 企業調査が終わった会社を先に出す（架電者が調べなくてよいように）。
     //   調べ終わった会社が足りないときは、まだの会社も後ろに足して出す（「調査中」と出すだけで、かけてよい）。
     //   以前は調べ終わるまで出さなかったので、8人が同時にかけると調べが追いつかず「かける」が空になって待つことがあった（2026-11-23）
@@ -2569,9 +2571,8 @@ export function registerMcCall(app, deps) {
     } catch (e) { console.warn("[mccall] BALES の所有者を読めませんでした（所有者で外さずに出します）", e.message); }
     const cand = cand0.filter((r) => !approachBanHitLeadSync(r) && !mcOwnedByOther(ownIdx, ownMe, r));
     // 掛け直しの約束・時刻が来た掛け直し（tier 0・1）と調べ終わった会社を前に、まだ調べていない会社を後ろに
-    //   掛け直し（tier 0・1）より後ろは、優先度 高→中（未設定も中）→低 の順に並べ直す（同じ優先度の中は rankQueue の順のまま）（2026-11-25 福井さん）
-    const pv = (r) => (r.tier < 2 ? 9 : r.prio == null ? 2 : Number(r.prio));
-    const ranked = rankQueue(cand).map((r, i) => ({ r, i })).sort((a, b) => pv(b.r) - pv(a.r) || a.i - b.i).map((x) => x.r);
+    //   掛け直し（tier 0・1）より後ろは、アポ確率の高い順（rankQueue の中で並べる。2026-11-27 オーナー「優先度を外し、並びはアポ確率で」）
+    const ranked = rankQueue(cand);
     const front = (r) => r.tier < 2 || r.researched;
     // 画面に渡すのは必要な項目だけ（受付で聞いた直通などを、順番の一覧に載せない）
     const items = [...ranked.filter(front), ...ranked.filter((r) => !front(r))].slice(0, 60).map(({ hearing, gate: _g, phone: _p, info: _i, sf_lead_id: _s, src: _sr, src_key: _sk, mql: _m, ...x }) => x);

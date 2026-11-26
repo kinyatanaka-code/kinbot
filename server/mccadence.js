@@ -101,6 +101,7 @@ export function nextMissAt({ now = new Date(), streak = 1, gateHours = "", rates
 }
 
 // ---- ③ かける順番 ----
+import { whyText as apoWhyText } from "./mcapo.js";   // アポ確率の「何で上がった・下がったか」（2026-11-27）
 // l：{ next_at, next_why, hot, attempts, miss_streak, hearing, gate }
 // tier 0＝人が決めた約束の掛け直し／1＝時刻が来た自動の掛け直し／2＝それ以外（点の高い順）。
 //   約束と掛け直しの時刻を先に守るのは、型（間隔）を崩さないため。点は tier 2 の中の並びだけに効く
@@ -130,7 +131,10 @@ export function priorityOf(l, now = new Date()) {
   return { tier: 2, score, reasons: reasons.slice(0, 3) };
 }
 // 約束（tier 0）は時刻の早い順。時刻が来た掛け直し（tier 1）は最近過ぎたものから（2026-11-25 福井さん「新しく過ぎた順に出す」）
+//   tier 2 は、夜に学んだアポ確率（apo_p。mcapo.js）の高い順。確率がまだ無いリード（取り込んだばかり）は後ろで、点の高い順（2026-11-27 オーナー「並びはアポ確率で」）。
+//   理由（reasons）も確率の「何で上がった・下がったか」に替える（画面の『なぜこの順か』）
 export function rankQueue(rows, now = new Date()) {
-  return rows.map((r) => ({ ...r, ...priorityOf(r, now) })).sort((a, b) =>
-    a.tier - b.tier || (a.tier === 0 ? new Date(a.next_at) - new Date(b.next_at) : a.tier === 1 ? new Date(b.next_at) - new Date(a.next_at) : b.score - a.score) || (a.attempts || 0) - (b.attempts || 0) || a.id - b.id);
+  const ap = (r) => (r.apo_p == null ? -1 : Number(r.apo_p));
+  return rows.map((r) => { const q = { ...r, ...priorityOf(r, now) }; if (q.tier === 2 && Array.isArray(r.apo_why) && r.apo_why.length) q.reasons = r.apo_why.map(apoWhyText); return q; }).sort((a, b) =>
+    a.tier - b.tier || (a.tier === 0 ? new Date(a.next_at) - new Date(b.next_at) : a.tier === 1 ? new Date(b.next_at) - new Date(a.next_at) : ap(b) - ap(a) || b.score - a.score) || (a.attempts || 0) - (b.attempts || 0) || a.id - b.id);
 }

@@ -285,7 +285,7 @@ await t("引き継ぎ：もう一度入れても増えない（全部「移す�
   assert.equal(new Date((await hk("h1"))[0].next_at).toISOString(), FUT, "予定の日時が変わった");
 });
 
-// ---------- かけるリストに会社を追加・企業の優先度（2026-11-25 福井さん「個人が持っているリストに特定の企業・リードを追加」「その企業の優先度も」） ----------
+// ---------- かけるリストに会社を追加（2026-11-25 福井さん「個人が持っているリストに特定の企業・リードを追加」）・アポ確率の並び（2026-11-27） ----------
 const CK = "csv:試験";
 await q(`INSERT INTO mochica_bales_lists (list_key, name, src, status, cols, run_at) VALUES ($1,'CSV試験','csv','done',$2,now())`, [CK, JSON.stringify([{ key: "companyName" }, { key: "companyTel1" }, { key: "operatorName" }])]);
 const crun = (await q(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [CK])).rows[0].run_at;
@@ -294,9 +294,8 @@ for (const [k, extra] of [["c1", {}], ["c2", {}], ["c3", {}], ["c4", { callResul
   await q(`INSERT INTO mochica_bales_rows (list_key, row_key, data, run_at) VALUES ($1,$2,$3,$4)`,
     [CK, k, JSON.stringify({ companyName: `株式会社 CSV${k}`, companyTel1: `03-4444-0${k.charCodeAt(0)}${k.slice(1)}`, ...extra }), crun]);
 const ckOf = async (ids) => (await q(`SELECT src_key FROM mc_call_leads WHERE id = ANY($1) ORDER BY src_key`, [ids])).rows.map((r) => r.src_key);
-await t("かけるリストに追加：会社か人を選ばないとはじく・まちがった優先度もはじく", async () => {
+await t("かけるリストに追加：会社か人を選ばないとはじく", async () => {
   await assert.rejects(call(A, "POST", "/api/mochica/bales/handoff", { member: "森 康晴", items: [] }), /400/);
-  await assert.rejects(call(A, "POST", "/api/mochica/bales/handoff", { member: "森 康晴", items: [{ l: CK, k: "c1" }], prio: 9 }), /400/);
 });
 await t("かけるリストに追加：選んだ会社だけ森さんの担当になり、一覧に出る。今日のリストができていれば今日の分にも足す（アポ獲得は足さない）", async () => {
   await todayOf("森 康晴", true);
@@ -335,24 +334,24 @@ await t("かけるリストに追加：森さんのかけるリストの件数�
   const nr = (await call(A, "GET", `/api/mochica/bales/lists/${encodeURIComponent(LK)}/rows?col=operatorName&val=${encodeURIComponent("内藤 賴郁亜")}&stg=call&limit=500`)).rows;
   assert.ok(!nr.some((d) => d.__l === CK), "内藤さんの表に森さんの追加した会社が出た");
 });
-await t("優先度：高にした会社は、表の優先度順で先頭・今日かけるリストの先頭・「かける」でも掛け直しの次に出る", async () => {
-  const r = await call(A, "POST", "/api/mochica/bales/prio", { items: [{ l: CK, k: "c3" }], prio: 3 });
-  assert.equal(r.n, 1); assert.equal(r.mc, 1, "MOCHICALL のリードに優先度が付かない");
-  await call(A, "POST", "/api/mochica/bales/prio", { items: [{ l: LK, k: "m2" }], prio: 1 });
-  const rows = (await call(A, "GET", `/api/mochica/bales/lists/${encodeURIComponent(LK)}/rows?col=operatorName&val=${encodeURIComponent("森 康晴")}&stg=today&sort=prio&limit=50`)).rows;
-  assert.equal(rows[0].__k, "c3"); assert.equal(rows[0].__l, CK); assert.equal(rows[0].__pr, 3); assert.equal(rows[rows.length - 1].__k, "m2", "低が最後にない");
-  const hi = (await call(A, "GET", `/api/mochica/bales/lists/${encodeURIComponent(LK)}/rows?col=operatorName&val=${encodeURIComponent("森 康晴")}&stg=today&pr=3`)).total;
-  assert.equal(hi, 1, "優先度で絞れない");
-  const td = await todayOf("森 康晴", true); assert.equal(td.prio_hi, 1, JSON.stringify(td));
+await t("アポ確率：確率の高い会社が、表のアポ確率順で先頭・「かける」でも掛け直しの次に出る。前に付けた優先度（高）は効かない", async () => {
+  // 夜の学び直しの代わりに、確率を直接入れる（c3 を高く、u1 を低く。u1 には前の優先度「高」を残しておく）
+  await q(`UPDATE mochica_bales_rows SET apo_p = CASE row_key WHEN 'c3' THEN 0.3 WHEN 'u1' THEN 0.001 ELSE 0.02 END, prio = CASE row_key WHEN 'u1' THEN 3 ELSE NULL END WHERE list_key = ANY($1)`, [[CK, LK]]);
+  await q(`UPDATE mc_call_leads SET apo_p = CASE src_key WHEN $1 THEN 0.3 WHEN $2 THEN 0.001 ELSE 0.02 END, prio = CASE src_key WHEN $2 THEN 3 ELSE NULL END WHERE src = 'bales'`, [`${CK}|c3`, `${LK}|u1`]);
+  const rows = (await call(A, "GET", `/api/mochica/bales/lists/${encodeURIComponent(LK)}/rows?col=operatorName&val=${encodeURIComponent("森 康晴")}&stg=today&sort=apo&limit=50`)).rows;
+  assert.equal(rows[0].__k, "c3"); assert.equal(rows[0].__l, CK); assert.equal(rows[0].__apo, 0.3, JSON.stringify(rows[0]));
+  assert.equal(rows[rows.length - 1].__k, "u1", `確率の低い会社が最後にない（前の優先度が効いている）：${JSON.stringify(rows.map((d) => [d.__l, d.__k, d.__apo]))}`);
+  assert.ok(!("__pr" in rows[0]), "表に優先度がまだ出ている");
+  const td = await todayOf("森 康晴", true); assert.ok(!td.prio_hi, JSON.stringify(td));
   const j = await call(MORI, "GET", "/api/mccall/queue");
-  const fresh = j.items.filter((x) => !x.next_at);
-  assert.equal((await ckOf([fresh[0].id]))[0], `${CK}|c3`, "高の会社が先に出ない");
-  assert.equal((await ckOf([fresh[fresh.length - 1].id]))[0], `${LK}|m2`, "低の会社が後ろに回らない");
+  const fresh = j.items.filter((x) => !x.next_at), keys = await Promise.all(fresh.map(async (x) => (await ckOf([x.id]))[0]));
+  assert.equal(keys[0], `${CK}|c3`, `確率の高い会社が先に出ない：${JSON.stringify(keys)}`);
+  if (keys.includes(`${LK}|u1`)) assert.equal(keys[keys.length - 1], `${LK}|u1`, `確率の低い会社が後ろに回らない（前の優先度が効いている）：${JSON.stringify(keys)}`);
+  assert.equal(fresh[0].apo_p, 0.3);
 });
-await t("優先度：まちがった値ははじく・未設定に戻せる", async () => {
-  await assert.rejects(call(A, "POST", "/api/mochica/bales/prio", { items: [{ l: CK, k: "c3" }], prio: 7 }), /400/);
-  await call(A, "POST", "/api/mochica/bales/prio", { items: [{ l: CK, k: "c3" }], prio: null });
-  assert.equal((await q(`SELECT prio FROM mochica_bales_rows WHERE list_key=$1 AND row_key='c3'`, [CK])).rows[0].prio, null);
+await t("アポ確率：優先度を付ける API はもう無い（付けた値は DB に残る）", async () => {
+  await assert.rejects(call(A, "POST", "/api/mochica/bales/prio", { items: [{ l: CK, k: "c3" }], prio: 3 }), /404/);
+  assert.equal((await q(`SELECT prio FROM mochica_bales_rows WHERE list_key=$1 AND row_key='u1'`, [LK])).rows[0].prio, 3, "前に付けた値が消えた");
 });
 await t("かけるリストから外す：選んだ会社だけ外せる・残りもまとめて外せる。担当が外れ、今日かけるリストからも消える", async () => {
   await assert.rejects(call(A, "POST", "/api/mochica/bales/handoff/remove", { items: [] }), /400/);
