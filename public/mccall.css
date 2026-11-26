@@ -2,7 +2,7 @@
    決まり：ボタンの種類は3つだけ（.mcc-btn／.mcc-choice／.mcc-chip）。余白は 4 の倍数。色はここの変数だけを使う。
    上の知らせ欄は高さを固定して、知らせが増えても下の部品がずれないようにしている（押そうとした瞬間にボタンが動かない）。 */
 /* 色は確認ダイアログ（body 直下に出る .mcc-dlg）にも渡す。渡さないと実行ボタンが白文字・背景なしで見えなかった（2026-11-18） */
-.mcc,.mcc-dlg,.mcc-head{--c-accent:#0E9AA7;--c-deep:#0B6E78;--c-soft:#E6F6F8;--c-ink:#12292C;--c-muted:#5C7377;--c-line:#D9ECEE;--c-bg:#F2F9FA;
+.mcc,.mcc-dlg,.mcc-head,.mca{--c-accent:#0E9AA7;--c-deep:#0B6E78;--c-soft:#E6F6F8;--c-ink:#12292C;--c-muted:#5C7377;--c-line:#D9ECEE;--c-bg:#F2F9FA;
   --c-doc:#1d9e75;--c-doc-soft:#E3F4EC;--c-danger:#B4441F;--c-danger-soft:#FDECE6;--c-warn:#A2480C;--c-warn-soft:#FFF1E6;--c-sf:#2563A8;--c-sf-soft:#E8F0FA;}
 .mcc{display:flex;flex-direction:column;gap:8px;height:calc(100vh - 116px);min-height:560px;color:var(--c-ink);font-size:13.5px;}
 .mcc *{box-sizing:border-box;}
@@ -626,3 +626,29 @@
 .mcc-hgrid td.h.edge{opacity:.6;}
 .mcc-hgrid td.h small{display:block;font-size:10px;font-weight:400;color:var(--c-muted);}
 .mcc-hgrid .bad{color:#b42318;font-weight:800;}
+/* アポイント（サイドバー）：MOCHICALL で取ったアポの一覧（2026-11-26 福井さん）。カードをつめて並べる */
+.mca{color:var(--c-ink);font-size:13.5px;}
+.mca *{box-sizing:border-box;}
+.mca-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+.mca-q{height:32px;border:1px solid var(--c-line);border-radius:99px;padding:0 12px;font:inherit;font-size:12.5px;min-width:220px;background:#fff;}
+.mca-h{display:flex;align-items:baseline;gap:8px;margin:14px 0 6px;font-size:14px;font-weight:800;color:var(--c-deep);}
+.mca-h small{color:var(--c-muted);font-weight:700;}
+.mca-day{font-size:12px;font-weight:800;color:var(--c-muted);margin:10px 0 4px;}
+.mca-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:8px;}
+.mca-card{display:flex;gap:10px;align-items:flex-start;background:#fff;border:1px solid var(--c-line);border-radius:14px;padding:10px 12px;}
+.mca-card.past{background:var(--c-bg);}
+.mca-at{flex:0 0 64px;text-align:center;background:var(--c-soft);border-radius:10px;padding:6px 4px;line-height:1.3;}
+.mca-at b{display:block;font-size:12px;color:var(--c-deep);}
+.mca-at span{font-size:15px;font-weight:800;}
+.mca-card.past .mca-at{background:#E9EFF0;}
+.mca-body{flex:1;min-width:0;}
+.mca-co{font-weight:800;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mca-sub{color:var(--c-muted);font-size:12px;margin-top:2px;}
+.mca-meta{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;}
+.mca-meta span{font-size:11.5px;border-radius:99px;padding:2px 8px;background:var(--c-bg);color:var(--c-ink);}
+.mca-meta span.me{background:var(--c-soft);color:var(--c-deep);font-weight:800;}
+.mca-memo{margin-top:6px;font-size:12px;color:var(--c-muted);white-space:pre-wrap;max-height:3.2em;overflow:hidden;cursor:pointer;}
+.mca-memo.open{max-height:none;}
+.mca-ed{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:99px;border:1px solid #5DCAA5;background:#fff;color:#1d9e75;cursor:pointer;}
+.mca-ed:hover{background:#E6F6F0;}
+.mca-empty{color:var(--c-muted);font-size:12.5px;padding:8px 2px;}

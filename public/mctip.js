@@ -233,7 +233,7 @@
     ['.side-item[data-go="mtg"]', { t: "商談の一覧です。録画・文字起こしから作った議事録を見られます。", keep: true }],
     ['.side-item[data-go="call"]', { t: "MOCHICALL（架電の画面）を開きます。", keep: true }],
     ['.side-item[data-go="list"]', { t: "リスト管理です。Bales のリストを見て、メンバーに割り振ります。", keep: true }],
-    ['.side-item[data-go="apo"]', { t: "アポイントの一覧です（準備中）。", keep: true }],
+    ['.side-item[data-go="apo"]', { t: "MOCHICALL で取ったアポの一覧です。これからの商談の日時・獲得者・担当 FS が分かり、カレンダーの予定もここから直せます。", keep: true }],
     ['.side-item[data-go="dash"]', { t: "ダッシュボードです。商談プロセスの計画と実績のずれを確かめます。", keep: true }],
     ['.side-item[data-go="settings"]', { t: "設定を開きます。", keep: true }],
     ["#mcSideBtn", { t: "左のメニューを開く・たたむ。", keep: true }],

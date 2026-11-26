@@ -1835,7 +1835,7 @@
     box.querySelectorAll("[data-apoev]").forEach((b) => b.addEventListener("click", () => { closeHistory?.(); editApoEvent(b.dataset.apoev); }));
   }
   // アポの予定をあとから直す（2026-11-26 福井さん）。カレンダーの今の中身を読んで窓に出し、保存するとアポ獲得者と FS の両方の予定を同じ中身に書き換える
-  async function editApoEvent(logId) {
+  async function editApoEvent(logId, onDone) {
     let ev;
     try { ev = await api(`/api/mccall/logs/${logId}/apo-event`); } catch (e) { toast(`予定を開けませんでした：${e.message}`); return; }
     const mins = Math.max(15, Math.round((new Date(ev.end) - new Date(ev.start)) / 60e3) || 60);
@@ -1844,6 +1844,7 @@
       if (!v("#mccAeAt")) throw new Error("日時を入れてください");
       const r = await post(`/api/mccall/logs/${logId}/apo-event`, { summary: v("#mccAeSum").trim(), start: new Date(v("#mccAeAt")).toISOString(), minutes: v("#mccAeMin"), description: v("#mccAeBody") });
       toast(`予定を直しました（${r.done.join("・")}）${r.fail.length ? `。直せなかった予定：${r.fail.join("・")}` : ""}${r.told ? `。${r.told}` : ""}`);
+      if (onDone) onDone();   // アポイントの一覧から直したときは、一覧を読み直す
       if (r.moved && S.d) { const id = S.d.lead.id; S.cache.delete(id); try { const d = await api(`/api/mccall/leads/${id}`); if (S.d && S.d.lead.id === id) { S.d = d; drawRight(); } } catch {} }
     }, `<div style="display:grid;gap:8px;margin-top:12px">
         <label class="mcc-field">予定名<input id="mccAeSum" value="${esc(ev.summary)}" /></label>
@@ -3226,4 +3227,50 @@
   }
 
   window.mcCallView = start;
+
+  // ---- アポイント（サイドバー）：MOCHICALL で取ったアポの一覧（2026-11-26 福井さん「MOCHICALL でアポとった企業をアポイントに表示」）----
+  //   これからのアポは日の近い順、終わったアポは新しい順。見える範囲はサーバーが決める（管理者は全員分、ほかは自分が取った・自分が FS のもの）
+  const APO = { days: [30, 90, 365].includes(+ls.get("mca_days")) ? +ls.get("mca_days") : 30, mine: ls.get("mca_mine") === "1", q: "", items: [] };
+  async function apoView() {
+    const box = $("mcApoBox"); if (!box) return;
+    if (!APO.items.length) box.innerHTML = `<p class="mca-empty">読み込んでいます…</p>`;
+    try { APO.items = (await api(`/api/mccall/apos?days=${APO.days}`)).items || []; }
+    catch (e) { box.innerHTML = `<p class="mca-empty">アポを読めませんでした（${esc(e.message)}）。少し待ってから、もう一度アポイントを開いてください。</p>`; return; }
+    drawApos();
+  }
+  function drawApos() {
+    const box = $("mcApoBox"); if (!box) return;
+    const others = APO.items.some((a) => !a.mine && !a.fsMine);
+    const q = APO.q.trim().toLowerCase();
+    const list = APO.items.filter((a) => (!APO.mine || a.mine || a.fsMine) && (!q || `${a.company} ${a.person} ${a.setter} ${a.fs} ${a.list}`.toLowerCase().includes(q)));
+    const t0 = new Date(); t0.setHours(0, 0, 0, 0);
+    const up = list.filter((a) => new Date(a.at) >= t0), past = list.filter((a) => new Date(a.at) < t0).reverse();
+    const ico = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="3.5"/><path d="M8 3v4M16 3v4M3.5 10h17M10 15.5l4.5-4.5 1.5 1.5-4.5 4.5H10z"/></svg>';
+    const card = (a, past) => `<div class="mca-card${past ? " past" : ""}">
+        <div class="mca-at"><b>${esc(dayHead(a.at))}</b><span>${esc(hhmm(a.at))}</span></div>
+        <div class="mca-body"><div class="mca-co" title="${esc(a.company)}">${esc(a.company || "会社名なし")}</div>
+          <div class="mca-sub">${[a.person && `${a.person} 様`, a.phone].filter(Boolean).map(esc).join("　") || "担当者名なし"}</div>
+          <div class="mca-meta"><span class="${a.mine ? "me" : ""}">獲得 ${esc(a.setter)}（${esc(dayHead(a.gotAt))}）</span>${a.fs ? `<span class="${a.fsMine ? "me" : ""}">FS ${esc(a.fs)}</span>` : `<span>FS 未定</span>`}${a.team ? `<span>${esc(a.team)}</span>` : ""}${a.list ? `<span>${esc(a.list)}</span>` : ""}</div>
+          ${a.memo ? `<div class="mca-memo" title="押すと全部見られます">${esc(a.memo)}</div>` : ""}</div>
+        ${a.canEdit ? `<button type="button" class="mca-ed" data-apoed="${a.id}" title="カレンダーの予定を直す" aria-label="カレンダーの予定を直す">${ico}</button>` : ""}</div>`;
+    // これからのアポは日ごとに見出しを付ける（今日・明日に何件あるかがひと目で分かるように）
+    let lastDay = "";
+    const upHtml = up.map((a) => { const h = dayHead(a.at); const dh = h !== lastDay ? `${lastDay ? "</div>" : ""}<div class="mca-day">${esc(h)}</div><div class="mca-grid">` : ""; lastDay = h; return dh + card(a, false); }).join("") + (up.length ? "</div>" : "");
+    box.innerHTML = `<div class="mca-bar">
+        <input class="mca-q" id="mcaQ" type="search" placeholder="会社・担当・獲得者・FS・リストで探す" value="${esc(APO.q)}" autocomplete="off" />
+        ${others ? `<button type="button" class="mcc-chip" id="mcaMine" aria-pressed="${APO.mine}">自分のアポだけ</button>` : ""}
+        <span class="mca-empty" style="padding:0">終わったアポ：</span>${[30, 90, 365].map((d) => `<button type="button" class="mcc-chip" data-days="${d}" aria-pressed="${APO.days === d}">${d === 365 ? "1年" : `${d}日`}</button>`).join("")}
+      </div>
+      <div class="mca-h">これからのアポ<small>${up.length}件</small></div>
+      ${up.length ? upHtml : `<p class="mca-empty">これからのアポはありません。MOCHICALL で「担当者接触：アポ獲得」を記録すると、ここに出ます。</p>`}
+      <div class="mca-h">終わったアポ<small>${past.length}件（${APO.days === 365 ? "1年" : `${APO.days}日`}以内）</small></div>
+      ${past.length ? `<div class="mca-grid">${past.map((a) => card(a, true)).join("")}</div>` : `<p class="mca-empty">この期間に終わったアポはありません。</p>`}`;
+    const qi = box.querySelector("#mcaQ");
+    qi.addEventListener("input", () => { APO.q = qi.value; const pos = qi.selectionStart; drawApos(); const n = $("mcaQ"); n.focus(); try { n.setSelectionRange(pos, pos); } catch {} });
+    const mi = box.querySelector("#mcaMine"); if (mi) mi.addEventListener("click", () => { APO.mine = !APO.mine; ls.set("mca_mine", APO.mine ? "1" : "0"); drawApos(); });
+    box.querySelectorAll("[data-days]").forEach((b) => b.addEventListener("click", () => { APO.days = +b.dataset.days; ls.set("mca_days", String(APO.days)); apoView(); }));
+    box.querySelectorAll(".mca-memo").forEach((m) => m.addEventListener("click", () => m.classList.toggle("open")));
+    box.querySelectorAll("[data-apoed]").forEach((b) => b.addEventListener("click", () => editApoEvent(b.dataset.apoed, apoView)));
+  }
+  window.mcApoView = apoView;
 })();

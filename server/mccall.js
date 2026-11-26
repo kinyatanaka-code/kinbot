@@ -3763,6 +3763,29 @@ export function registerMcCall(app, deps) {
     if (!(String(g.caller || "").toLowerCase() === u || (f.fs && f.fs.email === u) || isAdmin(req))) return { status: 403, error: "このアポの予定を直せるのは、アポを取った本人・担当の FS・管理者だけです" };
     return { g, f, evs };
   }
+  // MOCHICALL で取ったアポの一覧（サイドバーの「アポイント」）（2026-11-26 福井さん「MOCHICALL でアポとった企業をアポイントに表示」）。
+  //   取り消した記録は出さない。管理者は全員分、ほかの人は自分が取ったアポと、自分が担当 FS のアポだけ（架電の数字の見え方＝/api/mccall/report と同じ考え方）。
+  //   商談の日が「今日より前の days 日」から先のものを出す（古いものまで全部読むと重くなるため。上限 1年）
+  app.get("/api/mccall/apos", guard(async (req, res) => {
+    const days = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || 30));
+    const p = [jstDayStart(new Date(Date.now() - days * 86400e3))]; let w = "NOT g.undone AND g.outcome='apo' AND g.apo_at >= $1";
+    if (!isAdmin(req)) { p.push(me(req)); w += ` AND (lower(g.caller)=$${p.length} OR g.apo_flow->'fs'->>'email'=$${p.length})`; }
+    const [rows, names] = await Promise.all([
+      P().query(`SELECT g.id, g.lead_id, g.caller, g.apo_at, g.apo_who, g.apo_flow, g.memo, g.created_at, c.company, c.person, c.phone, c.sf_lead_id, l.name AS list_name
+        FROM mc_call_logs g JOIN mc_call_leads c ON c.id=g.lead_id LEFT JOIN mc_call_lists l ON l.id=g.list_id
+        WHERE ${w} ORDER BY g.apo_at LIMIT 500`, p).then((r) => r.rows),
+      nameMap().catch(() => new Map())]);
+    const u = me(req);
+    res.json({ ok: true, days, items: rows.map((g) => {
+      const f = g.apo_flow || {}; const caller = String(g.caller || "").toLowerCase();
+      return { id: g.id, leadId: g.lead_id, company: g.company || "", person: (g.person || "").slice(0, 40), phone: g.phone || "", sfLeadId: g.sf_lead_id || "",
+        list: g.list_name || "", at: g.apo_at, gotAt: g.created_at, setter: names.get(caller) || caller, mine: caller === u,
+        fs: (f.fs && f.fs.name) || g.apo_who || "", fsMine: !!(f.fs && f.fs.email === u), team: f.team || "",
+        memo: String(g.memo || "").slice(0, 400),
+        // 予定を直せるのは、kinbot が予定を作れたアポで、アポを取った本人・担当の FS・管理者だけ（apoEvLoad と同じ決まり）
+        canEdit: !!((f.isEv && f.isEv.ok) || (f.fsEv && f.fsEv.ok)) && (caller === u || !!(f.fs && f.fs.email === u) || isAdmin(req)) };
+    }) });
+  }));
   app.get("/api/mccall/logs/:id/apo-event", guard(async (req, res) => {
     const r = await apoEvLoad(req, parseInt(req.params.id, 10)); if (r.error) return res.status(r.status).json({ error: r.error });
     // 今の中身は、読めた予定から取る（だれかがカレンダーで直していれば、その中身から直せるように）
