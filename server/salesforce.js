@@ -1513,6 +1513,9 @@ export async function runReport(owner, reportId, filters = null) {
   let raw = rowsOf(data);
   let truncated = data.allData === false;
   let pages = 1, splitBy = ""; const splitErrors = [];
+  //   レポート全体の件数（Salesforce が数えた合計）。分けて取った行数と合っているかを確かめるのに使う
+  const tt = (data.factMap && data.factMap["T!T"] && data.factMap["T!T"].aggregates) || [];
+  const sfTotal = (() => { const i = (meta.aggregates || []).indexOf("RowCount"); const a = tt[i >= 0 ? i : 0]; return a && typeof a.value === "number" ? a.value : null; })();
 
   //   2000行を超えるとき：区切りに使う列を選び、その列で並べ替えて「前回の最後より後」を取り直す
   if (truncated) {
@@ -1536,7 +1539,8 @@ export async function runReport(owner, reportId, filters = null) {
           if (last != null) fl.push({ column: key, operator: last.op, value: String(last.v) });
           const bf = baseB && last != null ? `(${baseB}) AND ${fl.length}` : baseB;
           //   まとめ（Summary）形式は並べ替えを受け付けないことがあるので、明細だけの表（TABULAR）として実行する
-          const d2 = await call({ reportFormat: "TABULAR", groupingsDown: [], groupingsAcross: [], aggregates: ["RowCount"], reportFilters: fl, ...(bf ? { reportBooleanFilter: bf } : {}), ...(baseD ? { standardDateFilter: baseD } : {}), sortBy: [{ sortColumn: key, sortOrder: "Asc" }] });
+          //   ほかの設定（クロス条件・範囲・行の上限など）は元のレポートのまま引き継ぐ（抜けると件数が増えてしまう）
+          const d2 = await call({ ...meta, reportFormat: "TABULAR", groupingsDown: [], groupingsAcross: [], aggregates: ["RowCount"], reportFilters: fl, ...(bf ? { reportBooleanFilter: bf } : {}), ...(baseD ? { standardDateFilter: baseD } : {}), sortBy: [{ sortColumn: key, sortOrder: "Asc" }] });
           pg++;
           const rs = rowsOf(d2);
           more = d2.allData === false;
@@ -1549,6 +1553,7 @@ export async function runReport(owner, reportId, filters = null) {
           if (more && !n && last && String(last.v) === String(nl)) throw new Error("区切りが進まない");
           last = { v: nl, op: isDate ? "greaterOrEqual" : "greaterThan" };
         }
+        if (sfTotal != null && all.length > sfTotal) throw new Error(`Salesforce の合計 ${sfTotal} 件より多く取れてしまった（${all.length}件）`);
         if (all.length >= raw.length) { raw = all; truncated = more; pages = pg; splitBy = cols[pick].label; break; }
       } catch (e) { console.warn(`[SFレポート] ${cols[pick].label} で分けて取れませんでした:`, e.message); splitErrors.push(`${cols[pick].label}: ${e.message}`.slice(0, 200)); }
     }
@@ -1581,7 +1586,7 @@ export async function runReport(owner, reportId, filters = null) {
     groups,
     aggLabel,
     truncated,
-    pages, splitBy, ...(splitErrors.length && truncated ? { splitErrors } : {}),
+    pages, splitBy, sfTotal, ...(splitErrors.length && truncated ? { splitErrors } : {}),
     instanceUrl: acc.instanceUrl,
   };
 }
