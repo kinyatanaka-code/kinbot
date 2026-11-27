@@ -8401,6 +8401,10 @@ function nmRenderCards() {
         + `</div>`
         + (_nmStageGrp === "recycle" ? `<div class="nm-sec-h" style="margin-top:10px;font-size:12px">リサイクルの内訳</div><div class="nm-grid">`
             + nmSpecialCard("recyclenew", "リサイクル・新規", sa.recycleNew, "クロスの失注0回")
+            // 新規のリサイクルを A/B/C で（2026-11-27 田中さん）
+            + nmSpecialCard("recyclenewa", "新規・A", sa.recycleNewA, "見込みあり（B・C以外）")
+            + nmSpecialCard("recyclenewb", "新規・B", sa.recycleNewB, "冒頭NG・受付ブロック・コールのみ。かける人が変われば見込みあり")
+            + nmSpecialCard("recyclenewc", "新規・C", sa.recycleNewC, "かけてこないで・採用やってない・担当じゃない・見込みなし")
             + nmSpecialCard("recyclepast", "リサイクル・過去失注", sa.recyclePast, "クロスの失注1回以上")
             + nmSpecialCard("recyclein", "リサイクル（すべて）", sa.recycle, "新規と過去失注の両方") + `</div>`
           : _nmStageGrp === "unassigned" ? `<div class="nm-sec-h" style="margin-top:10px;font-size:12px">未割り当ての内訳</div><div class="nm-grid">`
@@ -8707,6 +8711,9 @@ function nmRenderSpecial(body) {
     recyclein: { name: "リサイクル（ステージ別）", vid: "recycle-in" },
     recyclenew: { name: "リサイクル・新規（100〜500名）", vid: "recycle-new" },
     recyclepast: { name: "リサイクル・過去失注（100〜500名）", vid: "recycle-past" },
+    recyclenewa: { name: "リサイクル・新規・A", vid: "recycle-new-a" },
+    recyclenewb: { name: "リサイクル・新規・B", vid: "recycle-new-b" },
+    recyclenewc: { name: "リサイクル・新規・C", vid: "recycle-new-c" },
     taishogai: { name: "対象外（従業員数）", vid: "taishogai" },
     unassignedin: { name: "未割り当て（従業員数100〜500）", vid: "unassigned-in" },
     unassignednew: { name: "未割り当て・新規（100〜500名）", vid: "unassigned-new" },

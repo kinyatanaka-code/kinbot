@@ -4563,7 +4563,7 @@ export function empOutJs(v) {
 export const UNASSIGNED_LIST_SQL = `(COALESCE(btrim(cl.owner),'') = '' AND NOT COALESCE(cl.hidden,false) AND NOT COALESCE(cl.closed,false) AND btrim(COALESCE(cl.name,'')) NOT IN ('アーカイブ','リサイクル'))`;
 export async function stageLeadsLight() {
   if (!pool) return [];
-  const { rows } = await pool.query(`SELECT t.id, t.lead_id, t.phone, t.company, t.stage, t.status, t.employees, t.list_id, (t.list_id IS NOT NULL AND ${UNASSIGNED_LIST_SQL}) AS unassigned FROM call_targets t LEFT JOIN call_lists cl ON cl.id = t.list_id`);
+  const { rows } = await pool.query(`SELECT t.id, t.lead_id, t.phone, t.company, t.stage, t.status, t.employees, t.list_id, (t.list_id IS NOT NULL AND ${UNASSIGNED_LIST_SQL}) AS unassigned, CASE WHEN COALESCE(t.stage,'') ILIKE '%リサイクル%' THEN (SELECT cl.memo FROM call_logs cl WHERE cl.target_id = t.id AND coalesce(btrim(cl.memo),'') <> '' ORDER BY cl.at DESC LIMIT 1) END AS last_memo FROM call_targets t LEFT JOIN call_lists cl ON cl.id = t.list_id`);
   return rows;
 }
 export async function stageSummaryCounts() {
