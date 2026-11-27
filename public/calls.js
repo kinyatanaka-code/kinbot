@@ -9236,6 +9236,30 @@ function showCrossFails(fails) {
     });
   });
 }
+// リスト編集の「SFと紐づける」（2026-11-27 田中さん）：開いているリストの、まだSFに結びついていない架電先を
+//   会社名でSFのリードに結びつけ（無ければ作る）、続けてSFの最新の状態（ステータス・ステージなど）を反映する。リスト管理の「SFと連携」と同じ処理
+async function edLinkSf() {
+  const btn = $("edLinkSf"); const st = $("edSt");
+  const ids = _edCurIds.filter((x) => /^\d+$/.test(x));
+  if (!ids.length) { if (st) st.textContent = "まとめの一覧（ステージ別など）では使えません。リストを開いてから押してください"; return; }
+  if (!confirm(`開いている ${ids.length} 本のリストで、まだSalesforceに結びついていない架電先を、会社名でSFのリードに結びつけます。\n見つからないものは、SFにリードを新しく作ります。\n終わったら、SFの最新の状態（ステータス・ステージなど）も反映します。\nよろしいですか？`)) return;
+  const orig = btn.textContent; btn.disabled = true;
+  let 見 = 0, 作 = 0, 反映 = 0; const fails = [];
+  try {
+    for (let i = 0; i < ids.length; i++) {
+      const pre = ids.length > 1 ? `${i + 1}/${ids.length}本目 ` : "";
+      const r = await runToSfLoop(ids[i], (p) => { btn.textContent = `${pre}紐づけ中… 残り${p.残り}件`; if (st) st.textContent = `${pre}結びつけ ${見 + p.見}件／新規作成 ${作 + p.作}件${p.失 ? `／失敗 ${fails.length + p.失}件` : ""}`; });
+      見 += r.見; 作 += r.作; fails.push(...r.fails);
+      btn.textContent = `${pre}SFの状態を反映中…`;
+      const rf = await (await fetch(`/api/calls/lists/${encodeURIComponent(ids[i])}/refresh-sf`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json().catch(() => ({}));
+      反映 += Number((rf && rf["反映"]) || 0);
+    }
+    if (st) st.textContent = `SFと紐づけました：結びつけ ${見}件／新規作成 ${作}件${fails.length ? `／失敗 ${fails.length}件` : ""}／状態を反映 ${反映}件`;
+    showSfFails(fails);
+    orgLoadEdit(_edCurIds);   // ステージ・架電状態・最終架電日などを読み直す
+  } catch (e) { if (st) st.textContent = "SFと紐づけられませんでした：" + e.message; }
+  finally { btn.disabled = false; btn.textContent = orig; }
+}
 // SFと連携（未連携の架電先をSFのリードに結びつける）を少しずつくり返す。一度失敗した架電先は飛ばし、最後に理由を窓で出す
 async function runToSfLoop(listId, onProgress) {
   let 見 = 0, 作 = 0, 回 = 0;
@@ -9587,6 +9611,7 @@ async function orgLoadLists() {
     if ($("edStageTo")) $("edStageTo").addEventListener("focus", edFillStageTo);
     if ($("edStageBtn")) $("edStageBtn").addEventListener("click", edStageFiltered);
     if ($("edIndSplit")) $("edIndSplit").addEventListener("click", edIndustrySplit);
+    if ($("edLinkSf")) $("edLinkSf").addEventListener("click", edLinkSf);
     if ($("edEnrichInd")) $("edEnrichInd").addEventListener("click", edEnrichIndustryBtn);
     if ($("edMoveTo")) { $("edMoveTo").addEventListener("focus", edFillMoveTo, { once: true }); kcSearchSelect($("edMoveTo"), { placeholder: "移す先のリストを探す…", onOpen: () => edFillMoveTo() }); }
     if ($("edExtractOwner")) kcSearchSelect($("edExtractOwner"), { placeholder: "抜き出し先：自分の所有" });
@@ -9679,8 +9704,10 @@ async function edLoadLost() {
   } catch (e) { _edLost = {}; console.warn("失注の回数を読めませんでした", e.message); }
   if (typeof edRenderBody === "function") edRenderBody();
 }
+let _edCurIds = [];   // いま編集で開いているリスト（SFと紐づけるのに使う）
 async function orgLoadEdit(listIds) {
   const tbl = $("edTable"); if (!tbl) return;
+  _edCurIds = (listIds || []).map(String);
   _edCrosslost = (listIds || []).map(String).some((v) => v === "crosslost" || v === "pastlost-old");
   _edPastLost = !_edCrosslost && (listIds || []).length > 0 && (listIds || []).every((id) => /過去失注/.test(String(((_edLists && _edLists[id]) || {}).group_name || "")));
   { const ids = (listIds || []).map(String); _edNurture = ids.includes("nurture-week") ? "week" : (ids.includes("nurture-all") ? "all" : ""); }
