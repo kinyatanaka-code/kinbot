@@ -38,7 +38,8 @@ import { PACE, gapStats, hourStats, overStreak, mmss } from "./mcpace.js";   // 
 import { startMcWatch, watchQueue, watchState, watchRecipients, weeklySummary, checkSfFail, checkSfConn, checkPace, sendWatch } from "./mcwatch.js";   // 止まる前の見張り・週次のまとめ（2026-11-27 福井さん）
 import { registerMcUsage } from "./mcusage.js";   // 使われない機能を数える（2026-11-27 福井さん。消すかどうかはオーナーが決める）
 import { ensureApo, startApo, registerMcApo } from "./mcapojob.js";   // アポ確率の予測と夜の学び直し（2026-11-27 オーナー「優先度の代わりにアポ確率で並べる」）
-import { registerMcCuts } from "./mccuts.js";   // 18の切り口で全件をつかむ（2026-11-27 福井さん）
+import { registerMcCuts } from "./mccuts.js";
+import { registerMcTransfer } from "./mctransfer.js";   // リードの移行申請・渡す（2026-11-27 福井さん）   // 18の切り口で全件をつかむ（2026-11-27 福井さん）
 import { planFromBales, MAX_AGE_H } from "./mcbalessync.js";   // BALES でかけた結果で「かける」の順番を変える（2026-11-25）
 import { FILL_APIS, FILL_SOQL_FIELDS, readMemo, readInputs, planFills, pickedFields, hiresBucket } from "./mcsffill.js";
 import { isJunkCompany } from "./mcjunk.js";   // 「テスト山田」「ロープレ練習」など会社名ではないリードを見分ける（2026-11-26 福井さん）
@@ -968,6 +969,12 @@ export function registerMcCall(app, deps) {
   async function myListIds(req, withStock = false) {
     return listIdsFor(me(req), { admin: isAdmin(req), withStock: !!(withStock && isAdmin(req)) });
   }
+  // 1件のリードを開いて記録してよいか：かけてよいリストにあるか、自分の担当になっているリード（閉じていないリストのもの）。
+  //   リードの移行（server/mctransfer.js。2026-11-27 福井さん）で、メンバーでないリストのリードを受け取ることがあるため
+  async function leadOk(req, listId, id) {
+    if ((await myListIds(req)).includes(listId)) return true;
+    return (await P().query(`SELECT 1 FROM mc_call_leads c JOIN mc_call_lists l ON l.id = c.list_id WHERE c.id=$1 AND lower(c.assigned_to)=$2 AND l.biz=$3 AND NOT l.closed`, [id, me(req), BIZ])).rowCount > 0;
+  }
   // だれが・どのリストに入れるか（本人の画面と、管理者が見る「インサイドの『かける』の状態」で同じ判定を使う）
   async function listIdsFor(u, { admin = false, withStock = false } = {}) {
     const rows = (await P().query(`SELECT id, members FROM mc_call_lists WHERE biz=$1 AND NOT closed AND (NOT stock OR $2)`, [BIZ, !!withStock])).rows;
@@ -1288,7 +1295,9 @@ export function registerMcCall(app, deps) {
     res.json({ ok: true, sent, ...w });
   }));
   registerMcUsage(app, { adminOnly, guard, isAdmin });
-  registerMcCuts(app, { adminOnly, guard, isAdmin });   // リスト管理の「切り口」タブ（18の切り口・保存した絞り込み）（2026-11-27 福井さん）
+  registerMcCuts(app, { adminOnly, guard, isAdmin });
+  // リードの移行（全リードから探す・移行申請・渡す）（2026-11-27 福井さん）。中身は server/mctransfer.js
+  registerMcTransfer(app, { guard, isAdmin, me, BIZ, PRODUCTS, balesMain, todayOwnerOf, handoverOwners, listIdsFor, nameMap, blindAttempts, mochicaSet, isMcIntern, adminEmails: deps.adminEmails });   // リスト管理の「切り口」タブ（18の切り口・保存した絞り込み）（2026-11-27 福井さん）
 
   // ---- 1日のタイムライン（2026-11-26 福井さん「PC時間分析レポートの1日のタイムラインみたいな表示をレポートに」） ----
   //   その日の記録を時刻のまま返し、画面で「かける→記録」「記録→次のかける（間隔）」を横に並べて描く。
@@ -2787,7 +2796,7 @@ export function registerMcCall(app, deps) {
   app.get("/api/mccall/leads/:id/research", guard(async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const r = (await P().query(`SELECT list_id, research, research_at FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
-    if (!r || !(await myListIds(req)).includes(r.list_id)) return res.status(404).json({ error: "このリードは見つかりません" });
+    if (!r || !(await leadOk(req, r.list_id, id))) return res.status(404).json({ error: "このリードは見つかりません" });
     res.json({ ok: true, research: r.research_at ? showableResearch(r.research) : null });
   }));
   // ---- 1社の中身（開くとほかの人の順番から外す） ----
@@ -2796,7 +2805,7 @@ export function registerMcCall(app, deps) {
     const lead = (await P().query(`SELECT * FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
     if (!lead) return res.status(404).json({ error: "このリードは見つかりません（リストから外された可能性があります）" });
     const viaInbound = await inboundAllows(u, id, req.query.inbound).catch(() => false);
-    if (!viaInbound && !(await myListIds(req)).includes(lead.list_id) && !(await callbackAllows(req,id))) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
+    if (!viaInbound && !(await leadOk(req, lead.list_id, id)) && !(await callbackAllows(req,id))) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
     if (req.query.callbackId) {
       if (!(await callbackAllows(req,id))) return res.status(409).json({error:"担当が変更されました。指定再架電を更新してください"});
       if (lead.dup_of || (await approachBanHitLead(lead))) return res.status(403).json({error:"この企業は架電できません。管理者が対象を確認してください"});
@@ -2930,7 +2939,7 @@ export function registerMcCall(app, deps) {
     const id = parseInt(req.params.id, 10);
     const lead = (await P().query(`SELECT list_id, hearing FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
     if (!lead) return res.status(404).json({ error: "このリードは見つかりません" });
-    if (!(await inboundAllows(me(req), id, (req.body || {}).inbound).catch(() => false)) && !(await myListIds(req)).includes(lead.list_id) && !(await callbackAllows(req,id))) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
+    if (!(await inboundAllows(me(req), id, (req.body || {}).inbound).catch(() => false)) && !(await leadOk(req, lead.list_id, id)) && !(await callbackAllows(req,id))) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
     const h = mergeHearing(lead.hearing, cleanHearing(req.body || {}));
     if (h) { h.at = new Date().toISOString(); h.by = me(req); }
     await P().query(`UPDATE mc_call_leads SET hearing=$2 WHERE id=$1`, [id, h]); res.json({ ok: true, hearing: h });
@@ -2941,7 +2950,7 @@ export function registerMcCall(app, deps) {
     const id = parseInt(req.params.id, 10); const b = req.body || {};
     const lead = (await P().query(`SELECT list_id, sf_lead_id, hearing, gate FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
     if (!lead) return res.status(404).json({ error: "このリードは見つかりません" });
-    if (!(await myListIds(req)).includes(lead.list_id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
+    if (!(await leadOk(req, lead.list_id, id))) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
     if (!lead.sf_lead_id || !/^00Q[0-9A-Za-z]{12,15}$/.test(lead.sf_lead_id)) return res.json({ ok: true, plan: [], note: "SF のリードと結びついていない会社なので、SF の項目には入りません" });
     const reach = String(b.reach || ""); const outcome = String(b.outcome || "");
     const hearing = reach === "person" ? mergeHearing(lead.hearing, cleanHearing(b.hearing || {})) : null;
@@ -2969,7 +2978,7 @@ export function registerMcCall(app, deps) {
   async function statusLead(req, id) {
     const lead = (await P().query(`SELECT list_id, sf_lead_id FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
     if (!lead) return { code: 404, error: "このリードは見つかりません" };
-    if (!(await inboundAllows(me(req), id, (req.body || {}).inbound || req.query.inbound).catch(() => false)) && !(await myListIds(req)).includes(lead.list_id)) return { code: 403, error: "このリストはあなたの担当ではありません" };
+    if (!(await inboundAllows(me(req), id, (req.body || {}).inbound || req.query.inbound).catch(() => false)) && !(await leadOk(req, lead.list_id, id))) return { code: 403, error: "このリストはあなたの担当ではありません" };
     if (!lead.sf_lead_id || !/^00Q[0-9A-Za-z]{12,15}$/.test(lead.sf_lead_id)) return { code: 200, none: "SF のリードと結びついていないので変えられません" };
     return { lead };
   }
@@ -3007,7 +3016,7 @@ export function registerMcCall(app, deps) {
   async function linkLead(req, id) {
     const lead = (await P().query(`SELECT list_id, company, person, phone, info, sf_lead_id FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
     if (!lead) return { code: 404, error: "このリードは見つかりません" };
-    if (!(await inboundAllows(me(req), id, (req.body || {}).inbound || req.query.inbound).catch(() => false)) && !(await myListIds(req)).includes(lead.list_id)) return { code: 403, error: "このリストはあなたの担当ではありません" };
+    if (!(await inboundAllows(me(req), id, (req.body || {}).inbound || req.query.inbound).catch(() => false)) && !(await leadOk(req, lead.list_id, id))) return { code: 403, error: "このリストはあなたの担当ではありません" };
     if (lead.sf_lead_id && /^00Q[0-9A-Za-z]{12,15}$/.test(lead.sf_lead_id)) return { code: 400, error: "この会社はもう SF のリードと結びついています。画面を読み直してください" };
     return { lead };
   }
@@ -3214,7 +3223,7 @@ export function registerMcCall(app, deps) {
     const id = parseInt(req.params.id, 10); const b = req.body || {};
     const lead = (await P().query(`SELECT list_id, company, person, phone, info, dup_of, sf_lead_id FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
     if (!lead) return res.status(404).json({ error: "このリードは見つかりません" });
-    if (!(await myListIds(req)).includes(lead.list_id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
+    if (!(await leadOk(req, lead.list_id, id))) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
     const company = b.company != null ? clip(b.company, 200) : lead.company;
     if (!company) return res.status(400).json({ error: "会社名は空にできません" });
     const phone = b.phone != null ? clip(b.phone, 40) : lead.phone;
@@ -3327,7 +3336,7 @@ export function registerMcCall(app, deps) {
     const id = parseInt(req.params.id, 10); const b = req.body || {}; const u = me(req);
     const lead = (await P().query(`SELECT * FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
     if (!lead) return res.status(404).json({ error: "このリードは見つかりません" });
-    if (!(await inboundAllows(u, id, b.inbound).catch(() => false)) && !(await myListIds(req)).includes(lead.list_id) && !(await callbackAllows(req,id))) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
+    if (!(await inboundAllows(u, id, b.inbound).catch(() => false)) && !(await leadOk(req, lead.list_id, id)) && !(await callbackAllows(req,id))) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
     if (lead.dup_of) return res.status(403).json({ error: "重複で止めたリードなので記録できません（ほかのリードと会社名が同じで、電話・メール・Web ページ・法人番号のどれかも同じ）。管理者に知らせてください" });
     const ban = await approachBanHitLead(lead).catch(() => ({ reason: "アプローチ禁止の名簿を確認できなかったため、念のため止めています" }));
     if (ban) return res.status(403).json({ error: `「${lead.company}」はアプローチ禁止のため記録できません（理由：${ban.reason || "アプローチ禁止"}）` });
@@ -3506,7 +3515,7 @@ export function registerMcCall(app, deps) {
   async function leadFor(req, id, { withMails = false } = {}) {
     const lead = (await P().query(`SELECT * FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
     if (!lead) { const e = new Error("このリードは見つかりません"); e.status = 404; throw e; }
-    if (!(await myListIds(req)).includes(lead.list_id)) { const e = new Error("このリストはあなたの担当ではありません"); e.status = 403; throw e; }
+    if (!(await leadOk(req, lead.list_id, id))) { const e = new Error("このリストはあなたの担当ではありません"); e.status = 403; throw e; }
     let data = {}, sf = null;
     if (lead.src === "bales") {
       const [lk, rk] = String(lead.src_key).split("|");

@@ -32,6 +32,7 @@
     edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
     back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>',
     person: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>',
+    move: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13"/><path d="M14 4.5L17.5 8 14 11.5"/><path d="M20 16H7"/><path d="M10 12.5L6.5 16 10 19.5"/></svg>',
     ban: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg>',
   };
 
@@ -52,6 +53,7 @@
         <div class="mcc-tabs" role="tablist" id="mccTabs"></div>
         <select class="mcc-sel" id="mccList" aria-label="かけるリスト"></select>
         <div class="mcc-find" id="mccFind"><input type="search" class="mcc-sel" id="mccFindQ" autocomplete="off" aria-label="会社を探してかける" placeholder="会社名・電話・担当者で探してかける" /><div class="mcc-find-list" id="mccFindList" role="listbox" hidden></div></div>
+        <div class="mcc-moves" id="mccMovesWrap"><button type="button" class="mcc-btn" id="mccMoves" hidden aria-label="移行の申請"></button><div class="mcc-moves-box" id="mccMovesBox" hidden></div></div>
         <div class="mcc-stats" id="mccStats" aria-label="今日の自分の数字"></div>
         <span class="mcc-sp"></span>
         <button class="mcc-btn" id="mccHelpBtn" aria-keyshortcuts="?">${ICO.help}キー操作</button>
@@ -98,7 +100,7 @@
     const pane = document.querySelector('[data-pane="call"]');
     if (pane && window.MutationObserver) new MutationObserver(syncSide).observe(pane, { attributes: true, attributeFilter: ["hidden"] });
     document.addEventListener("keydown", onKey);
-    findBox();
+    findBox(); movesBox();
     $("mccList").addEventListener("change", () => { S.listId = parseInt($("mccList").value, 10) || 0; ls.set("mcc_list", String(S.listId)); release(); S.d = null; loadQueue(true); });
     window.addEventListener("beforeunload", () => { if (S.d) navigator.sendBeacon && navigator.sendBeacon(`/api/mccall/leads/${S.d.lead.id}/release`); });
   }
@@ -114,7 +116,7 @@
   function setTab(t) {
     S.tab = t; S.ldBack = null; drawTabs();
     // キー操作の説明は、かける画面のキーだけなので、かける画面にだけ出す（ほかのタブで1段使っていた。2026-11-23 福井さん）
-    $("mccCall").hidden = t !== "call"; $("mccAdmin").hidden = t === "call"; $("mccList").hidden = t !== "call"; $("mccFind").hidden = t !== "call"; $("mccHelpBtn").hidden = t !== "call"; showNotice();
+    $("mccCall").hidden = t !== "call"; $("mccAdmin").hidden = t === "call"; $("mccList").hidden = t !== "call"; $("mccFind").hidden = t !== "call"; $("mccMovesWrap").hidden = t !== "call"; $("mccHelpBtn").hidden = t !== "call"; showNotice();
     syncSide();
     if (t === "callbacks") refreshCallbacks();
     if (t === "leads") drawHub(); if (t === "lists") drawLists(); if (t === "cross") drawCross(); if (t === "measures") drawMeasures(); if (t === "report") drawReport(); if (t === "insight") drawInsight();
@@ -129,6 +131,7 @@
       if (!S.d) await loadQueue(true);
       if (!S.callbackTimer) { refreshCallbacks(); S.callbackTimer = setInterval(refreshCallbacks, 60000); }
       if (!S.inTimer) S.inTimer = setInterval(pollInbound, 4000);
+      if (!S.movesTimer) { loadMoves(); S.movesTimer = setInterval(() => { if (!document.hidden) loadMoves(); }, 60000); }
     } catch (e) { $("mccCenter").innerHTML = `<div class="mcc-empty">架電の画面を開けませんでした：${esc(e.message)}<br>少し待ってから、ページを読み込み直してください。</div>`; }
   }
   async function loadLists() {
@@ -317,28 +320,73 @@
   }
 
   // ---- 会社を探してかける（2026-11-24 福井さん「検索して架電できるように」） ----
-  //   かける順番を待たずに、会社名・電話・担当者で探した会社を開く。探せるのは /queue と同じく、自分がかけてよいリストの
-  //   担当が空か自分のリード（/api/mccall/browse）。いまの会社は、発信していなければ先頭に戻す（記録し終えたら戻ってくる）。
+  //   かける順番を待たずに、会社名・電話・担当者で探した会社を開く。いまの会社は、発信していなければ先頭に戻す（記録し終えたら戻ってくる）。
   //   発信したのに記録していない会社からは移らない（記録が抜けるのを防ぐ）
+  //   探す先は、その商材のリードすべて（かけ終わった会社も。2026-11-27 福井さん「自分のリスト内ではなく保有総数のリードから」）。
+  //   ほかの人のリードは電話を伏せて持ち主と「移行申請」だけ出し、自分のリードには「渡す」を出す（中身は server/mctransfer.js）
   function findBox() {
-    const q = $("mccFindQ"), list = $("mccFindList"); let tmr = 0, seq = 0;
+    const q = $("mccFindQ"), list = $("mccFindList"); let tmr = 0, seq = 0, last = [], lastTotal = 0;
     const hide = () => { list.hidden = true; list.innerHTML = ""; };
+    const note = (t) => `<div class="mcc-note" style="margin:0;padding:8px 10px">${t}</div>`;
+    const OWN = { mine: "あなたのリード", none: "持ち主なし" };
     async function search() {
       const v = q.value.normalize("NFKC").trim(); const my = ++seq;
       if (v.length < 2) { hide(); return; }
-      list.hidden = false; list.innerHTML = `<div class="mcc-note" style="margin:0;padding:8px 10px">探しています…</div>`;
-      // いま選んでいる商材のリストだけ探す（MOCHICA でかけているときにキャリミキの会社が出ないように。2026-11-25）
+      list.hidden = false; list.innerHTML = note("探しています…");
+      // いま選んでいる商材のリードだけ探す（MOCHICA でかけているときにキャリミキの会社が出ないように。2026-11-25）
       const prod = S.listId === -1 || isCm(S.lists.find((l) => l.id === S.listId)) ? "careermixer" : "mochica";
-      let j; try { j = await api(`/api/mccall/browse?${new URLSearchParams({ q: v, st: "open", sort: "hot", prod })}`); }
-      catch (e) { if (my === seq) list.innerHTML = `<div class="mcc-note" style="margin:0;padding:8px 10px">探せませんでした：${esc(e.message)}</div>`; return; }
+      let j; try { j = await api(`/api/mccall/find?${new URLSearchParams({ q: v, prod })}`); }
+      catch (e) { if (my === seq) list.innerHTML = note(`探せませんでした：${esc(e.message)}`); return; }
       if (my !== seq) return;
-      const items = (j.items || []).slice(0, 20);
-      if (!items.length) { list.innerHTML = `<div class="mcc-note" style="margin:0;padding:8px 10px">「${esc(v)}」に合う会社がありません。かけ終わった会社と、ほかの人に割り振られた会社は出ません。</div>`; return; }
-      list.innerHTML = items.map((r) => `<button type="button" class="mcc-find-row" role="option" data-fid="${r.id}">
-          <b>${esc(r.company || "（会社名なし）")}</b><small>${esc([r.person, r.phone, r.list].filter(Boolean).join("・"))}</small>
-          <small>${r.attempts ? `${r.attempts}回 かけた${r.outcome ? `・前回 ${esc(r.outcome)}` : ""}` : "まだかけていない"}${r.busy ? "・ほかの人が開いています" : ""}</small></button>`).join("")
-        + (j.total > items.length ? `<div class="mcc-note" style="margin:0;padding:6px 10px">ほかに ${j.total - items.length}件あります。言葉を足して絞ってください。</div>` : "");
+      last = (j.items || []).slice(0, 20); lastTotal = j.total || 0; draw();
+    }
+    function draw() {
+      list.hidden = false;
+      if (!last.length) { list.innerHTML = note(`「${esc(q.value.trim())}」に合う会社がありません。`); return; }
+      list.innerHTML = last.map((r) => {
+        const sub = r.open ? [r.person, r.phone, r.list] : [r.list];
+        const st = `${r.attempts ? `${r.attempts}回 かけた${r.outcome ? `・前回 ${esc(r.outcome)}` : ""}` : "まだかけていない"}${r.done ? "・かけ終わり" : ""}${r.busy ? "・ほかの人が開いています" : ""}`;
+        const own = r.owner === "other" ? `<span class="mcc-own other">${esc(r.ownerName || "ほかの人")}さんのリード</span>` : r.owner === "mine" ? `<span class="mcc-own mine">${OWN.mine}</span>` : "";
+        const act = r.open
+          ? (r.owner === "mine" ? `<button type="button" class="mcc-find-act give" data-give="${r.id}" title="このリードをほかの人に渡す（受け取る人が許可したら移ります）">${ICO.move}渡す</button>` : "")
+          : r.waitId ? `<button type="button" class="mcc-find-act wait" data-cancel="${r.waitId}" title="申請を取り消す">申請中・取り消す</button>`
+            : `<button type="button" class="mcc-find-act ask" data-ask="${r.id}" title="${r.owner === "other" ? "持ち主に移行を申請します。許可されたら、あなたのリードになります" : "あなたのリストにない会社です。管理者に移行を申請します"}">${ICO.move}移行申請</button>`;
+        return `<div class="mcc-find-item${r.open ? "" : " locked"}">
+          <button type="button" class="mcc-find-row" role="option" ${r.open ? `data-fid="${r.id}"` : `data-lock="${r.id}" aria-disabled="true"`}>
+            <b>${esc(r.company || "（会社名なし）")}</b><small>${esc(sub.filter(Boolean).join("・"))}</small><small>${own}${st}</small></button>${act}</div>`;
+      }).join("") + (lastTotal > last.length ? note(`ほかに ${lastTotal - last.length}件あります。言葉を足して絞ってください。`) : "");
       list.querySelectorAll("[data-fid]").forEach((b) => b.addEventListener("click", () => pick(+b.dataset.fid)));
+      list.querySelectorAll("[data-lock]").forEach((b) => b.addEventListener("click", () => toast("ほかの人のリード（またはあなたのリストにない会社）です。かけるには「移行申請」をして、許可をもらってください")));
+      list.querySelectorAll("[data-ask]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); form(+b.dataset.ask, "ask"); }));
+      list.querySelectorAll("[data-give]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); form(+b.dataset.give, "give"); }));
+      list.querySelectorAll("[data-cancel]").forEach((b) => b.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        try { await post(`/api/mccall/moves/${b.dataset.cancel}/cancel`); toast("申請を取り消しました"); search(); loadMoves(); } catch (er) { toast(er.message); }
+      }));
+    }
+    // 申請の入力（ひと言・渡す相手）。リストの中に出す（画面を止める確認の窓は使わない）
+    async function form(id, kind) {
+      const r = last.find((x) => x.id === id) || {};
+      let ppl = [];
+      if (kind === "give") { try { ppl = (await api("/api/mccall/moves/people")).items || []; } catch (e) { toast(e.message); return; } }
+      list.innerHTML = `<div class="mcc-move-form">
+        <b>${kind === "ask" ? "移行を申請する" : "このリードを渡す"}：${esc(r.company || "")}</b>
+        <small>${kind === "ask" ? (r.owner === "other" ? `${esc(r.ownerName || "持ち主")}さんに届きます。許可されたら、あなたのリードになります。` : "あなたのリストにない会社なので、管理者に届きます。") : "受け取る人に届きます。受け取る人が許可したら移ります。"}</small>
+        ${kind === "give" ? `<select class="mcc-sel" id="mccMvTo" aria-label="渡す相手"><option value="">渡す相手を選ぶ</option>${ppl.map((p) => `<option value="${esc(p.email)}">${esc(p.name)}</option>`).join("")}</select>` : ""}
+        <input class="mcc-sel" id="mccMvNote" maxlength="300" placeholder="ひと言（なくてもよい）" />
+        <div class="mcc-move-btns"><button type="button" class="mcc-btn" id="mccMvBack">${ICO.back}戻る</button><button type="button" class="mcc-btn primary" id="mccMvGo">${ICO.move}${kind === "ask" ? "申請する" : "渡す"}</button></div></div>`;
+      $("mccMvBack").addEventListener("click", (e) => { e.stopPropagation(); draw(); });
+      $("mccMvGo").addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const to = kind === "give" ? $("mccMvTo").value : "";
+        if (kind === "give" && !to) { toast("渡す相手を選んでください"); return; }
+        $("mccMvGo").disabled = true;
+        try {
+          const j = await post("/api/mccall/moves", { leadId: id, kind, to, note: $("mccMvNote").value });
+          toast(j.already ? "同じ申請をもう出しています。返事を待ってください" : kind === "ask" ? `申請しました（${j.approver}さんに届きました）。決まったら Chat で知らせます` : "渡す申請をしました。受け取る人が許可したら移ります");
+          hide(); q.value = ""; loadMoves();
+        } catch (er) { $("mccMvGo").disabled = false; toast(er.message); }
+      });
     }
     async function pick(id) {
       if (S.d && S.d.lead.id === id) { hide(); q.value = ""; return; }
@@ -355,6 +403,39 @@
       if (e.key === "Enter") { e.preventDefault(); const f = list.querySelector("[data-fid]"); if (f) pick(+f.dataset.fid); }
     });
     document.addEventListener("click", (e) => { if (!e.target.closest("#mccFind")) hide(); });
+  }
+
+  // ---- 移行の申請（自分あて＝許可を待っているもの・自分が出したもの）。検索欄の横の札から開く（2026-11-27 福井さん） ----
+  //   1分ごとに数を見る（DB を読むだけ。Chat でも知らせているので、すぐ気づけなくても困らない）
+  async function loadMoves() {
+    const btn = $("mccMoves"); if (!btn) return;
+    try { S.moves = await api("/api/mccall/moves"); } catch { return; }
+    const n = (S.moves.in || []).length, w = (S.moves.out || []).filter((m) => m.status === "wait").length;
+    btn.hidden = !n && !(S.moves.out || []).length;
+    btn.classList.toggle("hot", n > 0);
+    btn.innerHTML = `${ICO.move}移行の申請${n ? `<b>${n}</b>` : w ? `<small>待ち ${w}</small>` : ""}`;
+    if (!$("mccMovesBox").hidden) drawMoves();
+  }
+  function drawMoves() {
+    const box = $("mccMovesBox"), M = S.moves || { in: [], out: [] };
+    const ST = { wait: "返事待ち", ok: "移りました", no: "見送り", cancel: "取り消し", void: "閉じました" };
+    const when = (t) => (t ? day(t) : "");
+    const inH = (M.in || []).map((m) => `<div class="mcc-mv-row">
+        <div><b>${esc(m.company)}</b><small>${m.kind === "ask" ? `${esc(m.by)}さんが、${m.from ? `${esc(m.from)}さんの` : "持ち主のいない"}リードを自分に移したい` : `${esc(m.by)}さんが、あなたに渡したい`}（${esc(m.list)}・${esc(when(m.at))}）</small>${m.note ? `<small>ひと言：${esc(m.note)}</small>` : ""}</div>
+        <div class="mcc-move-btns"><button type="button" class="mcc-btn" data-mvno="${m.id}">見送る</button><button type="button" class="mcc-btn primary" data-mvok="${m.id}">${m.kind === "ask" ? "許可する" : "受け取る"}</button></div></div>`).join("");
+    const outH = (M.out || []).map((m) => `<div class="mcc-mv-row">
+        <div><b>${esc(m.company)}</b><small>${m.kind === "ask" ? `移行申請 → ${esc(m.approver)}さん` : `${esc(m.to)}さんに渡す`}・${ST[m.status] || esc(m.status)}（${esc(when(m.decidedAt || m.at))}）</small>${m.answer ? `<small>返事：${esc(m.answer)}</small>` : ""}</div>
+        ${m.status === "wait" ? `<div class="mcc-move-btns"><button type="button" class="mcc-btn" data-mvcancel="${m.id}">取り消す</button></div>` : ""}</div>`).join("");
+    box.innerHTML = `<h4>あなたが決める申請</h4>${inH || '<p class="mcc-note">いまはありません。</p>'}<h4>あなたが出した申請（7日以内）</h4>${outH || '<p class="mcc-note">いまはありません。</p>'}`;
+    const act = async (u, b, msg) => { try { const j = await post(u, b); toast(j.note || msg); await loadMoves(); } catch (e) { toast(e.message); } };
+    box.querySelectorAll("[data-mvok]").forEach((b) => b.addEventListener("click", () => { b.disabled = true; act(`/api/mccall/moves/${b.dataset.mvok}/decide`, { ok: true }, "移しました。申請した人に Chat で知らせました"); }));
+    box.querySelectorAll("[data-mvno]").forEach((b) => b.addEventListener("click", () => { b.disabled = true; act(`/api/mccall/moves/${b.dataset.mvno}/decide`, { ok: false }, "見送りました"); }));
+    box.querySelectorAll("[data-mvcancel]").forEach((b) => b.addEventListener("click", () => { b.disabled = true; act(`/api/mccall/moves/${b.dataset.mvcancel}/cancel`, {}, "取り消しました"); }));
+  }
+  function movesBox() {
+    const btn = $("mccMoves"), box = $("mccMovesBox");
+    btn.addEventListener("click", (e) => { e.stopPropagation(); box.hidden = !box.hidden; if (!box.hidden) drawMoves(); });
+    document.addEventListener("click", (e) => { if (!e.target.closest("#mccMovesWrap")) box.hidden = true; });
   }
 
   // 自動音声の案内（前の架電の録音から読んだもの）。番号ごとに覚えているので、いまかける番号のものを出す

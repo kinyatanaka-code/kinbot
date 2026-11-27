@@ -13723,6 +13723,8 @@ export async function mcBalesOwnerIndex(listKey, col) {
   const v = { listKey, row, co, lid };
   _ownIdx.clear(); _ownIdx.set(ck, v); return v;
 }
+//   リードの移行（2026-11-27 福井さん）で持ち主を付け替えたら、すぐ「かける」に効くように、覚えている索引を捨てる
+export function mcOwnerIndexReset() { _ownIdx.clear(); }
 //   リード1件がほかの人の会社か。me は本人の BALES での名前（空なら、持ち主のいる会社はすべてほかの人の会社）
 export function mcOwnedByOther(idx, me, { src, src_key, company, sf_lead_id } = {}) {
   if (!idx) return false;
