@@ -4556,6 +4556,9 @@ export const KAKERU_STAGE_SQL = `(btrim(COALESCE(t.stage,'')) IN ('', '-', '－'
 //   「100〜300」のような書き方は、最初の数で見る
 export const EMP_NUM_SQL = `NULLIF(regexp_replace(split_part(split_part(COALESCE(t.employees,''),'〜',1),'~',1),'[^0-9]','','g'),'')`;
 export const EMP_OUT_SQL = `(${EMP_NUM_SQL} IS NULL OR length(${EMP_NUM_SQL}) > 7 OR ${EMP_NUM_SQL}::numeric <= 99 OR ${EMP_NUM_SQL}::numeric >= 501)`;
+// 協同組合・病院・市役所は、従業員数に関係なく対象外（2026-11-27 田中さん）
+export const KC_OUT_NAME_RE = /協同組合|病院|市役所/;
+export const KC_OUT_SQL = `(${EMP_OUT_SQL} OR COALESCE(t.company,'') ~ '協同組合|病院|市役所')`;
 export function empOutJs(v) {
   const n = String(v == null ? "" : v).split(/[〜~]/)[0].replace(/[^0-9]/g, "");
   if (!n || n.length > 7) return true; const k = Number(n); return k <= 99 || k >= 501;
@@ -4733,10 +4736,10 @@ export async function listStageTargets(keyword, { q = "", limit = 2000, statusMa
     const p = [`%${keyword}%`];
     //   keyword が "__kakeru__" のときは「かける」ステージ（空白・-・NEW・担当者未接触・コネクト情報獲得・ジャッジ）
     //   "__kakeru__"・"__recycle_in__" は従業員数が対象（100〜500）のものだけ、"__taishogai__" はかける・リサイクルのうち従業員数が対象外のもの
-    let stageOr = keyword === "__kakeru__" ? `(${KAKERU_STAGE_SQL} AND NOT ${EMP_OUT_SQL} AND $1::text IS NOT NULL)`
-      : keyword === "__recycle_in__" ? `(COALESCE(t.stage,'') ILIKE '%リサイクル%' AND NOT ${EMP_OUT_SQL} AND $1::text IS NOT NULL)`
-      : keyword === "__unassigned_in__" ? `(${KAKERU_STAGE_SQL} AND NOT ${EMP_OUT_SQL} AND $1::text IS NOT NULL)`
-      : keyword === "__taishogai__" ? `((${KAKERU_STAGE_SQL} OR COALESCE(t.stage,'') ILIKE '%リサイクル%') AND ${EMP_OUT_SQL} AND $1::text IS NOT NULL)`
+    let stageOr = keyword === "__kakeru__" ? `(${KAKERU_STAGE_SQL} AND NOT ${KC_OUT_SQL} AND $1::text IS NOT NULL)`
+      : keyword === "__recycle_in__" ? `(COALESCE(t.stage,'') ILIKE '%リサイクル%' AND NOT ${KC_OUT_SQL} AND $1::text IS NOT NULL)`
+      : keyword === "__unassigned_in__" ? `(${KAKERU_STAGE_SQL} AND NOT ${KC_OUT_SQL} AND $1::text IS NOT NULL)`
+      : keyword === "__taishogai__" ? `((${KAKERU_STAGE_SQL} OR COALESCE(t.stage,'') ILIKE '%リサイクル%') AND ${KC_OUT_SQL} AND $1::text IS NOT NULL)`
       : `COALESCE(t.stage,'') ILIKE $1`;
     // ステージだけでなく、指定したステータス（例：現在使われていない）も「その仮想ビュー」に含める
     for (const k of statusMatch) { p.push(`%${k}%`); stageOr += ` OR COALESCE(t.status,'') ILIKE $${p.length}`; }
