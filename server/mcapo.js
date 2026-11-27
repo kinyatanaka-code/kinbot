@@ -47,7 +47,7 @@ const txt = (v) => String(v == null ? "" : v).normalize("NFKC").replace(/\s+/g, 
 // 前回の結果：MOCHICALL の記録の値（no_answer など）と、BALES・SF の結果の言葉を同じ箱にそろえる
 const PREV_KEY = { no_answer: "つながらない", busy: "つながらない", voicemail: "つながらない", closed: "つながらない", invalid: "使われていない番号",
   absent: "受付：担当者不在", blocked: "受付ブロック", callback_req: "掛け直しを指定された", inquiry: "問い合わせ",
-  apo: "アポ獲得", doc_send: "資料送付", follow: "営業フォロー", reject: "お断り" };
+  apo: "アポ獲得", doc_send: "資料送付", follow: "営業フォロー", reject: "お断り", ban: "お断り", single: "お断り" };   // 禁止・窓口一本化も断られた箱に数える
 export function prevBucket(v) {
   const s = txt(v); if (!s) return null;
   if (PREV_KEY[s]) return PREV_KEY[s];

@@ -67,8 +67,9 @@ export const REACH = {
 //   話し中・留守電・掛け直しを指定された は画面のボタンから外したが、過去の記録の名前を出すために残す。営業時間外（closed）は新しく足した
   none: { label: "つながらない", outcomes: { no_answer: "コールのみ", busy: "話し中", voicemail: "留守電", invalid: "現在使われておりません", closed: "営業時間外" } },
   // inquiry＝「HP の問い合わせフォームから送って」と言われた（受付でも担当者でも言われるので両方に置く。key と名前は同じにする）（2026-11-20 福井さん）
-  gate: { label: "受付まで", outcomes: { absent: "担当者不在", blocked: "受付ブロック", callback_req: "掛け直しを指定された", inquiry: "問い合わせ" } },
-  person: { label: "担当者と話せた", outcomes: { apo: "担当者接触：アポ獲得", doc_send: "資料送付", follow: "担当者接触：営業フォロー", reject: "担当者接触：お断り", inquiry: "問い合わせ" } },
+  //   アプローチ禁止（ban）・窓口一本化（single）は受付でも担当者でも言われるので両方に置く（2026-11-27 福井さん「架電結果にアプローチ禁止・窓口一本化を」）
+  gate: { label: "受付まで", outcomes: { absent: "担当者不在", blocked: "受付ブロック", callback_req: "掛け直しを指定された", inquiry: "問い合わせ", ban: "アプローチ禁止", single: "窓口一本化" } },
+  person: { label: "担当者と話せた", outcomes: { apo: "担当者接触：アポ獲得", doc_send: "資料送付", follow: "担当者接触：営業フォロー", reject: "担当者接触：お断り", inquiry: "問い合わせ", ban: "アプローチ禁止", single: "窓口一本化" } },
 };
 const FORM_ST = { sent: "送信しました", unsure: "送信を押しましたが、届いたか分かりません", failed: "送れませんでした" };
 export const REJECT_REASONS = ["今は必要ない", "他社を使っている", "時期が合わない", "予算が無い", "採用の予定が無い", "その他"];
@@ -78,8 +79,8 @@ export const REJECT_REASONS = ["今は必要ない", "他社を使っている",
 export const GATE_REASONS = ["営業電話はお断り", "担当者名が分からないとつなげない", "資料をメールで送って", "本社・別部署で採用している", "今は採用していない", "必要ない・間に合っている", "その他"];
 // 自動で掛け直す結果（つながらなかった・担当者がいなかった）。届かなかった回数 miss_streak もこの結果だけを数える
 const AUTO_RETRY = new Set(["no_answer", "busy", "voicemail", "absent", "closed"]);
-// これ以上かけない結果
-const FINAL = new Set(["invalid", "apo", "reject"]);
+// これ以上かけない結果（アプローチ禁止・窓口一本化は「もう連絡しないで」「窓口はほかに決めている」と言われたので、お断りと同じく終わり）
+const FINAL = new Set(["invalid", "apo", "reject", "ban", "single"]);
 
 const P = () => dbPool();
 const digits = (v) => String(v || "").normalize("NFKC").replace(/[^0-9]/g, "");

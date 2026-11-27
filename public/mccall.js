@@ -482,7 +482,7 @@
     // 電話番号は1本だけなら中央の発信ボタンと同じなので出さない（使えない番号のときは、それが分かるよう出す）。
     //   受付で聞けたこと（担当者名・いる時間・直通）は、担当者名の行にまとめる（下に同じ名前をもう一度出して1段使っていた。2026-11-23 福井さん「左と真ん中のスクロールをなくしたい」）
     $("mccLeft").innerHTML = `
-      <p class="mcc-co">${esc(L.company || "会社名なし")} <button class="mcc-btn mcc-edit" id="mccEdit" title="会社・担当者・電話・メールを直す">${ICO.edit}直す</button><button class="mcc-btn mcc-edit" id="mccBan" title="先方に「もう連絡しないで」と言われたとき：全社のアプローチ禁止の登録フォームに、この会社の情報を入れて送る" style="color:#b42318">${ICO.ban}禁止申請</button></p>
+      <p class="mcc-co">${esc(L.company || "会社名なし")} <button class="mcc-btn mcc-edit" id="mccEdit" title="会社・担当者・電話・メールを直す">${ICO.edit}直す</button></p>
       <div class="mcc-person">${esc(g.name || L.person || "担当者名はまだ分かりません")}${g.name && L.person && g.name !== L.person ? `<small style="color:var(--c-muted);font-weight:600">（リストでは ${esc(L.person)}）</small>` : ""}</div>
       ${g.hours || g.direct || g.biz ? `<div class="mcc-gatei">${g.hours ? `<span>いる時間 <b>${esc(g.hours)}</b></span>` : ""}${g.direct ? `<span>直通・内線 <b>${esc(g.direct)}</b></span>` : ""}${g.biz ? `<span>営業時間 <b>${esc(g.biz)}</b></span>` : ""}</div>` : ""}
       <div class="mcc-badges">${apoBadge(L)}${hotBadge(L.hot)}${L.cross_from ? `<span class="mcc-badge doc">${esc(L.cross_from)} から（部署をまたぐ）</span>` : ""}${d.ban ? '<span class="mcc-badge danger">アプローチ禁止</span>' : ""}${sum && sum.n ? `<span class="mcc-badge sf">SF の商談 ${sum.n}件${sum.won ? "・受注あり" : sum.lost ? "・失注あり" : ""}</span>` : ""}</div>
@@ -500,7 +500,6 @@
       ${L.src === "csv" ? (Object.keys(data).length ? `<details class="mcc-more"><summary>CSV の列（取り込んだままの中身）</summary>${kv(Object.entries(data).slice(0, 30))}</details>` : "") : bales.length ? `<h3>${L.src === "doc" ? "DOC のリスト" : "Bales"}</h3>${kv(bales)}` : ""}`;
     $("mccLeft").querySelectorAll("[data-ph]").forEach((a) => a.addEventListener("click", () => { S.f.phone = a.dataset.ph; S.f.dialed = true; S.f.dialAt = S.f.dialAt || Date.now(); loadSlots(); setTimeout(() => { drawLeft(); drawCenter(); drawTalk(); drawWork(); }, 0); }));
     $("mccEdit").addEventListener("click", editDialog);
-    $("mccBan").addEventListener("click", banDialog);
     const st = $("mccLst"); if (st) st.addEventListener("change", () => changeStatus(st.value));
     const sn = $("mccSfNew"); if (sn) sn.addEventListener("click", sfNewDialog);
   }
@@ -699,7 +698,12 @@
     return [];
   }
   // 1段目の結果の一覧（プルダウンと数字キーで同じ並び）
-  function resList() { const R = S.meta.reach; return REACH_KEYS.filter(([k]) => phase() !== "person" || k.startsWith("person:")).map(([k, sub, cls]) => { const [r, o] = k.split(":"); return { k, label: (R[r] && R[r].outcomes[o]) || o, sub, cls }; }); }
+  //   アプローチ禁止・窓口一本化は受付でも担当者でも言われるので、担当者と話しているときは person: に付け替えて出す
+  function resList() {
+    const R = S.meta.reach, pp = phase() === "person";
+    return REACH_KEYS.filter(([k]) => !pp || k.startsWith("person:") || BOTH_REACH.has(k.split(":")[1]))
+      .map(([k0, sub, cls]) => { const o = k0.split(":")[1]; const r = pp && BOTH_REACH.has(o) ? "person" : k0.split(":")[0]; const k = `${r}:${o}`; return { k, label: (R[r] && R[r].outcomes[o]) || o, sub, cls }; });
+  }
   function whenChoices() {
     const now = new Date(); const at = (h, m, addDays = 0) => { const x = new Date(now); x.setDate(x.getDate() + addDays); x.setHours(h, m, 0, 0); return x; };
     const add = (min) => new Date(now.getTime() + min * 60e3);
@@ -717,7 +721,10 @@
   // 1段目の10個（並びは福井さんの挙げた順）。記録の値（到達:結果）は今までのものを使う。問い合わせは受付で言われることが多いので受付まで、資料送付は担当者と話せたに数える
   const REACH_KEYS = [["gate:blocked", "断り文句を選ぶ", "bad"], ["gate:absent", "掛け直す時間を選ぶ（自動も可）"], ["person:reject", "理由を選ぶ", "bad"], ["person:apo", "日時を選ぶ", "good"],
     ["person:follow", ""], ["none:invalid", "押すと記録して次へ", "bad"], ["none:no_answer", "押すと記録して次へ（自動で掛け直し）"], ["gate:inquiry", "HP のフォームから送る"],
-    ["person:doc_send", "メールで資料を送る"], ["none:closed", "営業時間を残して記録（ほかの時間に掛け直し）"]];
+    ["person:doc_send", "メールで資料を送る"], ["none:closed", "営業時間を残して記録（ほかの時間に掛け直し）"],
+    // 2026-11-27 福井さん：アプローチ禁止・窓口一本化。選ぶと禁止申請のボタンが出る（フォームの「禁止の種類」を合わせて開く）。どちらもお断りと同じく終わり
+    ["gate:ban", "禁止申請を送って記録", "bad"], ["gate:single", "禁止申請（窓口一本化）を送って記録", "bad"]];
+  const BOTH_REACH = new Set(["ban", "single"]);
   function ready() {
     const f = S.f; if (!f.outcome) return false;
     if ((f.outcome === "reject" || f.outcome === "blocked") && !f.reason) return false;
@@ -747,7 +754,7 @@
       if (f.gate.hours || (S.d.lead.gate && S.d.lead.gate.hours) || !c || !c.next) return `次は <b>自動で掛け直し</b>（受付で聞いたいる時間に）`;
       return `次は <b>${esc(tm(c.next.at))}</b> に自動で掛け直し（${c.streak + 1}/${c.max}回目。前回と違う時間帯・1〜2日あけます）`;
     }
-    if (["invalid", "apo", "reject", "blocked"].includes(f.outcome)) return "この会社は、このリストではこれで終わりです";
+    if (["invalid", "apo", "reject", "blocked", "ban", "single"].includes(f.outcome)) return "この会社は、このリストではこれで終わりです";
     return "次の掛け直しはありません";
   }
   // この1本で確定させること（MOCHICA 科学化：1本の勝ち負けは「アポが取れたか」ではなく「何を確定できたか」で見る。不在でも担当者名・いる時間が取れれば前進）
@@ -811,7 +818,7 @@
         <div class="mcc-resrow">
           <label class="mcc-field">架電結果<select class="mcc-sel" id="mccRes" ${canPick ? "" : "disabled"} title="数字キー 1〜0 でも選べます">
             <option value="">${canPick ? "結果を選んでください" : "発信すると選べます"}</option>
-            ${rs.map((c, i) => `<option value="${esc(c.k)}" ${c.k === cur ? "selected" : ""}>${(i + 1) % 10}. ${esc(c.label)}</option>`).join("")}</select></label>
+            ${rs.map((c, i) => `<option value="${esc(c.k)}" ${c.k === cur ? "selected" : ""}>${i < 10 ? `${(i + 1) % 10}. ` : ""}${esc(c.label)}</option>`).join("")}</select></label>
           ${f.outcome === "reject" ? `<label class="mcc-field">断りの理由<select class="mcc-sel" id="mccReason"><option value="">理由を選んでください</option>${reasons.map((r, i) => `<option value="${esc(r)}" ${r === f.reason ? "selected" : ""}>${(i + 1) % 10}. ${esc(r)}</option>`).join("")}</select></label>` : ""}
           ${f.outcome === "apo" ? `<label class="mcc-field mcc-apo-in">アポの日時<input type="datetime-local" id="mccApo" value="${esc(f.apoAt)}" /></label>` : ""}
         </div>
@@ -822,6 +829,7 @@
         ${f.outcome === "apo" && f.apoWho ? `<p id="mccApoWho" class="mcc-note${f.apoOther ? " mcc-warn-tx" : ""}">担当になる FS：${esc(String(f.apoWho).split("・")[0])}${f.apoOther ? "（他チーム）" : ""}。記録すると、予定を入れて知らせます</p>` : ""}
         ${f.outcome === "apo" ? `<div id="mccApoNeed">${apoNeedHtml()}</div>` : ""}
         ${f.outcome === "doc_send" ? `<div class="mcc-next">資料はまだ送っていません。<button class="mcc-chip" id="mccDocNow">資料を送る</button></div>` : ""}
+        ${f.outcome === "ban" || f.outcome === "single" ? `<div class="mcc-next">${f.banSent ? `${f.outcome === "single" ? "窓口一本化" : "アプローチ禁止"}の申請を<b>送りました</b>。` : `全社のアプローチ禁止の登録フォーム（${f.outcome === "single" ? "窓口一本化" : "全社アプローチ禁止"}）には、まだ送っていません。`}<button class="mcc-chip" id="mccBanNow" style="color:#b42318" title="先方に「もう連絡しないで」と言われたとき：全社のアプローチ禁止の登録フォームに、この会社の情報を入れて送る">${ICO.ban}${f.banSent ? "もう一度開く" : "禁止申請"}</button></div>` : ""}
         ${f.outcome === "inquiry" ? `<div class="mcc-next">${f.formSent ? `問い合わせフォームから<b>${esc(f.formSent)}</b>。` : "問い合わせフォームからは、まだ送っていません。"}<button class="mcc-chip" id="mccFormNow">${f.formSent ? "もう一度開く" : "フォームから送る"}</button></div>` : ""}
         ${f.step === "ready" ? `<div class="mcc-next" id="mccNextTx"><span id="mccNextMsg">${nextText()}</span>${AUTO.has(f.outcome) && !f.noRetry ? ` <button class="mcc-chip" id="mccNoRetry" ${f.nextAt ? "hidden" : ""}>自動の掛け直しをやめる</button>` : ""}</div>
           ${f.outcome !== "callback_req" ? `<div class="mcc-chips">${laterChips().map(([l, dd]) => `<button class="mcc-chip" data-later="${dd.toISOString()}" data-ll="${esc(l)}" aria-pressed="${f.nextAt === dd.toISOString()}">${esc(l)}</button>`).join("")}${f.nextAt ? `<button class="mcc-chip" data-later="">時刻を外す</button>` : ""}</div>` : ""}
@@ -846,6 +854,7 @@
     $("mccDoc").addEventListener("click", sendDoc);
     const dn = $("mccDocNow"); if (dn) dn.addEventListener("click", sendDoc);
     const fn = $("mccFormNow"); if (fn) fn.addEventListener("click", sendForm);
+    const bn = $("mccBanNow"); if (bn) bn.addEventListener("click", banDialog);
     const cn = $("mccConnect"); if (cn) cn.addEventListener("click", () => connect(true));
     if (showSlots) bindSlots($("mccSlots"));
     if (showSlots && !S.slots) loadSlots();
@@ -1661,7 +1670,7 @@
     const memo = (S.f && S.f.memo) || "";
     const init = {
       // 名簿に当たっている会社は、すでに登録があるかもしれないので、重複のありなしを人に選んでもらう
-      dup: d.ban ? "" : BAN_DUP[0], kind: BAN_KIND[0], src: BAN_SRC[0], scope: BAN_SCOPE[0],
+      dup: d.ban ? "" : BAN_DUP[0], kind: S.f && S.f.outcome === "single" ? BAN_KIND[2] : BAN_KIND[0], src: BAN_SRC[0], scope: BAN_SCOPE[0],
       bu: mine.bu || s.dept || "", emp: mine.emp || "", name: s.name || "",
       company: L.company || "", office: "", dept: ct.role || "", url: I.web || "",
       person: (L.gate && L.gate.name) || L.person || ct.name || "", email: ((d.mails || [])[0] || {}).addr || "",
@@ -1693,6 +1702,7 @@
         add("fvv", "1"); add("pageHistory", r.pages.join(","));   // フォームが送るときに付ける決まりの項目（通ったページ）
         document.body.appendChild(f); f.submit(); setTimeout(() => f.remove(), 1000);
         toast(`「${v.company}」のアプローチ禁止の申請を送りました。新しいタブに「回答を記録しました」が出ているか確かめてください`);
+        if (S.f && S.d && S.d.lead === L) { S.f.banSent = true; drawCenter(); }   // 架電結果の「送りました」に変える（ほかの会社に移っていたら触らない）
       }, `<div style="display:grid;gap:8px;margin-top:12px" class="mcc-banf">${BAN_FIELDS.map(input).join("")}</div>
       <p class="mcc-note" style="margin-top:10px">グループ全体を選んだときは、送ったあとでグループ企業を<b>ご自身で全て</b>登録してください（フォームの決まり）。<button type="button" class="mcc-btn" data-banopen style="margin-left:6px">フォームで確かめる</button></p>`);
     w.firstElementChild.classList.add("wide");

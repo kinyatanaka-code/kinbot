@@ -100,7 +100,7 @@ export function phoneCands({ phone, data, gate, info } = {}) {
   return out;
 }
 // MOCHICALL で相手に届いた結果（番号が生きている証拠）。SF の「現アナ」より新しいので、そちらを信じる
-const REACHED = new Set(["absent", "blocked", "callback_req", "inquiry", "apo", "doc_send", "follow", "reject"]);
+const REACHED = new Set(["absent", "blocked", "callback_req", "inquiry", "apo", "doc_send", "follow", "reject", "ban", "single"]);
 export function phoneJudge(cands, sfx, lastOutcome) {
   const S = sfx && !sfx._missing ? sfx : null;
   const bad = new Set();
