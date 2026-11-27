@@ -9236,6 +9236,21 @@ function showCrossFails(fails) {
     });
   });
 }
+// 絞り込んだ分の「最終架電日・最終ステータス・最終フェーズ・履歴」を白紙にする（2026-11-27 田中さん）
+//   画面に出さないだけで、架電の記録と SF の活動は消さない（分析にはそのまま使える）
+async function edBlankHistory() {
+  const st = $("edSt"); const rows = edFiltered(); if (!rows.length) return;
+  if (!confirm(`絞り込んだ ${rows.length}件の「最終架電日・最終ステータス・最終フェーズ・履歴」を白紙にします。\n架電の記録と Salesforce の活動は消さずに残すので、分析はそのままできます。\nよろしいですか？`)) return;
+  const btn = $("edBlank"); btn.disabled = true;
+  try {
+    const r = await fetch("/api/calls/targets/blank", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: rows.map((x) => x.id) }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || "白紙にできませんでした");
+    if (st) st.textContent = `${d.n}件を白紙にしました（記録は残っています）`;
+    orgLoadEdit(_edCurIds);
+  } catch (e) { if (st) st.textContent = e.message; }
+  finally { btn.disabled = false; }
+}
 // リスト編集の「SFと紐づける」（2026-11-27 田中さん）：開いているリストの、まだSFに結びついていない架電先を
 //   会社名でSFのリードに結びつけ（無ければ作る）、続けてSFの最新の状態（ステータス・ステージなど）を反映する。リスト管理の「SFと連携」と同じ処理
 async function edLinkSf() {
@@ -9612,6 +9627,7 @@ async function orgLoadLists() {
     if ($("edStageBtn")) $("edStageBtn").addEventListener("click", edStageFiltered);
     if ($("edIndSplit")) $("edIndSplit").addEventListener("click", edIndustrySplit);
     if ($("edLinkSf")) $("edLinkSf").addEventListener("click", edLinkSf);
+    if ($("edBlank")) $("edBlank").addEventListener("click", edBlankHistory);
     if ($("edEnrichInd")) $("edEnrichInd").addEventListener("click", edEnrichIndustryBtn);
     if ($("edMoveTo")) { $("edMoveTo").addEventListener("focus", edFillMoveTo, { once: true }); kcSearchSelect($("edMoveTo"), { placeholder: "移す先のリストを探す…", onOpen: () => edFillMoveTo() }); }
     if ($("edExtractOwner")) kcSearchSelect($("edExtractOwner"), { placeholder: "抜き出し先：自分の所有" });
