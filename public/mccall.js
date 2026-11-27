@@ -29,6 +29,7 @@
     skip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5l9 7-9 7z"/><path d="M19 5v14"/></svg>',
     help: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>',
     mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M4 7l8 6 8-6"/></svg>',
+    cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18M8 14h2M14 14h2M8 17.5h2"/></svg>',
     edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
     back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>',
     person: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>',
@@ -891,6 +892,7 @@
         ${f.dialed ? `<a class="mcc-dialed" id="mccRedial" href="${callHref(ph)}" title="切れたときは、2回押すともう一度かけます">${ICO.phone}<span>${esc(ph)} に発信しました</span></a>` : ph ? `<a class="mcc-btn primary big" href="${callHref(ph)}" id="mccDial" aria-keyshortcuts="C">${ICO.phone}${esc(ph)} にかける<span class="mcc-key" style="background:rgba(255,255,255,.18);color:#fff;border-color:transparent">C</span></a>` : `<span class="mcc-note">電話番号がありません</span>`}
         ${f.dialed ? "" : `<button class="mcc-btn" id="mccSkip" aria-keyshortcuts="S">${ICO.skip}飛ばす<span class="mcc-key">S</span></button>`}
         <button class="mcc-btn" id="mccDoc">${ICO.mail}資料を送る</button>
+        <button class="mcc-btn" id="mccBook" title="空いている日時の URL をメールで送り、お客様に選んでもらう">${ICO.cal}日程調整を送る</button>
       </div>
       ${ivrHtml(L, ph)}
       ${canPick ? `<div class="mcc-step">${stepLine}</div>` : ""}
@@ -933,6 +935,7 @@
     const bk = $("mccBack"); if (bk) bk.addEventListener("click", back);
     const sk = $("mccSkip"); if (sk) sk.addEventListener("click", skip);
     $("mccDoc").addEventListener("click", sendDoc);
+    const bkm = $("mccBook"); if (bkm) bkm.addEventListener("click", sendBook);
     const dn = $("mccDocNow"); if (dn) dn.addEventListener("click", sendDoc);
     const fn = $("mccFormNow"); if (fn) fn.addEventListener("click", sendForm);
     const bn = $("mccBanNow"); if (bn) bn.addEventListener("click", banDialog);
@@ -1572,6 +1575,45 @@
       try { const n = await post(`/api/mccall/leads/${L.id}/doc/preview`, { docId: e.target.value }); pv = n;
         w.querySelector("#mccDSub").value = n.subject; w.querySelector("#mccDBody").value = n.body;
       } catch (err) { toast(`資料を切り替えられませんでした：${err.message}`); }
+    });
+  }
+
+  // ---- 日程調整メール（2026-11-27 福井さん「メール経由で空き日程がわかる URL を作って、メールアポを取れるように」）----
+  //   MOCHICA の FS のカレンダーの空きを出す URL を、あなたの Gmail で送る。お客様が時間を選ぶと、あなたのアポとして記録し、
+  //   電話のアポと同じく担当 FS を決めて予定を入れ、Chat で知らせる。ほかの方法で送りたいときは「URL だけ作ってコピー」
+  async function sendBook() {
+    if (!S.d) return; const L = S.d.lead;
+    let pv;
+    try { pv = await post(`/api/mccall/leads/${L.id}/book-mail/preview`, {}); } catch (e) { setNotice([{ kind: "danger", text: `日程調整のメールの準備ができませんでした：${e.message}` }]); return; }
+    const w = dialog(`日程調整を送る：${pv.company}`, pv.google ? "中身を確かめてから「送る」を押してください。あなたの Gmail から送ります。" : "あなたの Google 連携がまだなので送れません。設定 → 外部連携 → Google でつないでください（URL だけ作ることはできます）。", "送る", async (w) => {
+      const v = (id) => w.querySelector(id).value;
+      const r = await post(`/api/mccall/leads/${L.id}/book-mail/send`, { to: v("#mccBkTo").trim(), cc: v("#mccBkCc").trim(), subject: v("#mccBkSub").trim(), body: v("#mccBkBody") });
+      toast(`日程調整のメールを ${r.to} に送りました${r.sf ? `（${r.sf}）` : ""}`);
+      S.cache.delete(L.id); try { const d = await api(`/api/mccall/leads/${L.id}`); if (S.d && S.d.lead.id === L.id) { S.d = d; drawRight(); } } catch {}
+    }, `<div style="display:grid;gap:8px;margin-top:12px">
+        <p class="mcc-note" style="${pv.slots ? "" : "color:var(--c-warn)"}">${pv.slots ? `いまお客様に出せる空き：<b>${esc(pv.slots)}枠</b>（MOCHICA の FS のカレンダーから。明日から2週間・平日10〜18時・お昼を除く・1時間）` : `いまお客様に出せる空きがありません${pv.why ? `（${esc(pv.why)}）` : ""}。送っても、お客様は時間を選べません`}</p>
+        ${pv.last ? `<p class="mcc-note" style="color:var(--c-warn)">この会社には ${esc(day(pv.last.sent_at))} に日程調整のメールを送っています（${pv.last.booked_at ? "予約済み" : pv.last.opened_at ? "開かれた・まだ予約なし" : "まだ開かれていません"}）。</p>` : ""}
+        ${pv.warn ? `<p class="mcc-note" style="color:var(--c-warn)">${esc(pv.warn)}</p>` : ""}
+        <label class="mcc-field">宛先<input id="mccBkTo" type="email" value="${esc(pv.to)}" autocomplete="off" /></label>
+        <label class="mcc-field">CC（なくてよい）<input id="mccBkCc" value="" autocomplete="off" /></label>
+        <label class="mcc-field">件名<input id="mccBkSub" value="${esc(pv.subject)}" /></label>
+        <label class="mcc-field">本文<textarea id="mccBkBody" style="min-height:220px">${esc(pv.body)}</textarea></label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="mcc-btn" id="mccBkSig" type="button">自分の署名・名乗り</button><button class="mcc-btn" id="mccBkLink" type="button">URL だけ作ってコピー</button></div>
+        <input id="mccBkUrl" readonly hidden style="font-size:12px" />
+        <p class="mcc-note">本文の {URL} には、「送る」を押したときにこの会社用に作る URL が入ります。お客様が時間を選ぶと、あなたのアポとして記録し、電話のアポと同じく担当 FS に予定を入れて Chat で知らせます（必須のヒアリングは確かめません）。URL が開かれたときも1回だけ Chat で知らせます。</p></div>`);
+    if (!pv.google) w.querySelector("[data-ok]").disabled = true;
+    w.querySelector("#mccBkSig").addEventListener("click", () => senderDialog(async () => {
+      const n = await post(`/api/mccall/leads/${L.id}/book-mail/preview`, {}).catch(() => null); if (!n || !document.body.contains(w)) return;
+      if (w.querySelector("#mccBkBody").value === pv.body) w.querySelector("#mccBkBody").value = n.body; pv = n;
+    }));
+    w.querySelector("#mccBkLink").addEventListener("click", async (e) => {
+      const b = e.currentTarget; b.disabled = true;
+      try {
+        const r = await post(`/api/mccall/leads/${L.id}/book-link`, {});
+        const box = w.querySelector("#mccBkUrl"); box.hidden = false; box.value = r.url; box.select();
+        try { await navigator.clipboard.writeText(r.url); toast("日程調整の URL をコピーしました"); } catch { toast("URL を作りました。下の欄からコピーしてください"); }
+      } catch (err) { toast(`URL を作れませんでした：${err.message}`); }
+      finally { b.disabled = false; }
     });
   }
 

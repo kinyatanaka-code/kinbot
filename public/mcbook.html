@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#0d5b47" />
+    <title>お打ち合わせの日程のご調整</title>
+    <style>
+      /* MOCHICALL の日程調整メールから、お客様が開く画面（2026-11-27）。
+         ログインしていない人が開くので、kinbot の中の CSS・JS は読まず、このファイルだけで完結させる。 */
+      :root { --line: #e3ece9; --ink: #1f2d2a; --muted: #6f8781; --panel: #fff; --bg: #eef5f2; --g1: #0d5b47; --g2: #1d9e75; --g3: #5DCAA5; --soft: #f2fbf7; --err: #A33C24; }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--ink); line-height: 1.7;
+        font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif; }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
+      .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px 20px; box-shadow: 0 2px 14px rgba(13,91,71,.06); }
+      .head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 6px; }
+      .ico { flex: none; width: 42px; height: 42px; border-radius: 12px; background: var(--soft); color: var(--g1); display: grid; place-items: center; }
+      .ico svg { width: 24px; height: 24px; }
+      h1 { font-size: 18px; margin: 0; }
+      .sub { font-size: 13px; color: var(--muted); margin: 2px 0 0; }
+      .note { font-size: 13px; color: var(--muted); margin: 12px 0 0; }
+      .step { font-size: 13px; font-weight: 700; color: var(--g1); margin: 20px 0 8px; }
+      .days { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+      .dayb { flex: none; white-space: nowrap; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 12px;
+        padding: 8px 10px; font-family: inherit; font-size: 13px; cursor: pointer; text-align: center; line-height: 1.4; }
+      .dayb small { display: block; color: var(--muted); font-size: 11px; }
+      .dayb:hover { border-color: var(--g3); background: var(--soft); }
+      .dayb[aria-pressed="true"] { background: var(--g1); border-color: var(--g1); color: #fff; }
+      .dayb[aria-pressed="true"] small { color: #cfeee2; }
+      .slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 8px; }
+      .slot { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 10px; padding: 11px 6px;
+        font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer; }
+      .slot:hover { border-color: var(--g3); background: var(--soft); }
+      .slot[aria-pressed="true"] { background: var(--g1); border-color: var(--g1); color: #fff; }
+      .form { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 16px; }
+      .form[hidden] { display: none; }
+      .picked { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; color: var(--g1); }
+      .picked svg { width: 18px; height: 18px; flex: none; }
+      label { display: block; font-size: 12px; color: var(--muted); margin-top: 12px; }
+      label b { color: var(--err); font-weight: 400; margin-left: 4px; }
+      input, textarea { display: block; width: 100%; margin-top: 4px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px;
+        font-size: 16px; font-family: inherit; background: var(--panel); color: var(--ink); }
+      textarea { min-height: 76px; resize: vertical; }
+      input:focus, textarea:focus { outline: none; border-color: var(--g2); }
+      .go { width: 100%; margin-top: 18px; border: none; background: var(--g1); color: #fff; border-radius: 12px; padding: 15px;
+        font-size: 16px; font-weight: 700; font-family: inherit; cursor: pointer; }
+      .go:hover { background: var(--g2); }
+      .go:disabled { opacity: .5; cursor: default; }
+      .msg { margin-top: 12px; font-size: 13px; color: var(--err); }
+      .done { text-align: center; padding: 22px 6px 8px; }
+      .done .ico { margin: 0 auto; width: 56px; height: 56px; border-radius: 50%; }
+      .done .ico svg { width: 30px; height: 30px; }
+      .done h2 { font-size: 18px; color: var(--g1); margin: 12px 0 6px; }
+      .done .when { font-size: 16px; font-weight: 700; margin: 4px 0 10px; }
+      .foot { text-align: center; font-size: 11px; color: var(--muted); margin-top: 18px; }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <div class="card">
+        <div class="head">
+          <div class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18M8 14h2M14 14h2M8 17.5h2"/></svg></div>
+          <div>
+            <h1>お打ち合わせの日程のご調整</h1>
+            <p class="sub" id="sub">読み込んでいます…</p>
+          </div>
+        </div>
+        <div id="body"></div>
+      </div>
+      <p class="foot">株式会社ネオキャリア</p>
+    </main>
+
+    <script>
+      // URL の最後が、この会社用の鍵（/mb/xxxx）
+      const slug = location.pathname.split("/").filter(Boolean).pop();
+      const API = `/api/mccall/pub/book/${encodeURIComponent(slug)}`;
+      const $ = (id) => document.getElementById(id);
+      const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      const CLOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+      const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+      let D = null, dayIx = 0, picked = null;
+
+      // 日本時間で「12月3日（水）10:00〜11:00」の形にする（お客様のパソコンの時刻設定に左右されないように）
+      function when(iso, minutes) {
+        const t = new Date(iso).getTime(), j = new Date(t + 9 * 3600e3), e = new Date(t + (minutes || 60) * 60e3 + 9 * 3600e3);
+        const hm = (x) => `${String(x.getUTCHours()).padStart(2, "0")}:${String(x.getUTCMinutes()).padStart(2, "0")}`;
+        return `${j.getUTCMonth() + 1}月${j.getUTCDate()}日（${"日月火水木金土"[j.getUTCDay()]}）${hm(j)}〜${hm(e)}`;
+      }
+      function only(html) { $("body").innerHTML = html; }
+      function doneHtml(title, at, text) {
+        return `<div class="done"><div class="ico" aria-hidden="true">${CHECK}</div><h2>${esc(title)}</h2>${at ? `<p class="when">${esc(when(at, D && D.minutes))}</p>` : ""}<p class="note">${esc(text)}</p></div>`;
+      }
+
+      async function load() {
+        let r, d;
+        try { r = await fetch(API); d = await r.json(); } catch { d = null; }
+        if (!r || !d || !r.ok) { $("sub").textContent = ""; only(`<p class="msg">${esc((d && d.error) || "読み込めませんでした。少し時間をおいて、もう一度お開きください。")}</p>`); return; }
+        D = d;
+        const who = [d.company, d.person ? `${d.person}様` : ""].filter(Boolean).join(" ");
+        $("sub").textContent = `${who ? `${who}　` : ""}${d.from ? `${d.from}より` : ""}`;
+        if (d.booked) { only(doneHtml("ご予約をいただいています", d.booked, "担当より、オンライン会議のご案内をお送りします。日程を変えたいときは、メールの送り主までご連絡ください。")); return; }
+        if (d.expired) { only(`<p class="msg">この URL の使える期間が過ぎました。お手数ですが、メールの送り主までご連絡ください。</p>`); return; }
+        if (!d.days || !d.days.length) { only(`<p class="note">申し訳ありません。いまお選びいただける時間がありません。お手数ですが、メールにご返信いただくか、送り主までご連絡ください。</p>`); return; }
+        draw();
+      }
+
+      function draw() {
+        const day = D.days[dayIx];
+        only(`
+          <p class="note">オンラインで${esc(D.minutes || 60)}分ほどのお打ち合わせです。ご都合のよい日時をお選びください（表示は日本時間です）。</p>
+          <p class="step">1. 日にちを選ぶ</p>
+          <div class="days" role="group" aria-label="日にち">${D.days.map((x, i) => `<button type="button" class="dayb" data-d="${i}" aria-pressed="${i === dayIx}">${esc(x.label)}<small>${x.slots.length}枠</small></button>`).join("")}</div>
+          <p class="step">2. 時間を選ぶ</p>
+          <div class="slots" role="group" aria-label="時間">${day.slots.map((s) => `<button type="button" class="slot" data-at="${esc(s.at)}" aria-pressed="${picked === s.at}">${esc(s.time)}</button>`).join("")}</div>
+          <div class="form" id="form" ${picked && day.slots.some((s) => s.at === picked) ? "" : "hidden"}>
+            <p class="picked">${CLOCK}<span id="pk">${picked ? esc(when(picked, D.minutes)) : ""}</span></p>
+            <label>お名前<b>必須</b><input id="nm" autocomplete="name" value="${esc(D.person || "")}" /></label>
+            <label>メールアドレス<b>必須</b><input id="em" type="email" autocomplete="email" inputmode="email" /></label>
+            <label>ご質問・ご要望（なくて構いません）<textarea id="nt" maxlength="500"></textarea></label>
+            <button type="button" class="go" id="go">この日時で予約する</button>
+            <p class="msg" id="msg" hidden></p>
+          </div>`);
+        document.querySelectorAll("[data-d]").forEach((b) => b.addEventListener("click", () => { dayIx = Number(b.dataset.d); draw(); }));
+        document.querySelectorAll("[data-at]").forEach((b) => b.addEventListener("click", () => {
+          // 書きかけのお名前などは残したまま、選んだ時間だけ変える
+          picked = b.dataset.at;
+          document.querySelectorAll("[data-at]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+          $("pk").textContent = when(picked, D.minutes); $("form").hidden = false; $("form").scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }));
+        const go = $("go"); if (go) go.addEventListener("click", book);
+      }
+
+      async function book() {
+        const go = $("go"), msg = $("msg");
+        const name = $("nm").value.trim(), email = $("em").value.trim(), note = $("nt").value.trim();
+        const fail = (t) => { msg.textContent = t; msg.hidden = false; go.disabled = false; };
+        if (!picked) return fail("時間をお選びください。");
+        if (!name) return fail("お名前を入れてください。");
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail("メールアドレスの形をご確認ください。");
+        go.disabled = true; msg.hidden = true;
+        let r, d;
+        try { r = await fetch(API, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ at: picked, name, email, note }) }); d = await r.json(); } catch { d = null; }
+        if (r && r.ok && d && d.ok) { only(doneHtml("ご予約を承りました", d.at, "担当より、オンライン会議のご案内をメールでお送りします。当日はどうぞよろしくお願いいたします。")); return; }
+        // 埋まってしまったときは、最新の空きを読み直して選び直してもらう
+        if (r && r.status === 409 && !(d && d.booked)) {
+          const t = (d && d.error) || "その時間は埋まってしまいました。";
+          picked = null; await load();
+          $("body").insertAdjacentHTML("afterbegin", `<p class="msg">${esc(t)}</p>`);
+          return;
+        }
+        fail((d && d.error) || "いまご予約できませんでした。少し時間をおいて、もう一度お試しください。");
+      }
+      load();
+    </script>
+  </body>
+</html>

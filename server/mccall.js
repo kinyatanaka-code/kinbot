@@ -18,6 +18,8 @@ import { freeBusy, gmailSend, isConnected as googleConnected, createCalendarEven
 import { notifyPerson } from "./chat.js";
 import { teamOf, teamLabel, splitFree, slotScore, pickFs } from "./mcteam.js";   // IS と FS のチーム（2026-11-23）
 import { fixMojibake } from "./docs.js";
+import { randomBytes } from "node:crypto";   // 日程調整メールの URL の鍵（2026-11-27）
+import { fileURLToPath } from "node:url";
 import { callbackBoard } from "./mccallback.js";
 import { ensureZoomHistory, pastApproach, balesItems, dedupeTimeline, startZoomSync, spokenText, spokenData } from "./mchist.js";   // リードの過去アプローチを BALES・SF・Zoom Phone・DOC から集める（2026-11-20）
 import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord, sfUpdateMany, connectionInfo as sfConnInfo, describeObject, sfCreateRecord, sfUserIdByEmail,
@@ -186,6 +188,14 @@ async function ensure() {
     await q(`CREATE TABLE IF NOT EXISTS mc_form_sends (
       id SERIAL PRIMARY KEY, lead_id INT, sender TEXT, url TEXT, status TEXT, note TEXT, subject TEXT, body TEXT,
       sf_task_id TEXT, sf_err TEXT, created_at TIMESTAMPTZ DEFAULT now())`);
+    // 日程調整メールの URL（2026-11-27 福井さん「メール経由で空き日程がわかる URL を作って、メールアポを取れるように」）。
+    //   1つの URL で予約は1回だけ（booked_at）。予約されたら、送った人のアポとして mc_call_logs に入れる（log_id）
+    await q(`CREATE TABLE IF NOT EXISTS mc_book_links (
+      id SERIAL PRIMARY KEY, slug TEXT UNIQUE, lead_id INT, sender TEXT, to_addr TEXT, cc TEXT, subject TEXT,
+      sent_at TIMESTAMPTZ, opened_at TIMESTAMPTZ, open_n INT DEFAULT 0, booked_at TIMESTAMPTZ, apo_at TIMESTAMPTZ, log_id INT,
+      guest JSONB, sf_task_id TEXT, sf_err TEXT, created_at TIMESTAMPTZ DEFAULT now())`);
+    // どこから入った記録か（'mail'＝日程調整メールからお客様が予約）。電話の記録は空のまま
+    await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS via TEXT`);
     // BALES CLOUD でできたことをMOCHICALL でも（2026-11-18 福井さん）：
     //   架電者が直した会社の情報（追加の番号・複数の担当者・メール）。元のデータ（Bales/CSV/DOC）は変えず、ここに重ねる
     await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS info JSONB`);
@@ -2870,6 +2880,12 @@ export function registerMcCall(app, deps) {
     const hlabel = new Map(HEAR_ITEMS.map((x) => [x.k, x.label]));
     for (const s of hmails) tl.push({ at: s.created_at, src: "kinbot", who: names.get(String(s.sender || "").toLowerCase()) || s.sender, title: "ヒアリングのメール",
       text: [`${s.to_addr} に送付${s.cc ? `（CC ${s.cc}）` : ""}`, (s.keys || []).length ? `聞いたこと：${s.keys.map((k) => hlabel.get(k) || k).join("・")}` : "", s.sf_err ? "SF の活動には書けませんでした" : ""].filter(Boolean).join("\n") });
+    // 日程調整メールも同じ時系列に（開かれたか・予約されたかが分かるように）
+    const bmails = (await P().query(`SELECT * FROM mc_book_links WHERE lead_id=$1${blind ? " AND sender=$2" : ""} ORDER BY created_at DESC LIMIT 20`, blind ? [id, u] : [id]).catch(() => ({ rows: [] }))).rows;
+    for (const s of bmails) tl.push({ at: s.sent_at || s.created_at, src: "kinbot", who: names.get(String(s.sender || "").toLowerCase()) || s.sender, title: s.sent_at ? "日程調整メール" : "日程調整の URL",
+      text: [s.sent_at ? `${s.to_addr} に送付${s.cc ? `（CC ${s.cc}）` : ""}` : "URL を作成（ほかの方法で送る用）",
+        s.booked_at ? `予約されました：${s.apo_at ? dayText(s.apo_at) : ""}${s.guest && s.guest.name ? `（${s.guest.name}様）` : ""}` : s.opened_at ? `開かれました（${s.open_n || 1}回）・まだ予約はありません` : "まだ開かれていません",
+        s.sf_err ? "SF の活動には書けませんでした" : ""].filter(Boolean).join("\n") });
     // 問い合わせフォームの送信も同じ時系列に（送れなかったものも、なぜかが分かるように出す）
     const forms = (await P().query(`SELECT * FROM mc_form_sends WHERE lead_id=$1${blind ? " AND sender=$2" : ""} ORDER BY created_at DESC LIMIT 20`, blind ? [id, u] : [id]).catch(() => ({ rows: [] }))).rows;
     for (const s of forms) tl.push({ at: s.created_at, src: "kinbot", who: names.get(String(s.sender || "").toLowerCase()) || s.sender, title: "問い合わせフォーム",
@@ -4059,6 +4075,229 @@ export function registerMcCall(app, deps) {
     }
     return out.join("。");
   }
+  // ===== 日程調整メール（2026-11-27 福井さん「メール経由で空き日程がわかる URL を作成して、メールアポとれるように」）=====
+  //   架電者が本人の Gmail で URL を送る → お客様が開くと、MOCHICA の FS のカレンダーの空き（アポのおすすめと同じ読み方）が出る
+  //   → 時間を選ぶと、送った人のアポとして記録し、電話のアポ獲得と同じ流れ（afterApo：担当 FS・予定・FS への知らせ、
+  //   30分後の SF の立ち上げ、SF の活動）に乗せる（福井さんの決定「自動でアポにする」）。
+  //   kinbot の日程調整ページ（/b/・DOC 用。担当者1人のカレンダーに【初回】を作り、DOC のアポ振り分けに乗る）は使わない。
+  //   ヒアリングの必須項目は確かめない（お客様が自分で選んだ予約を止めないため）。先方への会議 URL の案内は、
+  //   電話のアポと同じくまだ自動では送らない（文面が決まっていないため）ので、送った人に Chat で頼む。
+  //   AI・有料 API は使わない（Google のカレンダー・Gmail と Chat だけ）。お客様が開くたびにカレンダーを読まないよう、空きは2分覚えておく
+  const BOOK_MIN = 60, BOOK_DAYS = 14, BOOK_LIFE_DAYS = 30;   // 商談の長さ（アポのおすすめ・afterApo と同じ1時間）・出す日数・URL の使える日数
+  const BOOK_SUBJECT = "オンラインでのお打ち合わせ日程のご相談（MOCHICA）";
+  const BOOK_BODY = "{担当者}様\n\nお世話になっております。{名乗り}です。\n\n新卒採用の母集団づくりや選考の歩留まりの改善にお役立ていただける「MOCHICA」について、オンラインで1時間ほどご説明の機会をいただけますと幸いです。\n\n下記の URL に、弊社の空いている日時を載せております。ご都合のよい日時をお選びいただくと、その日時で確定いたします。\n{URL}\n\n確定後、担当より改めてオンライン会議のご案内をお送りいたします。\n何卒よろしくお願いいたします。";
+  const BOOK_PAGE = fileURLToPath(new URL("../public/mcbook.html", import.meta.url));
+  const bookUrl = (slug) => `${pubBase()}/mb/${slug}`;
+  const newBookSlug = () => randomBytes(12).toString("base64url");   // 16文字。推測されにくい長さ
+  const bookExpired = (b) => !b.booked_at && Date.now() - new Date(b.created_at).getTime() > BOOK_LIFE_DAYS * 86400e3;
+  // 出さない日：土日・祝日（index.js の祝日表）・休業日（設定の closedDays）・年末年始
+  async function bookOffDays() {
+    const st = await getSettings().catch(() => ({}));
+    const closed = new Set(Array.isArray(st.closedDays) ? st.closedDays : []); const hol = deps.jpHolidays || {};
+    return (key, wd) => wd === 0 || wd === 6 || !!hol[key] || closed.has(key) || /-(12-(29|30|31)|01-0[1-3])$/.test(key);
+  }
+  let bookBusyMemo = { at: 0, v: null };
+  async function bookBusy(sender, closers) {
+    if (bookBusyMemo.v && Date.now() - bookBusyMemo.at < 120e3) return bookBusyMemo.v;
+    const now = Date.now();
+    const v = await busyOf({ user: sender }, closers, new Date(now).toISOString(), new Date(now + (BOOK_DAYS + 2) * 86400e3).toISOString());
+    if (v) bookBusyMemo = { at: Date.now(), v };
+    return v;
+  }
+  // お昼（12〜13時）にかかる枠は出さない（アポのおすすめも午前は12時まで・午後は13時からにしている）
+  const bookLunch = (m) => m < 780 && m + BOOK_MIN > 720;
+  // お客様に出す枠：明日から2週間の平日 10〜18時（お昼を除く）、30分きざみで始まる1時間。MOCHICA の FS がだれか1人でも空いていれば出す
+  //   （どの FS になるかは予約のあと afterApo が決める。同じチームの FS → 他チームの FS の順）
+  async function bookDays(sender) {
+    const closers = await mcClosers();
+    if (!closers.length) return { days: [], why: "MOCHICA の FS（クローザー）が決まっていません" };
+    const busy = await bookBusy(sender, closers);
+    if (!busy) return { days: [], why: "FS のカレンダーを読めませんでした" };
+    const off = await bookOffDays(); const today = jstDayStart(new Date()).getTime(); const days = [];
+    for (let d = 1; d <= BOOK_DAYS; d++) {
+      const day = today + d * 86400e3; const j = new Date(day + 9 * 3600e3); const key = j.toISOString().slice(0, 10);
+      if (off(key, j.getUTCDay())) continue;
+      const slots = [];
+      for (let t = day + 10 * 3600e3; t + BOOK_MIN * 60e3 <= day + 18 * 3600e3; t += 30 * 60e3) {
+        if (bookLunch((t - day) / 60e3) || !freeAt(busy, closers, t, BOOK_MIN).length) continue;
+        slots.push({ at: new Date(t).toISOString(), time: hhmm(t) });
+      }
+      if (slots.length) days.push({ date: key, label: `${j.getUTCMonth() + 1}月${j.getUTCDate()}日（${"日月火水木金土"[j.getUTCDay()]}）`, slots });
+    }
+    return { days, why: days.length ? "" : "2週間のうちに空いている時間がありません" };
+  }
+  // 送られてきた時刻が、画面に出した枠の形か（古い画面や手で作った値で、営業時間外・土日のアポを作らないため）
+  async function bookSlotOk(t) {
+    const j = new Date(t + 9 * 3600e3); const m = j.getUTCHours() * 60 + j.getUTCMinutes(); const today = jstDayStart(new Date()).getTime();
+    if (j.getUTCSeconds() || j.getUTCMilliseconds() || m % 30 || m < 600 || m + BOOK_MIN > 1080 || bookLunch(m)) return false;
+    if (t < today + 86400e3 || t >= today + (BOOK_DAYS + 1) * 86400e3) return false;
+    return !(await bookOffDays())(j.toISOString().slice(0, 10), j.getUTCDay());
+  }
+  async function bookLink(slug) {
+    if (!/^[A-Za-z0-9_-]{10,40}$/.test(slug)) return null;
+    return (await P().query(`SELECT b.*, c.company AS lead_company, c.person AS lead_person FROM mc_book_links b JOIN mc_call_leads c ON c.id=b.lead_id WHERE b.slug=$1`, [slug])).rows[0] || null;
+  }
+  async function bookBanned(lead) {
+    return await approachBanHitLead(lead).catch(() => ({ reason: "アプローチ禁止の名簿を確認できなかったため、念のため止めています" }));
+  }
+
+  // 架電者が使う：送る前の中身（宛先・件名・本文）。本文の {URL} は「送る」で URL を作ってから差し替える（資料送付と同じ）
+  app.post("/api/mccall/leads/:id/book-mail/preview", guard(async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { lead, mails, mailErr } = await leadFor(req, id, { withMails: true });
+      if (await bookBanned(lead)) return res.status(403).json({ error: `「${lead.company}」はアプローチ禁止のため、日程調整のメールは送れません` });
+      const company = String(lead.company || "").trim();
+      const person = realName(lead.hearing && lead.hearing.name) || realName(lead.gate && lead.gate.name) || realName(lead.person);
+      const to = mails.length ? mails[0].addr : "";   // 資料送付と同じ順（mcmail.js）
+      const s = await senderOf(req);
+      const fill = (t) => t.replace(/\{担当者\}/g, person || "ご担当者").replace(/\{会社名\}/g, company).replace(/\{名乗り\}/g, s.nanori);
+      const last = (await P().query(`SELECT sent_at, opened_at, booked_at FROM mc_book_links WHERE lead_id=$1 AND sent_at IS NOT NULL ORDER BY sent_at DESC LIMIT 1`, [id])).rows[0] || null;
+      let n = null, why = "";
+      try { const r = await bookDays(me(req)); n = r.days.reduce((a, d) => a + d.slots.length, 0); why = r.why; } catch (e) { why = `空きを読めませんでした（${String(e.message).slice(0, 80)}）`; }
+      res.json({ ok: true, to, company, person, subject: fill(BOOK_SUBJECT), body: withSig(fill(BOOK_BODY), { company, sig: await mailSig(req) }),
+        google: await googleConnected(me(req)).catch(() => false), last, slots: n, why,
+        warn: to ? "" : `この会社のメールアドレスが見つかりませんでした。宛先を入れてください${mailErr ? `（${mailErr}）` : ""}` });
+    } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+  }));
+  // 架電者が使う：URL を作って、本人の Gmail で送る。SF のリードに「日程調整メール」の活動を残す
+  app.post("/api/mccall/leads/:id/book-mail/send", guard(async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10); const { lead } = await leadFor(req, id); const b = req.body || {}; const u = me(req);
+      if (await bookBanned(lead)) return res.status(403).json({ error: `「${lead.company}」はアプローチ禁止のため、日程調整のメールは送れません` });
+      const to = String(b.to || "").trim(); const subject = clip(b.subject, 300); let body = String(b.body || "").slice(0, 8000);
+      if (!isMail(to)) return res.status(400).json({ error: "宛先のメールアドレスを正しく入れてください" });
+      if (!subject || !body.trim()) return res.status(400).json({ error: "件名と本文を入れてください" });
+      if (!pubBase()) return res.status(500).json({ error: "サーバーの公開 URL（PUBLIC_URL）が設定されていないので、URL を作れません。管理者に伝えてください" });
+      if (!(await googleConnected(u).catch(() => false))) return res.status(400).json({ error: "あなたの Google 連携がまだです。設定 → 外部連携 → Google でつないでから、もう一度送ってください" });
+      const cc = [...new Set(String(b.cc || "").split(/[,\s、]+/).filter(isMail).map((x) => x.toLowerCase()))].filter((x) => x !== to.toLowerCase() && x !== u).join(", ");
+      const slug = newBookSlug(); const url = bookUrl(slug);
+      // {URL} を消してしまっていても、URL の無いメールにならないよう末尾に足す
+      body = /\{URL\}/.test(body) ? body.replace(/\{URL\}/g, url) : `${body}\n\n${url}`;
+      const row = (await P().query(`INSERT INTO mc_book_links (slug, lead_id, sender, to_addr, cc, subject) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`, [slug, id, u, to, cc || null, subject])).rows[0];
+      try { await gmailSend(u, { to, subject, bodyText: body, cc }); }
+      catch (e) {
+        await P().query(`DELETE FROM mc_book_links WHERE id=$1`, [row.id]).catch(() => {});   // 送れなかった URL は残さない
+        return res.status(500).json({ error: e.needScope ? "Gmail で送る許可がありません。設定 → 外部連携 → Google を一度外して、もう一度つなぎ、Gmail の項目を許可してください" : `送れませんでした：${String(e.message).slice(0, 120)}` });
+      }
+      await P().query(`UPDATE mc_book_links SET sent_at=now() WHERE id=$1`, [row.id]);
+      // 宛先は、ヒアリング欄のメールにも残す（次に資料やアポの案内を送るときの宛先になる。ヒアリングのメールと同じ）
+      if (!(lead.hearing && lead.hearing.mail)) await P().query(`UPDATE mc_call_leads SET hearing=COALESCE(hearing,'{}'::jsonb) || jsonb_build_object('mail', $2::text) WHERE id=$1`, [id, to]).catch(() => {});
+      let sfNote = "";
+      if (lead.sf_lead_id && /^00Q[0-9A-Za-z]{12,15}$/.test(lead.sf_lead_id)) {
+        try {
+          const t = await leadTask(await sfActor(req), { WhoId: lead.sf_lead_id, Subject: "[MOCHICA] 日程調整メール", Type: "Email", Status: "完了",
+            ActivityDate: new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10),
+            Description: [`送った人：${(await nameMap()).get(u) || u}（SHOBO）`, `宛先：${to}`, cc ? `CC：${cc}` : "", `件名：${subject}`, `日程調整の URL：${url}`].filter(Boolean).join("\n") });
+          if (!t || !t.id) throw new Error("SF から活動の番号が返ってきませんでした");
+          await P().query(`UPDATE mc_book_links SET sf_task_id=$2 WHERE id=$1`, [row.id, t.id]);
+        } catch (e) { sfNote = "メールは送りましたが、SF の活動には書けませんでした"; await P().query(`UPDATE mc_book_links SET sf_err=$2 WHERE id=$1`, [row.id, String(e.message).slice(0, 300)]).catch(() => {}); }
+      } else sfNote = "SF のリードと結びついていないので、SF には残していません（kinbot にだけ残ります）";
+      console.log(`[mccall] 日程調整メールを送った：${lead.company} → ${to} by ${u}`);
+      res.json({ ok: true, to, url, sf: sfNote });
+    } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+  }));
+  // 架電者が使う：URL だけ作る（ほかのメールやチャットに貼って送るとき）。予約されたときの扱いは送ったときと同じ
+  app.post("/api/mccall/leads/:id/book-link", guard(async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10); const { lead } = await leadFor(req, id);
+      if (await bookBanned(lead)) return res.status(403).json({ error: `「${lead.company}」はアプローチ禁止のため、日程調整の URL は作れません` });
+      if (!pubBase()) return res.status(500).json({ error: "サーバーの公開 URL（PUBLIC_URL）が設定されていないので、URL を作れません。管理者に伝えてください" });
+      const slug = newBookSlug();
+      await P().query(`INSERT INTO mc_book_links (slug, lead_id, sender) VALUES ($1,$2,$3)`, [slug, id, me(req)]);
+      res.json({ ok: true, url: bookUrl(slug) });
+    } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+  }));
+
+  // お客様が開くページ（ログイン不要。index.js のログインの例外に /mb/ と /api/mccall/pub/book/ を入れている）
+  app.get("/mb/:slug", (req, res) => { res.set({ "Cache-Control": "no-store", "X-Robots-Tag": "noindex" }); res.sendFile(BOOK_PAGE); });
+  const BOOK_GONE = "この URL は使えません。お手数ですが、メールの送り主にご連絡ください";
+  app.get("/api/mccall/pub/book/:slug", async (req, res) => {
+    try {
+      await ensure();
+      const b = await bookLink(String(req.params.slug || ""));
+      if (!b) return res.status(404).json({ error: BOOK_GONE });
+      const s = await senderOf({ user: b.sender }).catch(() => ({ nanori: "株式会社ネオキャリア" }));
+      const base = { ok: true, company: b.lead_company || "", person: realName(b.lead_person) || "", from: s.nanori, minutes: BOOK_MIN };
+      if (b.booked_at) return res.json({ ...base, booked: b.apo_at });
+      if (bookExpired(b)) return res.json({ ...base, expired: true });
+      // 開いた記録。最初に開かれたときだけ送った人に知らせる（電話をかけ直すきっかけにする。何度も鳴らさない）
+      const first = (await P().query(`UPDATE mc_book_links SET open_n=open_n+1, opened_at=COALESCE(opened_at, now()) WHERE id=$1 RETURNING (open_n=1) AS first`, [b.id])).rows[0];
+      if (first && first.first) notifyPerson(b.sender, `👀 *日程調整の URL が開かれました（MOCHICALL）*\n　${b.lead_company || ""}\n予約が入ったら、またお知らせします。`).catch(() => {});
+      const r = await bookDays(b.sender);
+      if (!r.days.length) console.warn(`[mccall] 日程調整のページに出せる枠がありません（${b.lead_company}）：${r.why}`);
+      res.json({ ...base, days: r.days });
+    } catch (e) {
+      console.error("[mccall] 日程調整のページ", e.message);
+      res.status(500).json({ error: "いま空いている時間を読み込めませんでした。少し時間をおいて、もう一度お開きください" });
+    }
+  });
+  app.post("/api/mccall/pub/book/:slug", async (req, res) => {
+    let b = null, held = false;
+    const release = () => (held ? P().query(`UPDATE mc_book_links SET booked_at=NULL, apo_at=NULL, guest=NULL WHERE id=$1 AND log_id IS NULL`, [b.id]).catch(() => {}) : null);
+    try {
+      await ensure();
+      b = await bookLink(String(req.params.slug || ""));
+      if (!b) return res.status(404).json({ error: BOOK_GONE });
+      if (b.booked_at) return res.status(409).json({ error: "この URL からは、すでにご予約をいただいています", booked: b.apo_at });
+      if (bookExpired(b)) return res.status(410).json({ error: "この URL の使える期間が過ぎました。お手数ですが、メールの送り主にご連絡ください" });
+      const q0 = req.body || {}; const at = new Date(String(q0.at || ""));
+      const name = clip(q0.name, 40), email = clip(q0.email, 120).toLowerCase(), note = clip(q0.note, 500);
+      if (isNaN(at) || !(await bookSlotOk(at.getTime()))) return res.status(400).json({ error: "時間をお選びください" });
+      if (!name) return res.status(400).json({ error: "お名前を入れてください" });
+      if (!isMail(email)) return res.status(400).json({ error: "メールアドレスの形をご確認ください" });
+      // 先にこの URL を押さえる（ボタンの2回押し・同時の予約で、アポを二重に作らないため）
+      held = !!(await P().query(`UPDATE mc_book_links SET booked_at=now(), apo_at=$2, guest=$3 WHERE id=$1 AND booked_at IS NULL RETURNING id`, [b.id, at.toISOString(), { name, email, note }])).rows[0];
+      if (!held) return res.status(409).json({ error: "この URL からは、すでにご予約をいただいています" });
+      // その時間に空いている FS がいるか、カレンダーを読み直して確かめる（ページを開いてから埋まることがあるため）
+      const closers = await mcClosers(); const end = new Date(at.getTime() + BOOK_MIN * 60e3);
+      const busy = closers.length ? await busyOf({ user: b.sender }, closers, at.toISOString(), end.toISOString()).catch(() => null) : null;
+      if (!busy || !freeAt(busy, closers, at.getTime(), BOOK_MIN).length) {
+        await release(); bookBusyMemo.at = 0;
+        return res.status(409).json({ error: "その時間は、ちょうど埋まってしまいました。お手数ですが、別の時間をお選びください" });
+      }
+      const lead = (await P().query(`SELECT * FROM mc_call_leads WHERE id=$1`, [b.lead_id])).rows[0];
+      if (!lead || (await bookBanned(lead))) {
+        await release(); console.warn(`[mccall] 日程調整の予約を止めた（リードが無い・アプローチ禁止）：${b.lead_company}`);
+        return res.status(409).json({ error: "恐れ入りますが、この URL からはご予約いただけません。お手数ですが、メールの送り主にご連絡ください" });
+      }
+      // 電話などで、もう先の日のアポが入っていれば二重にしない（送った人に知らせて、人が調整する）
+      const dup = (await P().query(`SELECT apo_at FROM mc_call_logs WHERE lead_id=$1 AND outcome='apo' AND NOT undone AND apo_at > now() ORDER BY apo_at LIMIT 1`, [lead.id])).rows[0];
+      if (dup) {
+        await release();
+        notifyPerson(b.sender, `⚠️ *日程調整の URL から予約しようとされましたが、止めました（MOCHICALL）*\n　${lead.company || ""}\nもう ${dayText(dup.apo_at)} のアポが入っているためです。お客様（${name}様・${email}）が選んだのは ${dayText(at)} です。ご連絡して調整してください。`).catch(() => {});
+        return res.status(409).json({ error: "すでに商談のご予定をいただいております。担当より改めてご連絡いたします" });
+      }
+      // 送った人のアポとして記録する（電話の記録と同じ表。via='mail' で、メールからの予約だと分かるようにする）
+      const prev = { next_at: lead.next_at, next_why: lead.next_why, last_at: lead.last_at, last_outcome: lead.last_outcome, attempts: lead.attempts, done: lead.done, gate: lead.gate, hearing: lead.hearing, miss_streak: lead.miss_streak || 0, parked_at: lead.parked_at || null };
+      const memo = [`日程調整メールから、お客様が予約しました（${name}様・${email}）`, note ? `お客様から：${note}` : ""].filter(Boolean).join("\n");
+      const log = (await P().query(`INSERT INTO mc_call_logs (lead_id, list_id, caller, phone, reach, outcome, memo, apo_at, cross_from, prev, product, via)
+        VALUES ($1,$2,$3,$4,'person','apo',$5,$6,$7,$8,(SELECT COALESCE(product,'mochica') FROM mc_call_lists WHERE id=$2),'mail') RETURNING id`,
+        [lead.id, lead.list_id, b.sender, clip(lead.phone, 40), memo, at.toISOString(), lead.cross_from, prev])).rows[0];
+      await P().query(`UPDATE mc_book_links SET log_id=$2 WHERE id=$1`, [b.id, log.id]);
+      await P().query(`UPDATE mc_call_leads SET last_at=now(), last_outcome='apo', attempts=attempts+1, next_at=NULL, next_why=NULL, done=true, locked_by=NULL,
+        hearing=CASE WHEN COALESCE(hearing->>'mail','')='' THEN COALESCE(hearing,'{}'::jsonb) || jsonb_build_object('mail', $2::text) ELSE hearing END WHERE id=$1`, [lead.id, email]);
+      console.log(`[mccall] 日程調整メールから予約：${lead.company} ${dayText(at)} 送った人 ${b.sender}`);
+      res.json({ ok: true, at: at.toISOString(), minutes: BOOK_MIN });
+      // ここからはお客様を待たせない。担当 FS・予定・知らせ（電話のアポと同じ）→ 送った人への知らせ → SF
+      const fake = { user: b.sender, headers: {} };
+      let apo = null;
+      try { apo = await afterApo(fake, log.id); } catch (e) { console.error("[mccall] 日程調整のアポのあとの流れ", log.id, e.message); apo = { warn: [`担当 FS・予定・知らせの途中で止まりました（${String(e.message).slice(0, 120)}）。管理者に伝えてください`] }; }
+      launchLater(log.id);
+      sfWrite(fake, log.id).catch(() => {});
+      const person = realName(lead.person);
+      await notifyPerson(b.sender, [
+        "📅 *日程調整メールから予約が入りました（MOCHICALL）*", `　${lead.company || ""}${person ? `／${person}様` : ""}`,
+        `🕐 ${dayText(at)}〜${hhmm(end)}`, `お客様：${name}様（${email}）`, note ? `お客様から：${note}` : "",
+        apo && apo.fs ? `担当 FS：${apo.fs.name}${apo.fs.team ? `（${apo.fs.team}）` : ""}${apo.fs.other ? "・他チーム" : ""}` : "担当 FS：未定",
+        ...((apo && apo.warn) || []).map((w) => `⚠️ ${w}`),
+        "あなたのアポとして記録しました。お客様へのオンライン会議のご案内は、まだ届いていません。FS と相談して送ってください。",
+      ].filter(Boolean).join("\n")).catch(() => {});
+    } catch (e) {
+      console.error("[mccall] 日程調整の予約", e.message);
+      if (!res.headersSent) { await release(); res.status(500).json({ error: "いまご予約できませんでした。少し時間をおいて、もう一度お試しください" }); }
+    }
+  });
   // ===== アポのあと SF の商談を自動で立ち上げる（2026-11-26 福井さん「アポとったら自動で商談立ち上げるようにして」）=====
   //   記録から30分たってから立ち上げる。SF はコンバートを取り消せないので、記録の間違いに気づいて取り消せる時間をおく
   //   （本人が取り消せるのは15分以内なので、それより長く）。取り消したアポ・SF ですでにコンバート済みのリードは立ち上げない。
