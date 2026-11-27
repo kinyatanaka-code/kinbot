@@ -9724,6 +9724,7 @@ function edFiltered() {
     if (stg.size && !stg.has(g(r, "ステージ", "stage") || "（なし）")) return false;
     if (sts.size && !sts.has(g(r, "最終ステータス", "最終結果", "status") || "（なし）")) return false;
     if (qCm && !String(r["最終コメント"] || "").toLowerCase().includes(qCm)) return false;   // 最終活動コメントの絞り込み
+    { const rv = $("edRank") ? edMselVals("edRank") : new Set(); if (rv.size && !rv.has(r["リサイクルランク"] || "（なし）")) return false; }   // リサイクルのランク
     { const iv = $("edInd") ? edMselVals("edInd") : new Set(); if (iv.size && !iv.has(String(g(r, "業種", "industry") || "").trim() || "（空）")) return false; }
     // 失注回数：下限〜上限（どちらかだけでもよい）。SFに失注が無い（空白の）会社は0回として数える
     { const lo = parseInt(($("edLostMin") && $("edLostMin").value) || "", 10), hi = parseInt(($("edLostMax") && $("edLostMax").value) || "", 10);
@@ -10267,9 +10268,13 @@ async function edExtract() {
     if (st) st.textContent = "抜き出せませんでした（" + (e.message || "権限がないか、通信に失敗しました") + "）";
   } finally { edRender(); }
 }
+// リサイクルのランク（A/B/C）の列は、リサイクルのリードがある一覧のときだけ出す（2026-11-27 田中さん）
+let _edHasRank = false;
+const ED_RANK_TIP = { A: "A：見込みあり（B・C以外）", B: "B：冒頭NG・受付ブロック・コールのみ。かける人が変われば見込みあり", C: "C：かけてこないで・採用やってない・担当じゃない・見込みなし" };
 function edBuildTable() {
   const tbl = $("edTable"); if (!tbl) return;
   const g = _edg;
+  _edHasRank = _edRows.some((r) => r["リサイクルランク"]);
   const uniq = (fn) => [...new Set(_edRows.map(fn).filter(Boolean))].sort();
   const sel = (id, vals, head) => `<select id="${id}" class="ed-cf"><option value="">${head}</option>${vals.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}</select>`;
   const txt = (id) => `<input id="${id}" class="ed-cf" placeholder="絞り込み" />`;
@@ -10283,6 +10288,7 @@ function edBuildTable() {
   const empF = `<div class="ed-empf"><input type="number" id="edEmpMin" class="ed-emp-in" placeholder="下限" min="0" /><span>〜</span><input type="number" id="edEmpMax" class="ed-emp-in" placeholder="上限" min="0" /><label class="ed-dash"><input type="checkbox" id="edEmpDash" />「-」のみ</label></div>`;
   const head = "<tr>" +
     th("ステージ", msel("edStage", uniq((r) => g(r, "ステージ", "stage") || "（なし）"))) +
+    (_edHasRank ? th('<span title="A＝見込みあり／B＝冒頭NG・受付ブロック・コールのみ（人が変われば見込みあり）／C＝かけてこないで・採用やってない・担当じゃない・見込みなし">ランク</span>', msel("edRank", uniq((r) => r["リサイクルランク"] || "（なし）"))) : "") +
     th("企業名", txt("edQCompany")) +
     th("担当者", txt("edQPerson")) +
     th("電話", txt("edQPhone")) +
@@ -10301,7 +10307,7 @@ function edBuildTable() {
       : th("失注理由（大項目）", msel("edLostReason", uniq((r) => g(r, "失注理由（大項目）") || "（なし）"))) + th("失注理由（中項目）", msel("edLostReasonMid", uniq((r) => g(r, "失注理由（中項目）") || "（なし）"))) + th("失注理由詳細", txt("edQLostDetail")) + th("受失注日", drange("edDLost")) + th("失注後次回アクション日", drange("edDNextAct")) + th("商談所有者", msel("edOppOwner", uniq((r) => g(r, "商談所有者")))) + th("担当（かける人）", msel("edClWho", uniq((r) => (r["担当メール"] ? nmMemberName(r["担当メール"]) : "（未割り当て）")))) + th("リスト", msel("edClList", uniq((r) => edListName(r) || "（不明）")))
     ) + "</tr>";
   tbl.innerHTML = `<div class="kc-prev-wrap" style="max-height:64vh"><table class="kc-table kc-prev ed-table"><thead>${head}</thead><tbody id="edTbody"></tbody></table></div>`;
-  ["edQInd", "edLostMin", "edLostMax", "edLostNMin", "edLostNMax", "edLostCMin", "edLostCMax", "edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edQComment", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edNurWho", "edQFrom", "edDLostFrom", "edDLostTo", "edDNextActFrom", "edDNextActTo", "edDNextFrom", "edDNextTo"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
+  ["edQInd", "edLostMin", "edLostMax", "edLostNMin", "edLostNMax", "edLostCMin", "edLostCMax", "edStage", "edRank", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edQComment", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edNurWho", "edQFrom", "edDLostFrom", "edDLostTo", "edDNextActFrom", "edDNextActTo", "edDNextFrom", "edDNextTo"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
   edNurBar();
   document.querySelectorAll("#edTable .ed-msel").forEach(edWireMsel);
 }
@@ -10325,7 +10331,7 @@ function edWireMsel(box) {
   const btn = box.querySelector(".ed-msel-btn"), pop = box.querySelector(".ed-msel-pop");
   const label = () => {
     const v = [...edMselVals(box.id)];
-    const unit = ["edStatus", "edPlReason", "edClList", "edLostReason", "edLostReasonMid", "edInd", "edStage"].includes(box.id) ? "件" : "人";
+    const unit = ["edStatus", "edPlReason", "edClList", "edLostReason", "edLostReasonMid", "edInd", "edStage", "edRank"].includes(box.id) ? "件" : "人";
     btn.textContent = (v.length === 0 ? "すべて" : v.length === 1 ? v[0] : `${v.length}${unit}を選択中`) + " ▾";
     btn.classList.toggle("on", v.length > 0);
   };
@@ -10423,6 +10429,7 @@ function edRenderBody() {
         const lossCells = _edCrosslost ? `<td>${esc(g(r, "失注理由（大項目）"))}</td><td>${esc(g(r, "失注理由（中項目）"))}</td>${(() => { const v = String(g(r, "失注理由詳細") || ""); return v.length > 36 ? `<td class="kc-rc-long"><div class="kc-clamp">${esc(v)}</div><button type="button" class="kc-more">もっと見る</button></td>` : `<td>${esc(v)}</td>`; })()}<td class="ed-nowrap">${esc(String(g(r, "失注日") || "").slice(0, 10))}</td><td class="ed-nowrap">${esc(String(g(r, "失注後次回アクション日") || "").slice(0, 10))}</td><td>${esc(g(r, "商談所有者"))}</td><td class="ed-nowrap">${esc((r["担当メール"] ? nmMemberName(r["担当メール"]) : "（未割り当て）"))}</td><td class="ed-nowrap">${esc(edListName(r) || "（不明）")}</td>` : "";
         return `<tr data-id="${r.id}">
         <td>${esc(g(r, "ステージ", "stage"))}</td>
+        ${_edHasRank ? (() => { const k = r["リサイクルランク"] || ""; const col = { A: ["#e3f5ee", "#0d5b47"], B: ["#fff4dc", "#8a5a00"], C: ["#fde8e8", "#a12a2a"] }[k]; return `<td>${col ? `<span title="${esc(ED_RANK_TIP[k])}" style="display:inline-block;min-width:22px;text-align:center;border-radius:10px;padding:1px 8px;font-weight:700;font-size:11px;background:${col[0]};color:${col[1]}">${k}</span>` : ""}</td>`; })() : ""}
         <td>${esc(g(r, "会社名", "company"))}</td>
         <td>${esc(g(r, "担当者", "person"))}</td>
         <td>${esc(g(r, "電話", "電話番号", "phone"))}</td>
