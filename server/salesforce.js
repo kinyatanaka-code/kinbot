@@ -1518,7 +1518,35 @@ export async function runReport(owner, reportId, filters = null) {
   const sfTotal = (() => { const i = (meta.aggregates || []).indexOf("RowCount"); const a = tt[i >= 0 ? i : 0]; return a && typeof a.value === "number" ? a.value : null; })();
 
   //   2000行を超えるとき：区切りに使う列を選び、その列で並べ替えて「前回の最後より後」を取り直す
-  if (truncated) {
+  //   まずは「作成日の範囲」で分ける：日付の条件は文字の並び順に左右されないので、抜けも重なりも出ない
+  //   （ID の文字で区切ると、Salesforce の並べ方と条件の比べ方がずれて、千件以上抜けることがあった）
+  if (truncated && meta.standardDateFilter && meta.standardDateFilter.column) {
+    const sd = meta.standardDateFilter;
+    const day = (d) => new Date(d).toISOString().slice(0, 10);
+    const tomorrow = day(Date.now() + 86400000 + 9 * 3600000);
+    const start0 = sd.startDate || "2000-01-01", end0 = sd.endDate || tomorrow;
+    const baseF = (baseOverride && baseOverride.reportFilters) || meta.reportFilters || [];
+    const baseB = (baseOverride && baseOverride.reportBooleanFilter) || meta.reportBooleanFilter || "";
+    const all = []; let pg = 0, partial = false;
+    const runRange = async (a, b, depth) => {
+      if (pg >= 80) { partial = true; return; }
+      const d2 = await call({ ...meta, chart: null, reportFormat: "TABULAR", groupingsDown: [], groupingsAcross: [], aggregates: ["RowCount"], reportFilters: baseF, ...(baseB ? { reportBooleanFilter: baseB } : {}), standardDateFilter: { column: sd.column, durationValue: "CUSTOM", startDate: a, endDate: b } });
+      pg++;
+      if (d2.allData !== false) { all.push(...rowsOf(d2)); return; }
+      const ta = Date.parse(a + "T00:00:00Z"), tb = Date.parse(b + "T00:00:00Z");
+      if (tb <= ta || depth > 20) { all.push(...rowsOf(d2)); partial = true; return; }   // 1日で2000件を超える：これ以上は分けられない
+      const mid = day(ta + Math.floor((tb - ta) / 86400000 / 2) * 86400000);
+      const next = day(Date.parse(mid + "T00:00:00Z") + 86400000);
+      await runRange(a, mid, depth + 1);
+      await runRange(next, b, depth + 1);
+    };
+    try {
+      await runRange(start0, end0, 0);
+      if (sfTotal == null || all.length <= sfTotal) { raw = all; pages = pg; splitBy = "作成日の範囲"; truncated = partial || (sfTotal != null && all.length < sfTotal); }
+      else splitErrors.push(`作成日: Salesforce の合計 ${sfTotal} 件より多く取れた（${all.length}件）`);
+    } catch (e) { console.warn("[SFレポート] 作成日で分けて取れませんでした:", e.message); splitErrors.push(`作成日: ${e.message}`.slice(0, 200)); }
+  }
+  if (truncated && raw.length < 2001) {
     //   候補：ID の列 → 作成日の列 → ほかの日付の列。区切れなかった（Salesforce に断られた）ら次の候補へ
     const cands = [];
     cols.forEach((c, i) => { if (/^id$/i.test(c.type) || /(^|\.|_)ID$/i.test(c.name) || /(^|\.|_)ID(18|15)?(__c)?$/i.test(c.name)) cands.push(i); });
@@ -1540,7 +1568,7 @@ export async function runReport(owner, reportId, filters = null) {
           const bf = baseB && last != null ? `(${baseB}) AND ${fl.length}` : baseB;
           //   まとめ（Summary）形式は並べ替えを受け付けないことがあるので、明細だけの表（TABULAR）として実行する
           //   ほかの設定（クロス条件・範囲・行の上限など）は元のレポートのまま引き継ぐ（抜けると件数が増えてしまう）
-          const d2 = await call({ ...meta, reportFormat: "TABULAR", groupingsDown: [], groupingsAcross: [], aggregates: ["RowCount"], reportFilters: fl, ...(bf ? { reportBooleanFilter: bf } : {}), ...(baseD ? { standardDateFilter: baseD } : {}), sortBy: [{ sortColumn: key, sortOrder: "Asc" }] });
+          const d2 = await call({ ...meta, chart: null, reportFormat: "TABULAR", groupingsDown: [], groupingsAcross: [], aggregates: ["RowCount"], reportFilters: fl, ...(bf ? { reportBooleanFilter: bf } : {}), ...(baseD ? { standardDateFilter: baseD } : {}), sortBy: [{ sortColumn: key, sortOrder: "Asc" }] });
           pg++;
           const rs = rowsOf(d2);
           more = d2.allData === false;
