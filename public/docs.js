@@ -60,7 +60,9 @@ document.querySelectorAll(".ap-tab").forEach((t) =>
   })
 );
 
-// ───────── 資料（PDF）の登録 ─────────
+// ───────── 資料の登録 ─────────
+// 預かれるファイル（2026-11-27 田中さん「zip・画像・テキスト・動画・音声も」）。サーバーでも中身を確かめる
+const DOC_OK_EXT = /\.(pdf|zip|png|jpe?g|gif|webp|txt|csv|tsv|md|mp4|mov|webm|mp3|m4a|wav|ogg|aac)$/i;
 async function loadDocs() {
   try {
     const d = await (await fetch("/api/docs")).json();
@@ -83,7 +85,7 @@ async function loadDocs() {
 
     const box = $("dfList");
     if (!docsCache.length) {
-      box.innerHTML = '<div class="empty-state">まだ資料がありません。上の欄からPDFを登録してください。</div>';
+      box.innerHTML = '<div class="empty-state">まだ資料がありません。上の欄からファイルを登録してください。</div>';
       return;
     }
     // 資料タブはテンプレ資料だけを扱う（その商談だけの資料は商談ごとタブに出る）
@@ -124,7 +126,7 @@ async function loadDocs() {
     const 非表示 = tmpl.filter((f) => !f.active);
     let html = 表示分.length
       ? `<div class="dk-list">${表示分.map(資料行).join("")}</div>`
-      : '<div class="empty-state">テンプレ資料がありません。上の欄からPDFを登録してください。</div>';
+      : '<div class="empty-state">テンプレ資料がありません。上の欄からファイルを登録してください。</div>';
     html += トグル;
     if (showUnusedDocs && 非表示.length) {
       html += `<div class="df-sec"><div class="df-sec-h">使わない資料（非表示）<span class="df-sec-hint">発行済みURLからは開けます</span></div><div class="dk-list">${非表示.map(資料行).join("")}</div></div>`;
@@ -208,7 +210,7 @@ async function loadDocs() {
 
 $("dfUp").addEventListener("click", async () => {
   const f = $("dfFile").files[0];
-  if (!f) { say("dfStatus", "PDFを選んでください", 4000); return; }
+  if (!f) { say("dfStatus", "ファイルを選んでください", 4000); return; }
   const fd = new FormData();
   fd.append("file", f);
   fd.append("name", $("dfName").value.trim());
@@ -554,7 +556,7 @@ function deOpenPicker(btn) {
          <option value="">＋ テンプレ資料から足す</option>
          ${opts.map((f) => `<option value="${f.id}">${esc(f.name)}</option>`).join("")}
        </select>
-       <label class="btn ghost dp-upbtn">＋ 別の資料を足す（PDF）<input type="file" class="dp-file" accept="application/pdf" multiple hidden /></label>
+       <label class="btn ghost dp-upbtn">＋ 別の資料を足す<input type="file" class="dp-file" accept=".pdf,.zip,.png,.jpg,.jpeg,.gif,.webp,.txt,.csv,.tsv,.md,.mp4,.mov,.webm,.mp3,.m4a,.wav,.ogg,.aac" multiple hidden /></label>
      </div>
      <div class="dp-line">
        <input type="text" class="dp-contact" placeholder="担当者名（任意）" />
@@ -589,7 +591,7 @@ function dpPickerInner() {
          <option value="">＋ テンプレ資料から足す</option>
          ${opts.map((f) => `<option value="${f.id}">${esc(f.name)}</option>`).join("")}
        </select>
-       <label class="btn ghost dp-upbtn">＋ 別の資料を足す（PDF）<input type="file" class="dp-file" accept="application/pdf" multiple hidden /></label>
+       <label class="btn ghost dp-upbtn">＋ 別の資料を足す<input type="file" class="dp-file" accept=".pdf,.zip,.png,.jpg,.jpeg,.gif,.webp,.txt,.csv,.tsv,.md,.mp4,.mov,.webm,.mp3,.m4a,.wav,.ogg,.aac" multiple hidden /></label>
      </div>`;
 }
 // 選ぶ欄・ファイル：選んだら一覧に足す（「＋送付」の窓と「URLを発行する」で同じ）
@@ -603,7 +605,7 @@ function dpOnChange(ev) {
   const fi = ev.target.closest && ev.target.closest(".dp-file");
   if (fi) {
     const wrap = fi.closest(".de-picker");
-    for (const f of [...(fi.files || [])]) { if (!/pdf$/i.test(f.type) && !/\.pdf$/i.test(f.name)) { alert(`「${f.name}」はPDFではありません`); continue; } dpItems(wrap).push({ file: f, name: f.name.replace(/\.pdf$/i, "") }); }
+    for (const f of [...(fi.files || [])]) { if (!DOC_OK_EXT.test(f.name)) { alert(`「${f.name}」は預かれない種類のファイルです（PDF・zip・画像・テキスト・動画・音声が使えます）`); continue; } if (f.size > 25 * 1024 * 1024) { alert(`「${f.name}」は25MBを超えています`); continue; } dpItems(wrap).push({ file: f, name: f.name.replace(/\.[a-z0-9]{1,5}$/i, "") }); }
     fi.value = ""; dpPaint(wrap); return true;
   }
   return false;
@@ -614,7 +616,7 @@ async function dpUploadAll(wrap, setSt) {
   for (const it of items) {
     if (it.id) { ids.push(it.id); continue; }
     const fd = new FormData();
-    fd.append("name", String(it.name || "").trim() || it.file.name.replace(/\.pdf$/i, ""));
+    fd.append("name", String(it.name || "").trim() || it.file.name.replace(/\.[a-z0-9]{1,5}$/i, ""));
     fd.append("file", it.file);
     fd.append("template", "false");
     if (setSt) setSt(`「${it.name}」を登録中…`);
@@ -683,7 +685,7 @@ async function deIssue(btn) {
     for (const it of items) {
       if (it.id) { ids.push(it.id); continue; }
       const fd = new FormData();
-      fd.append("name", String(it.name || "").trim() || it.file.name.replace(/\.pdf$/i, ""));
+      fd.append("name", String(it.name || "").trim() || it.file.name.replace(/\.[a-z0-9]{1,5}$/i, ""));
       fd.append("file", it.file);
       fd.append("template", "false");   // この商談だけの資料（テンプレ一覧・選択欄には出さない）
       setSt(`「${it.name}」を登録中…`);
@@ -781,7 +783,7 @@ if ($("deList")) {
     const fi = ev.target.closest(".dp-file");
     if (fi) {
       const wrap = fi.closest(".de-picker");
-      for (const f of [...(fi.files || [])]) { if (!/pdf$/i.test(f.type) && !/\.pdf$/i.test(f.name)) { alert(`「${f.name}」はPDFではありません`); continue; } dpItems(wrap).push({ file: f, name: f.name.replace(/\.pdf$/i, "") }); }
+      for (const f of [...(fi.files || [])]) { if (!DOC_OK_EXT.test(f.name)) { alert(`「${f.name}」は預かれない種類のファイルです（PDF・zip・画像・テキスト・動画・音声が使えます）`); continue; } if (f.size > 25 * 1024 * 1024) { alert(`「${f.name}」は25MBを超えています`); continue; } dpItems(wrap).push({ file: f, name: f.name.replace(/\.[a-z0-9]{1,5}$/i, "") }); }
       fi.value = ""; dpPaint(wrap);
     }
   });

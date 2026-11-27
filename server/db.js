@@ -12006,7 +12006,7 @@ export async function setDocBundle(parentSlug, slugs) {
 }
 export async function getDocBundleInfo(slugs) {
   if (!pool || !Array.isArray(slugs) || !slugs.length) return [];
-  const { rows } = await pool.query(`SELECT l.slug, l.doc_id, f.name, f.filename FROM doc_links l JOIN doc_files f ON f.id=l.doc_id WHERE l.slug = ANY($1::text[])`, [slugs]);
+  const { rows } = await pool.query(`SELECT l.slug, l.doc_id, f.name, f.filename, f.mime FROM doc_links l JOIN doc_files f ON f.id=l.doc_id WHERE l.slug = ANY($1::text[])`, [slugs]);
   return slugs.map((sl) => rows.find((r) => r.slug === sl)).filter(Boolean);
 }
 
