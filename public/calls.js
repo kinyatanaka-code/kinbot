@@ -8402,6 +8402,7 @@ function nmRenderCards() {
         + (_nmStageGrp === "recycle" ? `<div class="nm-sec-h" style="margin-top:10px;font-size:12px">リサイクルの内訳</div><div class="nm-grid">`
             + nmSpecialCard("recyclenew", "リサイクル・新規", sa.recycleNew, "クロスの失注0回")
             // 新規のリサイクルを A/B/C で（2026-11-27 田中さん）
+            + nmSpecialCard("recyclerevive", "新規・今週復活", sa.recycleNewRevive, "A・B・Cの中から、今週かけ直す価値があると AI が判定したもの（毎週月曜に判定）")
             + nmSpecialCard("recyclenewa", "新規・A", sa.recycleNewA, "見込みあり（B・C以外）")
             + nmSpecialCard("recyclenewb", "新規・B", sa.recycleNewB, "冒頭NG・受付ブロック・コールのみ。かける人が変われば見込みあり")
             + nmSpecialCard("recyclenewc", "新規・C", sa.recycleNewC, "かけてこないで・採用やってない・担当じゃない・見込みなし")
@@ -8711,6 +8712,7 @@ function nmRenderSpecial(body) {
     recyclein: { name: "リサイクル（ステージ別）", vid: "recycle-in" },
     recyclenew: { name: "リサイクル・新規（100〜500名）", vid: "recycle-new" },
     recyclepast: { name: "リサイクル・過去失注（100〜500名）", vid: "recycle-past" },
+    recyclerevive: { name: "リサイクル・新規・今週復活", vid: "recycle-revive" },
     recyclenewa: { name: "リサイクル・新規・A", vid: "recycle-new-a" },
     recyclenewb: { name: "リサイクル・新規・B", vid: "recycle-new-b" },
     recyclenewc: { name: "リサイクル・新規・C", vid: "recycle-new-c" },
@@ -10276,12 +10278,13 @@ async function edExtract() {
   } finally { edRender(); }
 }
 // リサイクルのランク（A/B/C）の列は、リサイクルのリードがある一覧のときだけ出す（2026-11-27 田中さん）
-let _edHasRank = false;
+let _edHasRank = false, _edHasRevive = false;   // 復活の理由（今週復活の一覧のときだけ）
 const ED_RANK_TIP = { A: "A：見込みあり（B・C以外）", B: "B：冒頭NG・受付ブロック・コールのみ。かける人が変われば見込みあり", C: "C：かけてこないで・採用やってない・担当じゃない・見込みなし" };
 function edBuildTable() {
   const tbl = $("edTable"); if (!tbl) return;
   const g = _edg;
   _edHasRank = _edRows.some((r) => r["リサイクルランク"]);
+  _edHasRevive = _edRows.some((r) => r["復活の理由"]);
   const uniq = (fn) => [...new Set(_edRows.map(fn).filter(Boolean))].sort();
   const sel = (id, vals, head) => `<select id="${id}" class="ed-cf"><option value="">${head}</option>${vals.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}</select>`;
   const txt = (id) => `<input id="${id}" class="ed-cf" placeholder="絞り込み" />`;
@@ -10302,7 +10305,8 @@ function edBuildTable() {
     th("メール", txt("edQEmail")) +
     th("架電状態", msel("edStatus", uniq((r) => g(r, "最終ステータス", "最終結果", "status") || "（なし）"))) +
     th("最終架電日", "") +   // 2026-11-27 田中さん「最終架電日も出してほしい」
-    th("最終活動コメント", txt("edQComment")) +   // 2026-11-27 田中さん「最終活動コメントも入れてほしい」
+    th("最終活動コメント", txt("edQComment")) +
+    (_edHasRevive ? th("復活の理由（AI）", "") : "") +   // 2026-11-27 田中さん「最終活動コメントも入れてほしい」
     th("失注回数", `<div class="ed-lostf"><div class="ed-empf"><small>計</small><input type="number" id="edLostMin" class="ed-emp-in" placeholder="下限" min="0" /><span>〜</span><input type="number" id="edLostMax" class="ed-emp-in" placeholder="上限" min="0" /></div><div class="ed-empf"><small>新規</small><input type="number" id="edLostNMin" class="ed-emp-in" placeholder="下限" min="0" /><span>〜</span><input type="number" id="edLostNMax" class="ed-emp-in" placeholder="上限" min="0" /></div><div class="ed-empf"><small>クロス</small><input type="number" id="edLostCMin" class="ed-emp-in" placeholder="下限" min="0" /><span>〜</span><input type="number" id="edLostCMax" class="ed-emp-in" placeholder="上限" min="0" /></div></div>`) +
     th("業種", msel("edInd", uniq((r) => String(g(r, "業種", "industry") || "").trim() || "（空）"))) +
     (_edPastLost ? th("失注理由（大項目）", msel("edPlReason", uniq((r) => edLossBig(r) || "（なし）"))) : "") +
@@ -10444,6 +10448,7 @@ function edRenderBody() {
         <td>${esc(g(r, "最終ステータス", "最終結果", "status"))}</td>
         <td style="white-space:nowrap">${(() => { const v = r["最終架電の日時"] || r["最終日時"] || ""; const d0 = v ? new Date(v) : null; return d0 && !isNaN(d0) ? esc(`${String(d0.getFullYear()).slice(2)}/${String(d0.getMonth() + 1).padStart(2, "0")}/${String(d0.getDate()).padStart(2, "0")}`) : '<span class="kc-none">—</span>'; })()}</td>
         <td style="max-width:260px">${(() => { const v = String(r["最終コメント"] || "").replace(/\s+/g, " ").trim(); return v ? `<div title="${esc(v)}" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${esc(v)}</div>` : '<span class="kc-none">—</span>'; })()}</td>
+        ${_edHasRevive ? `<td style="font-size:11px;color:#0d5b47;max-width:220px">${esc(r["復活の理由"] || "")}</td>` : ""}
         <td class="ed-lostn">${(() => { const c = _edLost && _edLost[r.id]; if (_edLost === null) return '<span class="kc-none">…</span>'; if (!c) return '<span class="kc-none">0</span>'; return `<b class="${c.total >= 2 ? "ed-lost2" : ""}">${c.total}回</b><small>${[c.新規 ? `新規${c.新規}` : "", c.クロス ? `クロス${c.クロス}` : "", c.total - c.新規 - c.クロス ? `他${c.total - c.新規 - c.クロス}` : ""].filter(Boolean).join("・")}${c.last ? `　最後 ${esc(c.last.slice(2).replace(/-/g, "/"))}` : ""}</small>`; })()}</td>
         <td><input type="text" class="ed-f" data-f="industry" value="${esc(g(r, "業種", "industry"))}" placeholder="業種" style="width:130px" /></td>
         ${_edPastLost ? `<td>${esc(edLossBig(r) || "—")}</td>` : ""}
