@@ -1512,7 +1512,7 @@ export async function runReport(owner, reportId, filters = null) {
   }));
   let raw = rowsOf(data);
   let truncated = data.allData === false;
-  let pages = 1, splitBy = ""; const splitErrors = [];
+  let pages = 1, splitBy = ""; const splitErrors = []; const splitDebug = { chunks: [] };
   //   レポート全体の件数（Salesforce が数えた合計）。分けて取った行数と合っているかを確かめるのに使う
   const tt = (data.factMap && data.factMap["T!T"] && data.factMap["T!T"].aggregates) || [];
   const sfTotal = (() => { const i = (meta.aggregates || []).indexOf("RowCount"); const a = tt[i >= 0 ? i : 0]; return a && typeof a.value === "number" ? a.value : null; })();
@@ -1532,6 +1532,8 @@ export async function runReport(owner, reportId, filters = null) {
       if (pg >= 80) { partial = true; return; }
       const d2 = await call({ ...meta, chart: null, reportFormat: "TABULAR", groupingsDown: [], groupingsAcross: [], aggregates: ["RowCount"], reportFilters: baseF, ...(baseB ? { reportBooleanFilter: baseB } : {}), standardDateFilter: { column: sd.column, durationValue: "CUSTOM", startDate: a, endDate: b } });
       pg++;
+      if (depth === 0) { const a0 = d2.factMap && d2.factMap["T!T"] && d2.factMap["T!T"].aggregates; splitDebug.tabularTotal = a0 && a0[0] ? a0[0].value : null; }
+      splitDebug.chunks.push([a, b, rowsOf(d2).length, d2.allData]);
       if (d2.allData !== false) { all.push(...rowsOf(d2)); return; }
       const ta = Date.parse(a + "T00:00:00Z"), tb = Date.parse(b + "T00:00:00Z");
       if (tb <= ta || depth > 20) { all.push(...rowsOf(d2)); partial = true; return; }   // 1日で2000件を超える：これ以上は分けられない
@@ -1614,7 +1616,7 @@ export async function runReport(owner, reportId, filters = null) {
     groups,
     aggLabel,
     truncated,
-    pages, splitBy, sfTotal, ...(splitErrors.length && truncated ? { splitErrors } : {}),
+    pages, splitBy, sfTotal, ...(truncated ? { splitDebug: { ...splitDebug, chunks: splitDebug.chunks.slice(0, 60), sd: meta.standardDateFilter, scope: meta.scope, cross: (meta.crossFilters || []).length } } : {}), ...(splitErrors.length && truncated ? { splitErrors } : {}),
     instanceUrl: acc.instanceUrl,
   };
 }
