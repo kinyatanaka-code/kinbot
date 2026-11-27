@@ -326,7 +326,7 @@ function srShowResult(d) {
     `<div class="sr-head">
        <div>
          <div class="sr-title">${srEsc(d.name)}</div>
-         <div class="sr-sub">${rows.length}行${d.truncated ? "（2000行までの制限あり）" : ""}${rows.length > 500 ? " ・ 画面には500行まで表示" : ""}</div>
+         <div class="sr-sub">${rows.length}行${d.pages > 1 ? `（2000行ずつ${d.pages}回に分けて取得）` : ""}${d.truncated ? "（まだ全部は取れていません。条件で絞ってください）" : ""}${rows.length > 500 ? " ・ 画面には500行まで表示" : ""}</div>
        </div>
        <div class="sr-actions">
          <button class="btn" id="srToCall">リストを作る</button>

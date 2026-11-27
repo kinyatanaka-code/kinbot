@@ -1465,33 +1465,42 @@ export async function reportFilters(owner, reportId) {
 
 // レポートを実行して、表として使える形に整える。
 // filters を渡すと、その条件で実行する（Salesforce側の保存内容は変えない）。
+// Salesforce のレポートは1回に2000行までしか返さないので、それを超えるときは
+// 「並べ替えの基準の列」で区切って何回かに分けて取り、つなげる（2026-11-27 田中さん「全部取り込めるように分けて取り込んで」）。
 export async function runReport(owner, reportId, filters = null) {
   const acc = await getAccess(owner);
   if (!acc) throw new Error("Salesforce未連携です");
   const id = String(reportId).replace(/[^a-zA-Z0-9]/g, "");
   const url = `${acc.instanceUrl}/services/data/${API_VERSION}/analytics/reports/${id}?includeDetails=true`;
+  const call = async (metaOverride) => {
+    const res = metaOverride
+      ? await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" }, body: JSON.stringify({ reportMetadata: metaOverride }) })
+      : await fetch(url, { headers: { Authorization: `Bearer ${acc.token}` } });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const msg = Array.isArray(data) ? data.map((e) => e.message).join(" / ") : (data && data.message) || `SF report ${res.status}`;
+      throw new Error(`SF report: ${msg}`);
+    }
+    return data;
+  };
+  // 明細行は factMap の "◯!T" に入っている（グルーピングがあるとキーが増える）。raw は値そのもの（区切りに使う）
+  const rowsOf = (data) => {
+    const out = []; const fm = data.factMap || {};
+    for (const key of Object.keys(fm)) {
+      if (!/!T$/.test(key)) continue;
+      for (const r of (fm[key] && fm[key].rows) || []) out.push({ label: (r.dataCells || []).map((c) => (c.label != null ? c.label : c.value)), raw: (r.dataCells || []).map((c) => c.value) });
+    }
+    return out;
+  };
 
-  // 条件が指定されていれば、その条件で実行する（POST）。
-  // 保存されているレポートは書き換わらないので、気軽に試せる。
+  // 条件が指定されていれば、その条件で実行する（POST）。保存されているレポートは書き換わらないので、気軽に試せる。
   const useFilters = filters && (Array.isArray(filters.reportFilters) || filters.standardDateFilter);
-  const res = useFilters
-    ? await fetch(url, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
-        body: JSON.stringify({
-          reportMetadata: {
-            ...(Array.isArray(filters.reportFilters) ? { reportFilters: filters.reportFilters } : {}),
-            ...(filters.reportBooleanFilter ? { reportBooleanFilter: filters.reportBooleanFilter } : {}),
-            ...(filters.standardDateFilter ? { standardDateFilter: filters.standardDateFilter } : {}),
-          },
-        }),
-      })
-    : await fetch(url, { headers: { Authorization: `Bearer ${acc.token}` } });
-  const data = await res.json().catch(() => null);
-  if (!res.ok) {
-    const msg = Array.isArray(data) ? data.map((e) => e.message).join(" / ") : (data && data.message) || `SF report ${res.status}`;
-    throw new Error(`SF report: ${msg}`);
-  }
+  const baseOverride = useFilters ? {
+    ...(Array.isArray(filters.reportFilters) ? { reportFilters: filters.reportFilters } : {}),
+    ...(filters.reportBooleanFilter ? { reportBooleanFilter: filters.reportBooleanFilter } : {}),
+    ...(filters.standardDateFilter ? { standardDateFilter: filters.standardDateFilter } : {}),
+  } : null;
+  const data = await call(baseOverride);
 
   const meta = data.reportMetadata || {};
   const ext = data.reportExtendedMetadata || {};
@@ -1501,18 +1510,52 @@ export async function runReport(owner, reportId, filters = null) {
     label: (info[name] && info[name].label) || name,
     type: (info[name] && info[name].dataType) || "string",
   }));
+  let raw = rowsOf(data);
+  let truncated = data.allData === false;
+  let pages = 1, splitBy = "";
 
-  // 明細行は factMap の "◯!T" に入っている（グルーピングがあるとキーが増える）
-  const rows = [];
-  const fm = data.factMap || {};
-  for (const key of Object.keys(fm)) {
-    if (!/!T$/.test(key)) continue;
-    for (const r of (fm[key] && fm[key].rows) || []) {
-      rows.push((r.dataCells || []).map((c) => (c.label != null ? c.label : c.value)));
+  //   2000行を超えるとき：区切りに使う列を選び、その列で並べ替えて「前回の最後より後」を取り直す
+  if (truncated) {
+    //   候補：ID の列 → 作成日の列 → ほかの日付の列。区切れなかった（Salesforce に断られた）ら次の候補へ
+    const cands = [];
+    cols.forEach((c, i) => { if (/^id$/i.test(c.type) || /(^|\.|_)ID$/i.test(c.name)) cands.push(i); });
+    cols.forEach((c, i) => { if (/date/i.test(c.type) && /CREATED/i.test(c.name) && !cands.includes(i)) cands.push(i); });
+    cols.forEach((c, i) => { if (/date/i.test(c.type) && !cands.includes(i)) cands.push(i); });
+    const baseF = (baseOverride && baseOverride.reportFilters) || meta.reportFilters || [];
+    const baseB = (baseOverride && baseOverride.reportBooleanFilter) || meta.reportBooleanFilter || "";
+    const baseD = (baseOverride && baseOverride.standardDateFilter) || meta.standardDateFilter || null;
+    for (const pick of cands.slice(0, 3)) {
+      const key = cols[pick].name;
+      const seen = new Set(); const all = [];
+      const add = (rs) => { let n = 0; for (const r of rs) { const k = r.raw.join("\u0001"); if (seen.has(k)) continue; seen.add(k); all.push(r); n++; } return n; };
+      try {
+        // 1回目も「その列の順」で取り直す（最初の2000行が順に並んでいないと、境目で抜けが出るため）
+        let last = null, more = true, pg = 0;
+        for (let i = 0; i < 60 && more; i++) {
+          const fl = [...baseF];
+          if (last != null) fl.push({ column: key, operator: last.op, value: String(last.v) });
+          const bf = baseB && last != null ? `(${baseB}) AND ${fl.length}` : baseB;
+          const d2 = await call({ reportFilters: fl, ...(bf ? { reportBooleanFilter: bf } : {}), ...(baseD ? { standardDateFilter: baseD } : {}), sortBy: [{ sortColumn: key, sortOrder: "Asc" }] });
+          pg++;
+          const rs = rowsOf(d2);
+          more = d2.allData === false;
+          const n = add(rs);
+          if (!rs.length) break;
+          const nl = rs[rs.length - 1].raw[pick];
+          if (nl == null || nl === "") throw new Error("区切りの値が空");
+          //   日付は同じ時刻の行が境目にあると抜けるので「以上」で取り、重なりは上で除く（ID は「より大きい」）
+          const isDate = /date/i.test(cols[pick].type);
+          if (more && !n && last && String(last.v) === String(nl)) throw new Error("区切りが進まない");
+          last = { v: nl, op: isDate ? "greaterOrEqual" : "greaterThan" };
+        }
+        if (all.length >= raw.length) { raw = all; truncated = more; pages = pg; splitBy = cols[pick].label; break; }
+      } catch (e) { console.warn(`[SFレポート] ${cols[pick].label} で分けて取れませんでした:`, e.message); }
     }
   }
+  const rows = raw.map((r) => r.label);
 
   // 集計（グラフ用）。グルーピングごとの数値を取り出す。
+  const fm = data.factMap || {};
   const groups = [];
   const gd = (data.groupingsDown && data.groupingsDown.groupings) || [];
   const aggInfo = ext.aggregateColumnInfo || {};
@@ -1536,7 +1579,8 @@ export async function runReport(owner, reportId, filters = null) {
     rows,
     groups,
     aggLabel,
-    truncated: data.allData === false,
+    truncated,
+    pages, splitBy,
     instanceUrl: acc.instanceUrl,
   };
 }
