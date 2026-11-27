@@ -8417,7 +8417,10 @@ function nmRenderCards() {
   html += `<div class="nm-sec"><div class="nm-sec-h">その他</div><div class="nm-grid">` +
     `<button type="button" class="nm-card" data-owner="__other__"><div class="nm-card-name">未割り当て</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${unZan.toLocaleString()}</span></div><div class="nm-card-sub">${orphan.length} リスト</div>${nmRatePill(nmSumRates(orphan), "このリストでかけた分のアポ率（直近3か月）")}</button>` +
     // 未割り当てのうち、かけるステージで従業員数100〜500のリード（2026-11-27 田中さん）
-    nmSpecialCard("unassignedin", "未割り当て（100〜500名）", (_nmStage.all || {}).unassignedIn, "未割り当てのリストで、かけるステージ・従業員数100〜500") +
+    // さらに失注の回数で分ける（2026-11-27 田中さん「クロスの失注が1回でもあれば過去失注、0回なら新規。新規もクロスも失注4回以上は対象外」）
+    nmSpecialCard("unassignednew", "未割り当て・新規", (_nmStage.all || {}).unassignedNew, "従業員数100〜500・かけるステージ・クロスの失注0回") +
+    nmSpecialCard("unassignedpast", "未割り当て・過去失注", (_nmStage.all || {}).unassignedPast, "従業員数100〜500・かけるステージ・クロスの失注1〜3回") +
+    nmSpecialCard("unassignedout", "未割り当て・対象外", (_nmStage.all || {}).unassignedOut, "新規かクロスの失注が4回以上") +
     // リサイクル・アーカイブは「全体」の段（全リストの並び）へ移した（2026-11-09 田中さん）
     `</div></div>`;
   // ナーチャリング：全体／今週かける予定（担当メンバー間で移せる）
@@ -8688,6 +8691,9 @@ function nmRenderSpecial(body) {
     recyclein: { name: "リサイクル（ステージ別）", vid: "recycle-in" },
     taishogai: { name: "対象外（従業員数）", vid: "taishogai" },
     unassignedin: { name: "未割り当て（従業員数100〜500）", vid: "unassigned-in" },
+    unassignednew: { name: "未割り当て・新規（100〜500名）", vid: "unassigned-new" },
+    unassignedpast: { name: "未割り当て・過去失注（100〜500名）", vid: "unassigned-past" },
+    unassignedout: { name: "未割り当て・対象外（失注4回以上）", vid: "unassigned-out" },
   }[_nmSel.key];
   if (!info) { body.innerHTML = '<div class="empty-state">表示できませんでした</div>'; return; }
   const member = _nmSel.member || "";
