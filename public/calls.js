@@ -8392,13 +8392,22 @@ function nmRenderCards() {
     { const sa = _nmStage.all || {};
       html += `<div class="nm-sec"><div class="nm-sec-h">ステージ別<span class="nm-sec-sub" style="font-weight:500;color:#6b857b;font-size:11px;margin-left:8px">すべてのリスト（非表示も含む）から</span></div><div class="nm-grid">`
         + nmSpecialCard("kakeru", "かける", sa.kakeru, "ステージが空白・-・NEW・担当者未接触・コネクト情報獲得・ジャッジ（従業員数100〜500）")
-        + nmSpecialCard("recyclein", "リサイクル", sa.recycle, "ステージ＝リサイクル（従業員数100〜500）")
+        + nmStageGrpCard("recycle", "リサイクル", sa.recycle, "ステージ＝リサイクル（従業員数100〜500）。押すと新規／過去失注")
         + nmSpecialCard("archive", "アーカイブ", sa.archive, "ステージ＝アーカイブ・使われていない番号")
         + nmSpecialCard("taishogai", "対象外", sa.taishogai, "かける・リサイクルのうち従業員数が空白・-・99以下・501以上、と未割り当ての失注4回以上")
         // 未割り当てのリストの、かけるステージ・従業員数100〜500を、失注の回数で分けたもの（2026-11-27 田中さん「さっきの未割当をステージ別に移動させて」）
-        + nmSpecialCard("unassignednew", "未割り当て・新規", sa.unassignedNew, "従業員数100〜500・かけるステージ・クロスの失注0回")
-        + nmSpecialCard("unassignedpast", "未割り当て・過去失注", sa.unassignedPast, "従業員数100〜500・かけるステージ・クロスの失注1〜3回")
-        + `</div></div>`; }
+        //   リサイクル・未割り当ては1枚にまとめ、押すと「新規」「過去失注」の2枚が下に出る（2026-11-27 田中さん）
+        + nmStageGrpCard("unassigned", "未割り当て", Number(sa.unassignedNew || 0) + Number(sa.unassignedPast || 0), "従業員数100〜500・かけるステージ。押すと新規／過去失注")
+        + `</div>`
+        + (_nmStageGrp === "recycle" ? `<div class="nm-sec-h" style="margin-top:10px;font-size:12px">リサイクルの内訳</div><div class="nm-grid">`
+            + nmSpecialCard("recyclenew", "リサイクル・新規", sa.recycleNew, "クロスの失注0回")
+            + nmSpecialCard("recyclepast", "リサイクル・過去失注", sa.recyclePast, "クロスの失注1回以上")
+            + nmSpecialCard("recyclein", "リサイクル（すべて）", sa.recycle, "新規と過去失注の両方") + `</div>`
+          : _nmStageGrp === "unassigned" ? `<div class="nm-sec-h" style="margin-top:10px;font-size:12px">未割り当ての内訳</div><div class="nm-grid">`
+            + nmSpecialCard("unassignednew", "未割り当て・新規", sa.unassignedNew, "従業員数100〜500・かけるステージ・クロスの失注0回")
+            + nmSpecialCard("unassignedpast", "未割り当て・過去失注", sa.unassignedPast, "従業員数100〜500・かけるステージ・クロスの失注1〜3回") + `</div>`
+          : "")
+        + `</div>`; }
     if (!_nmTree) nmLoadTree().then(() => { if (!_nmSel && _nmMode !== "group") nmRenderCards(); });   // 全リストの隣のリストの種類（2026-11-08）
   }
   if (!_nmShift || _nmShiftDay !== nmTodayStr()) nmLoadShift();
@@ -8463,6 +8472,7 @@ function nmRenderCards() {
   nmFetchClSummary();   // カードの件数（今月かける・月別）を後追いで更新
   body.querySelectorAll(".nm-card").forEach((c) => c.addEventListener("click", () => {
     _nmChosen = new Set();
+    if (c.dataset.stagegrp) { _nmStageGrp = _nmStageGrp === c.dataset.stagegrp ? "" : c.dataset.stagegrp; nmRenderCards(); return; }   // まとめカード：内訳を開く／閉じる
     if (c.dataset.cl) { nmOpenCrosslost(c.dataset.cl); return; }   // 過去リストカード（今月かける／失注リスト／月別）
     if (c.dataset.clold) { nmOpenCrosslost(c.dataset.clold, "pastlost-old"); return; }   // 〜2026/2 の失注
     if (c.dataset.nur) { nmOpenNurture(c.dataset.nur); return; }   // ナーチャリング（全体／今週）
@@ -8648,6 +8658,9 @@ function nmRenderGroupCards(body) {
 // 全体の段の「全リスト・新規リスト・過去リスト・その他・リサイクル・アーカイブ・コールド・対象外」のカードは、いったん出さない（2026-11-27 田中さん「この辺一旦非表示にして」）
 //   戻すときは true にする
 const NM_SHOW_TYPE_CARDS = false;
+// ステージ別の「まとめカード」：押すと内訳のカード（新規／過去失注）を下に開く。もう一度押すと閉じる（2026-11-27）
+let _nmStageGrp = "";
+function nmStageGrpCard(key, name, n, sub) { const on = _nmStageGrp === key; return `<button type="button" class="nm-card" data-stagegrp="${key}"${on ? ' style="border-color:#1d9e75;box-shadow:0 0 0 2px #5DCAA5 inset"' : ""}><div class="nm-card-name">${esc(name)}<svg viewBox="0 0 24 24" width="12" height="12" style="margin-left:4px;vertical-align:-1px;transform:rotate(${on ? 180 : 0}deg)" fill="none" stroke="#1d9e75" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></div><div class="nm-card-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${Number(n || 0).toLocaleString()}</span></div><div class="nm-card-sub">${esc(sub)}</div></button>`; }
 function nmSpecialCard(key, name, n, sub) { return `<button type="button" class="nm-card" data-special="${key}"><div class="nm-card-name">${esc(name)}</div><div class="nm-card-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${Number(n || 0).toLocaleString()}</span></div><div class="nm-card-sub">${esc(sub)}</div></button>`; }
 function nmTypeCardHtml(f) {
   if (!f.children) return nmGroupCardHtml(f.id, f.name);
@@ -8692,6 +8705,8 @@ function nmRenderSpecial(body) {
     crosslost: { name: "クロス失注", vid: "crosslost" },
     kakeru: { name: "かける（ステージ別）", vid: "kakeru" },
     recyclein: { name: "リサイクル（ステージ別）", vid: "recycle-in" },
+    recyclenew: { name: "リサイクル・新規（100〜500名）", vid: "recycle-new" },
+    recyclepast: { name: "リサイクル・過去失注（100〜500名）", vid: "recycle-past" },
     taishogai: { name: "対象外（従業員数）", vid: "taishogai" },
     unassignedin: { name: "未割り当て（従業員数100〜500）", vid: "unassigned-in" },
     unassignednew: { name: "未割り当て・新規（100〜500名）", vid: "unassigned-new" },
