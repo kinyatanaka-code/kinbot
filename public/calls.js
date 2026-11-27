@@ -10272,6 +10272,7 @@ function edBuildTable() {
     th("電話", txt("edQPhone")) +
     th("メール", txt("edQEmail")) +
     th("架電状態", msel("edStatus", uniq((r) => g(r, "最終ステータス", "最終結果", "status") || "（なし）"))) +
+    th("最終架電日", "") +   // 2026-11-27 田中さん「最終架電日も出してほしい」
     th("失注回数", `<div class="ed-lostf"><div class="ed-empf"><small>計</small><input type="number" id="edLostMin" class="ed-emp-in" placeholder="下限" min="0" /><span>〜</span><input type="number" id="edLostMax" class="ed-emp-in" placeholder="上限" min="0" /></div><div class="ed-empf"><small>新規</small><input type="number" id="edLostNMin" class="ed-emp-in" placeholder="下限" min="0" /><span>〜</span><input type="number" id="edLostNMax" class="ed-emp-in" placeholder="上限" min="0" /></div><div class="ed-empf"><small>クロス</small><input type="number" id="edLostCMin" class="ed-emp-in" placeholder="下限" min="0" /><span>〜</span><input type="number" id="edLostCMax" class="ed-emp-in" placeholder="上限" min="0" /></div></div>`) +
     th("業種", msel("edInd", uniq((r) => String(g(r, "業種", "industry") || "").trim() || "（空）"))) +
     (_edPastLost ? th("失注理由（大項目）", msel("edPlReason", uniq((r) => edLossBig(r) || "（なし）"))) : "") +
@@ -10410,6 +10411,7 @@ function edRenderBody() {
         <td>${esc(g(r, "電話", "電話番号", "phone"))}</td>
         <td>${esc(g(r, "メール", "メールアドレス", "email"))}</td>
         <td>${esc(g(r, "最終ステータス", "最終結果", "status"))}</td>
+        <td style="white-space:nowrap">${(() => { const v = r["最終架電の日時"] || r["最終日時"] || ""; const d0 = v ? new Date(v) : null; return d0 && !isNaN(d0) ? esc(`${String(d0.getFullYear()).slice(2)}/${String(d0.getMonth() + 1).padStart(2, "0")}/${String(d0.getDate()).padStart(2, "0")}`) : '<span class="kc-none">—</span>'; })()}</td>
         <td class="ed-lostn">${(() => { const c = _edLost && _edLost[r.id]; if (_edLost === null) return '<span class="kc-none">…</span>'; if (!c) return '<span class="kc-none">0</span>'; return `<b class="${c.total >= 2 ? "ed-lost2" : ""}">${c.total}回</b><small>${[c.新規 ? `新規${c.新規}` : "", c.クロス ? `クロス${c.クロス}` : "", c.total - c.新規 - c.クロス ? `他${c.total - c.新規 - c.クロス}` : ""].filter(Boolean).join("・")}${c.last ? `　最後 ${esc(c.last.slice(2).replace(/-/g, "/"))}` : ""}</small>`; })()}</td>
         <td><input type="text" class="ed-f" data-f="industry" value="${esc(g(r, "業種", "industry"))}" placeholder="業種" style="width:130px" /></td>
         ${_edPastLost ? `<td>${esc(edLossBig(r) || "—")}</td>` : ""}
