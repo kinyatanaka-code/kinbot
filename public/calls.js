@@ -8394,11 +8394,10 @@ function nmRenderCards() {
         + nmSpecialCard("kakeru", "かける", sa.kakeru, "ステージが空白・-・NEW・担当者未接触・コネクト情報獲得・ジャッジ（従業員数100〜500）")
         + nmSpecialCard("recyclein", "リサイクル", sa.recycle, "ステージ＝リサイクル（従業員数100〜500）")
         + nmSpecialCard("archive", "アーカイブ", sa.archive, "ステージ＝アーカイブ・使われていない番号")
-        + nmSpecialCard("taishogai", "対象外", sa.taishogai, "かける・リサイクルのうち、従業員数が空白・-・99以下・501以上")
+        + nmSpecialCard("taishogai", "対象外", sa.taishogai, "かける・リサイクルのうち従業員数が空白・-・99以下・501以上、と未割り当ての失注4回以上")
         // 未割り当てのリストの、かけるステージ・従業員数100〜500を、失注の回数で分けたもの（2026-11-27 田中さん「さっきの未割当をステージ別に移動させて」）
         + nmSpecialCard("unassignednew", "未割り当て・新規", sa.unassignedNew, "従業員数100〜500・かけるステージ・クロスの失注0回")
         + nmSpecialCard("unassignedpast", "未割り当て・過去失注", sa.unassignedPast, "従業員数100〜500・かけるステージ・クロスの失注1〜3回")
-        + nmSpecialCard("unassignedout", "未割り当て・対象外", sa.unassignedOut, "新規かクロスの失注が4回以上")
         + `</div></div>`; }
     if (!_nmTree) nmLoadTree().then(() => { if (!_nmSel && _nmMode !== "group") nmRenderCards(); });   // 全リストの隣のリストの種類（2026-11-08）
   }
