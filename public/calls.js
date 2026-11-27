@@ -8416,6 +8416,8 @@ function nmRenderCards() {
   const spCard = (key, name, n, sub) => `<button type="button" class="nm-card" data-special="${key}"><div class="nm-card-name">${esc(name)}</div><div class="nm-card-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${Number(n || 0).toLocaleString()}</span></div><div class="nm-card-sub">${esc(sub)}</div></button>`;
   html += `<div class="nm-sec"><div class="nm-sec-h">その他</div><div class="nm-grid">` +
     `<button type="button" class="nm-card" data-owner="__other__"><div class="nm-card-name">未割り当て</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${unZan.toLocaleString()}</span></div><div class="nm-card-sub">${orphan.length} リスト</div>${nmRatePill(nmSumRates(orphan), "このリストでかけた分のアポ率（直近3か月）")}</button>` +
+    // 未割り当てのうち、かけるステージで従業員数100〜500のリード（2026-11-27 田中さん）
+    nmSpecialCard("unassignedin", "未割り当て（100〜500名）", (_nmStage.all || {}).unassignedIn, "未割り当てのリストで、かけるステージ・従業員数100〜500") +
     // リサイクル・アーカイブは「全体」の段（全リストの並び）へ移した（2026-11-09 田中さん）
     `</div></div>`;
   // ナーチャリング：全体／今週かける予定（担当メンバー間で移せる）
@@ -8685,6 +8687,7 @@ function nmRenderSpecial(body) {
     kakeru: { name: "かける（ステージ別）", vid: "kakeru" },
     recyclein: { name: "リサイクル（ステージ別）", vid: "recycle-in" },
     taishogai: { name: "対象外（従業員数）", vid: "taishogai" },
+    unassignedin: { name: "未割り当て（従業員数100〜500）", vid: "unassigned-in" },
   }[_nmSel.key];
   if (!info) { body.innerHTML = '<div class="empty-state">表示できませんでした</div>'; return; }
   const member = _nmSel.member || "";

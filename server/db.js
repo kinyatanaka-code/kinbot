@@ -4560,9 +4560,10 @@ export function empOutJs(v) {
   const n = String(v == null ? "" : v).split(/[〜~]/)[0].replace(/[^0-9]/g, "");
   if (!n || n.length > 7) return true; const k = Number(n); return k <= 99 || k >= 501;
 }
+export const UNASSIGNED_LIST_SQL = `(COALESCE(btrim(cl.owner),'') = '' AND NOT COALESCE(cl.hidden,false) AND NOT COALESCE(cl.closed,false) AND btrim(COALESCE(cl.name,'')) NOT IN ('アーカイブ','リサイクル'))`;
 export async function stageLeadsLight() {
   if (!pool) return [];
-  const { rows } = await pool.query(`SELECT t.id, t.lead_id, t.phone, t.company, t.stage, t.status, t.employees FROM call_targets t`);
+  const { rows } = await pool.query(`SELECT t.id, t.lead_id, t.phone, t.company, t.stage, t.status, t.employees, t.list_id, (t.list_id IS NOT NULL AND ${UNASSIGNED_LIST_SQL}) AS unassigned FROM call_targets t LEFT JOIN call_lists cl ON cl.id = t.list_id`);
   return rows;
 }
 export async function stageSummaryCounts() {
@@ -4726,7 +4727,7 @@ function callQueryWhere(n, alias = "t") {
            OR ${_qn(alias + ".phone")} LIKE $${n} OR ${_qn(alias + ".email")} LIKE $${n})`;
 }
 
-export async function listStageTargets(keyword, { q = "", limit = 2000, statusMatch = [], owner = "", extraIds = [], ownerStrict = false } = {}) {
+export async function listStageTargets(keyword, { q = "", limit = 2000, statusMatch = [], owner = "", extraIds = [], ownerStrict = false, unassigned = false } = {}) {
   if (!pool || !keyword) return [];
   try {
     const p = [`%${keyword}%`];
@@ -4734,6 +4735,7 @@ export async function listStageTargets(keyword, { q = "", limit = 2000, statusMa
     //   "__kakeru__"・"__recycle_in__" は従業員数が対象（100〜500）のものだけ、"__taishogai__" はかける・リサイクルのうち従業員数が対象外のもの
     let stageOr = keyword === "__kakeru__" ? `(${KAKERU_STAGE_SQL} AND NOT ${EMP_OUT_SQL} AND $1::text IS NOT NULL)`
       : keyword === "__recycle_in__" ? `(COALESCE(t.stage,'') ILIKE '%リサイクル%' AND NOT ${EMP_OUT_SQL} AND $1::text IS NOT NULL)`
+      : keyword === "__unassigned_in__" ? `(${KAKERU_STAGE_SQL} AND NOT ${EMP_OUT_SQL} AND $1::text IS NOT NULL)`
       : keyword === "__taishogai__" ? `((${KAKERU_STAGE_SQL} OR COALESCE(t.stage,'') ILIKE '%リサイクル%') AND ${EMP_OUT_SQL} AND $1::text IS NOT NULL)`
       : `COALESCE(t.stage,'') ILIKE $1`;
     // ステージだけでなく、指定したステータス（例：現在使われていない）も「その仮想ビュー」に含める
@@ -4742,6 +4744,8 @@ export async function listStageTargets(keyword, { q = "", limit = 2000, statusMa
     const xs = [...new Set((extraIds || []).map((x) => parseInt(x, 10)).filter(Boolean))];
     if (xs.length) { p.push(xs); stageOr += ` OR t.id = ANY($${p.length}::int[])`; }
     let where = `(${stageOr})`;
+    //   unassigned：リスト管理の「未割り当て」と同じリストだけ（持ち主なし・表示中・閉じていない・名前がアーカイブ／リサイクルでない）（2026-11-27）
+    if (unassigned) where += ` AND t.list_id IS NOT NULL AND ${UNASSIGNED_LIST_SQL}`;
     const own = String(owner || "").trim().toLowerCase();
     // ownerStrict：かける画面用。持ち主がその人のリストにあるものだけ（他の人のリストは出さない）
     if (own) { p.push(own); where += ownerStrict ? ` AND lower(COALESCE(cl.owner,'')) = $${p.length}` : ` AND lower(COALESCE(NULLIF(btrim(t.assigned_to), ''), cl.owner)) = $${p.length}`; }
