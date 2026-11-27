@@ -11,7 +11,7 @@
     <link rel="manifest" href="/kinxs.webmanifest" />
     <meta name="theme-color" content="#0B3B2E" />
     <meta name="apple-mobile-web-app-title" content="kinXs" />
-    <link rel="stylesheet" href="style.css?v=20261127n" />
+    <link rel="stylesheet" href="style.css?v=20261127o" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1316,7 +1316,20 @@
 .mi-sub b{color:var(--c,#0d5b47);}
 #kh2 .h2-mine .mi-sub{display:none;}
 /* 段階が7つになったので、横一列に7枚＋矢印6つで並べる（9列のままだと2段目にずれて崩れていた）（2026-11-25 田中さん「崩れてる」） */
-.mi-flow{grid-template-columns:repeat(8,minmax(0,1fr) auto) minmax(0,1fr);}   /* 利用スケジュール確定・掲載スケジュール確定で9枚 */   /* 利用スケジュール確定を足して8枚（2026-11-26） */
+.mi-flow{grid-template-columns:repeat(7,minmax(0,1fr) auto) minmax(0,1fr);}   /* 箱は8枚（2026-11-27 久野さん：まだ終わっていないことで区分） */
+/* 対応ステータスの箱（2026-11-27 久野さん）：小さな見出し・入る条件・次のアクション。要確認の「うち〇社」は赤、掲載・利用中はゴールなので緑の背景 */
+.mi-flow-h{display:flex;align-items:baseline;gap:10px;margin:2px 0 8px;font-size:13px;color:#173a30}
+.mi-flow-h span{font-size:11.5px;color:#6b857b}
+.mi-box{border-left:4px solid var(--c,#0d5b47)!important;justify-content:flex-start}
+.mi-box .mi-tag{display:inline-block;font-size:10px;font-weight:700;color:var(--c);background:color-mix(in srgb,var(--c) 12%,#fff);border-radius:6px;padding:1px 6px}
+.mi-box .mi-nm{color:var(--c);font-weight:800;font-size:13px;line-height:1.3}
+.mi-box .v{color:var(--c)}
+.mi-box .mi-cond{display:block;font-size:10.5px;line-height:1.45;color:#3d544b;border-top:1px dashed #dcebe4;padding-top:5px;margin-top:2px}
+.mi-box .mi-cond b{font-weight:700}
+.mi-box .mi-alert{display:block;font-size:10.5px;font-weight:700;color:#C43D3D;background:#fdecec;border-radius:6px;padding:3px 6px;line-height:1.4}
+.mi-box .mi-next{display:inline-block;margin-top:auto;font-size:10.5px;font-weight:700;color:#3d544b;background:#f2f5f3;border-radius:6px;padding:3px 7px;line-height:1.4}
+.mi-box.goal{background:#eaf7f1}
+.kx-mine-big .mi-box .mi-cond,.kx-mine-big .mi-box .mi-next,#kh2 .mi-box .mi-cond,#kh2 .mi-box .mi-next,#kh2 .mi-box .mi-tag{display:none}   /* 利用スケジュール確定・掲載スケジュール確定で9枚 */   /* 利用スケジュール確定を足して8枚（2026-11-26） */
 .mi-flow .mi-kpi{min-width:0;}
 .mi-flow .mi-kpi .l{flex-wrap:wrap;}
 .mi-flow .mi-def{display:block;font-size:10.5px;line-height:1.4;font-weight:600;}
@@ -1677,8 +1690,8 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261127n" defer></script>
-    <script src="kinxs.js?v=20261127n"></script>
+    <script src="kbchat.js?v=20261127o" defer></script>
+    <script src="kinxs.js?v=20261127o"></script>
   <script>
   // スマホのメニューの開け閉め。項目を押したら閉じる（2026-11-24）
   (function () {

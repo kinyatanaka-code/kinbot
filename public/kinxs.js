@@ -2670,18 +2670,21 @@ if (VIEW === "mine") renderMine();
 //   前の5つは「済んだら次へ」。納品メールのあとは、掲載・利用が確認できたら「掲載・利用中」、できていなければ
 //   納品メールから2か月（60日）は「オンボーディング中」、2か月を過ぎたら「要確認」
 const KX_STAGES = [
-  // 名前は「いまどこまで済んだか」で呼ぶ（2026-11-25 田中さん「キックオフ未設定／設定済／実施済／検収書回収済／納品メール回収済／要確認／掲載・利用中」「オンボーディングいらないか」）
-  { k: "s0", l: "受注", c: "#0d5b47" }, { k: "s1", l: "キックオフ未設定", c: "#E0A100" }, { k: "s2", l: "キックオフ設定済", c: "#D08A00" },
-  { k: "s3", l: "キックオフ実施済", c: "#C43D3D" },
-  // 利用スケジュール確定（2026-11-26 田中さん「キックオフ実施済のあとに利用スケジュール確定を置いてほしい。来期納品とかもあって、キックオフの月と納品のタイミングが違うから」）
-  //   ＝納品（利用開始）の予定月が決まった。手で決めた予定月（kenshu_month）か、回収MTGで聞いた納品月
-  { k: "s4", l: "利用スケジュール確定", c: "#2E8FB0" },
-  { k: "s5", l: "検収書回収済", c: "#3F72C9" }, { k: "s6", l: "納品メール回収済", c: "#6B4FB8" },
-  { k: "s7", l: "要確認", c: "#B4441F" },
-  // オンボーディング中（2026-11-26 田中さん「掲載スケジュール確定ではなくオンボーディング中の表記に。定義は掲載スケジュールが確定していて、かつ2か月の間に接点がある。
-  //   スケジュールが確定していて過ぎているものは要確認に入れる」）。前は「掲載スケジュール確定」：掲載・利用を始める予定日が決まった会社。要確認にはしない
-  { k: "s8", l: "オンボーディング中", c: "#1E7A8C" }, { k: "s9", l: "掲載・利用中", c: "#1d9e75" },
+  // 箱は「まだ終わっていないこと」で呼ぶ（2026-11-27 久野さん「箱の数字がそのまま、今やるべき対応の量になるように」）。
+  //   1社は必ず1つの箱だけ。上から順に、まだ済んでいない最初のことで決める。tag＝小さな見出し、cond＝入る条件、next＝次のアクション
+  { k: "s0", l: "受注", c: "#0d5b47" },
+  { k: "s1", l: "キックオフ未設定", c: "#E0A100", tag: "受注後", cond: "受注済み／キックオフ日程が未登録", next: "日程調整の連絡" },
+  { k: "s2", l: "キックオフ未実施", c: "#D9730D", tag: "キックオフ", cond: "キックオフ設定済み／実施日が未登録", next: "キックオフ実施・実施登録" },
+  { k: "s3", l: "利用スケジュール未確定", c: "#C43D3D", tag: "スケジュール", cond: "キックオフ実施済み／利用スケジュール（掲載予定日）が未確定", next: "利用時期のヒアリング" },
+  { k: "s4", l: "検収書未回収", c: "#2F6FD6", tag: "納品手続き", cond: "利用スケジュール確定済み／検収書が未回収", next: "検収書の回収" },
+  { k: "s5", l: "納品メール未回収", c: "#6B4FB8", tag: "納品手続き", cond: "検収書回収済み／納品メールが未回収", next: "納品メールの送付・回収" },
+  //   s6（前の「納品メール回収済」）は要確認にまとめた。手で s6 にしていた会社も要確認として扱う
+  { k: "s6", l: "要確認", c: "#B4441F", hide: true },
+  { k: "s7", l: "要確認", c: "#B4441F", tag: "要フォロー", cond: "検収書・納品メール回収済み／掲載予定日も掲載URLも未確認", next: "掲載時期の確認連絡" },
+  { k: "s8", l: "オンボーディング中", c: "#1E7A8C", tag: "掲載準備", cond: "掲載予定日が決定／掲載先一覧に掲載URLが未登録", next: "掲載準備の支援" },
+  { k: "s9", l: "掲載・利用中", c: "#1d9e75", tag: "ゴール", cond: "掲載先一覧に掲載URLが登録済み", next: "運用フォロー", goal: true },
 ];
+const KX_STAGES_SHOW = KX_STAGES.filter((g) => !g.hide);   // 箱・選択肢に出す段（s6 は出さない）
 function kxStageInfo(x) {
   const pub = !!(x.published || x.publishedOn || (x.places || []).length) || /^活用：(公開掲載|限定公開)/.test(String(x.usage || ""));
   // キックオフの実施日が入っていて、その日が今日以前なら、実施済み（設定も済み）。道のりの「キックオフ」で実施日を入れたら、すぐ次の段へ進む（2026-11-25 田中さん「キックオフ実施済みにしたらすぐに反映させてほしい」）
@@ -2711,10 +2714,14 @@ function kxStageInfo(x) {
   //   掲載した印・掲載先（URL なし）・活用の公開掲載だけの会社は、2か月以内に接点があればオンボーディング中、なければ要確認
   const pubUrl = (x.places || []).some((p) => /^https?:\/\//i.test(String((p && p.url) || "")));
   if (i < 0) i = pubUrl ? 9 : planPast ? 7 : pub ? (touch60 ? 8 : 7) : (x.usePlanOn && touch60) ? 8 : mailDays != null && mailDays >= 60 ? 7 : 6;
+  //   要確認のうち、前の「要確認」の決まり（納品メールから2か月・予定日を過ぎた・URL なしで2か月接点なし）に当たる会社は alert（箱に「うち〇社」と赤で出す）
+  const alert = i === 7;
+  if (i === 6) i = 7;   // 前の「納品メール回収済」は要確認にまとめる（2026-11-27 久野さん）
   // 手で決めた段階があれば、それを使う（下げることもできる）
-  const mi = /^s[1-9]$/.test(String(x.stageManual || "")) ? Number(String(x.stageManual).slice(1)) : 0;
-  if (mi) return { i: mi, auto: i, manual: true, done: done.map((v, j) => j < mi), pub, mailDays, kenSkip, planPast, touch60 };
-  return { i, done, pub, pubUrl, mailDays, kenSkip, planPast, touch60 };
+  let mi = /^s[1-9]$/.test(String(x.stageManual || "")) ? Number(String(x.stageManual).slice(1)) : 0;
+  if (mi === 6) mi = 7;
+  if (mi) return { i: mi, auto: i, manual: true, done: done.map((v, j) => j < mi), pub, mailDays, kenSkip, planPast, touch60, alert: mi === 7 && alert };
+  return { i, done, pub, pubUrl, mailDays, kenSkip, planPast, touch60, alert };
 }
 const kxStageOf = (x) => kxStageInfo(x).i;
 // 一覧の会社の下に出す一言（その段で何を待っているか）
@@ -2727,7 +2734,7 @@ function kxStageNote(x, gi) {
   if (gi === 4 && x.initFee === false) return `初期費用なし（検収書は不要）${x.kenshuMonth || x.deliveryMonth ? `・利用予定 ${Number(String(x.kenshuMonth || x.deliveryMonth).slice(5))}月` : ""}`;
   if (gi === 4) return `検収書：${x.kenshuSt || x.kenshu || "未回収"}${x.ksMonth ? `・回収予定 ${Number(x.ksMonth.slice(5))}月` : ""}`;
   if (gi === 5) return `納品メール：${x.mail || "未送付"}`;
-  if (gi === 6) return `納品メールから${si.mailDays != null ? `${si.mailDays}日` : "—"}・掲載・利用はまだ確認できていません`;
+  if ((gi === 6 || gi === 7) && !si.alert) return `納品メールから${si.mailDays != null ? `${si.mailDays}日` : "—"}・掲載・利用はまだ確認できていません`;
   if (gi === 7 && si.pub && !si.pubUrl && !si.planPast) return `掲載先一覧に URL がなく、2か月以上接点がありません（最後の接点 ${x.lastTouch ? `${x.sinceTouch}日前` : "なし"}）`;
   if (gi === 7 && si.planPast) return `掲載の予定日（${String(x.usePlanOn).slice(5, 10).replace("-", "/")}）を過ぎても、掲載・利用が確認できていません`;
   if (gi === 7) return `納品メールから${si.mailDays}日たっても、掲載・利用が確認できていません`;
@@ -2754,7 +2761,7 @@ function kxRefreshAll() {
 function kxStageSel(x) {
   const si = kxStageInfo(x); const g = KX_STAGES[si.i] || {};
   return `<select class="mi-stsel" data-stsel="${esc(x.id)}" style="--c:${g.c || "#0d5b47"}" title="押すと段階を変えられます${si.manual ? "（手で決めた段階）" : ""}">
-    <option value="" ${si.manual ? "" : "selected"}>${si.manual ? "自動に戻す" : esc(g.l || "")}</option>${KX_STAGES.slice(1).map((s0) => `<option value="${s0.k}" ${si.manual && x.stageManual === s0.k ? "selected" : ""}>${esc(s0.l)}${si.manual && x.stageManual === s0.k ? "（手で）" : ""}</option>`).join("")}</select>`;
+    <option value="" ${si.manual ? "" : "selected"}>${si.manual ? "自動に戻す" : esc(g.l || "")}</option>${KX_STAGES_SHOW.slice(1).map((s0) => `<option value="${s0.k}" ${si.manual && x.stageManual === s0.k ? "selected" : ""}>${esc(s0.l)}${si.manual && x.stageManual === s0.k ? "（手で）" : ""}</option>`).join("")}</select>`;
 }
 function kxStageSelWire(box) {
   box.querySelectorAll("[data-stsel]").forEach((sel) => {
@@ -2814,7 +2821,7 @@ async function renderMine(boxArg, opts = {}) {
     ["dn", "来月納品待ち", "#5DCAA5", (x) => waitIng(x) && dlvYm(x) === nextYm, dlvNote, (a, b) => String(a.name).localeCompare(String(b.name), "ja")],
     // 下の段：会社のステージ（kxStageOf）。いまその段にいる会社を数える（2026-11-25 田中さん「ステージをそろえたい」）
     //   流れの先頭は「受注」ではなく「キックオフ未設定」（2026-11-25 田中さん「受注ではなくキックオフ未設定」）。受注の段にいる会社（受注日も先の記録も無い）もここに数える
-    ...KX_STAGES.slice(1).map((g, j) => { const gi = j + 1; return [g.k, gi === 1 ? "キックオフ未設定" : g.l, g.c, (x) => (gi === 1 ? kxStageOf(x) <= 1 : kxStageOf(x) === gi), (x) => kxStageNote(x, kxStageOf(x) === 0 ? 0 : gi)]; }),
+    ...KX_STAGES_SHOW.slice(1).map((g) => { const gi = Number(g.k.slice(1)); return [g.k, g.l, g.c, (x) => (gi === 1 ? kxStageOf(x) <= 1 : kxStageOf(x) === gi), (x) => kxStageNote(x, kxStageOf(x) === 0 ? 0 : gi)]; }),
   ];
   // 担当企業の画面は1画面に固定して、会社の一覧だけを中で巻き取る（2026-11-24 田中さん「上に詰めて、会社一覧はスクロールできるように」）。スマホ（幅860px以下）は今まで通り
   const miFit = () => { if (home || !box.isConnected) return; const wide = window.innerWidth > 860; box.classList.toggle("mi-fixed", wide);
@@ -2838,17 +2845,15 @@ async function renderMine(boxArg, opts = {}) {
         return `<div class="mi-kpis"${home ? " hidden" : ""}>${KS.filter((x) => TOP.includes(x[0])).map(tl).join("")}`;
       })()}
         ${home ? "" : `<button type="button" class="mi-kpi ${st.k === "tk" ? "on" : ""}" style="--c:#6B4FB8" data-mk="tk"><span class="l"><i></i>タスク</span><span class="v" data-mtk-n>…<small>件</small></span></button>`}</div>
-      <div class="mi-flow">${KX_STAGES.map((g) => KS.find((x) => x[0] === g.k)).filter(Boolean).map(([k, l, c, f]) => {
-        // キックオフ未実施は、「未設定（予定がまだ無い）」と「設定済み・未実施（予定はあるがまだやっていない）」に分けて出す（2026-11-24 田中さん）
-        let sub = "";
-        if (k === "s2") { const ks0 = mine.filter(f).map((x) => (x.actions || []).find((a0) => a0.kind === "キックオフ未実施") || { ko: x.kickoffClear ? "設定済み" : "未設定" });   // 設定済みは、カレンダーのキックオフの予定か CS 連携があるときだけ（2026-11-24 久野さん）
-          const un = ks0.filter((a0) => a0.ko === "未設定").length;
-          sub = `<span class="mi-sub"><span>未設定 <b>${un}</b></span><span>設定済み・未実施 <b>${ks0.length - un}</b></span></span>`; }
-        // キックオフ未設定と要確認は、1社でもあれば大きく・点滅させて目立たせる（2026-11-25 田中さん「でっかく強調して、ピコピコしてほしい」）
+      ${home ? "" : '<div class="mi-flow-h"><b>対応ステータス</b><span>箱の数字＝「まだ終わっていないこと」がある会社数（＝今やるべき対応の量）</span></div>'}
+      <div class="mi-flow">${KX_STAGES_SHOW.map((g) => KS.find((x) => x[0] === g.k)).filter(Boolean).map(([k, l, c, f]) => {
+        // 箱（2026-11-27 久野さん）：小さな見出し・名前・数・入る条件・次のアクション。要確認は「うち〇社」を赤で、掲載・利用中はゴールなので緑の背景
+        //   キックオフの小さな内訳（未設定／設定済み・未実施）は出さない
+        const g = KX_STAGES.find((x0) => x0.k === k) || {};
         const n0 = mine.filter(f).length; const hot = (k === "s1" || k === "s7") && n0 > 0;
-        // 要確認は、どんな会社かを名前の下に書いておく（2026-11-25 田中さん「要確認のところに定義を」）
-        const def = k === "s7" ? '<small class="mi-def">納品メールから2か月、または掲載の予定日を過ぎても掲載・利用が確認できない会社。URL なし・2か月接点なしも</small>' : k === "s8" ? '<small class="mi-def">掲載の予定日が決まっている・掲載先一覧に URL がまだない会社で、2か月以内に接点がある</small>' : "";
-        return `<button type="button" class="mi-kpi ${st.k === k ? "on" : ""}${hot ? " hot" : ""}" style="--c:${c}" data-mk="${k}" title="${k === "s7" ? "要確認：納品メールから2か月（60日）たっても、または掲載の予定日を過ぎても、掲載・利用が確認できていない会社。掲載先一覧に URL がなく、2か月接点がない会社も" : k === "s8" ? "オンボーディング中：掲載の予定日が決まっている、または掲載したが掲載先一覧に URL がまだない会社で、2か月以内に接点がある" : ""}"><span class="l"><i></i><span class="mi-nm">${esc(l)}${def}</span></span><span class="v">${n0}<small>社</small></span>${sub}</button>`; }).join('<span class="mi-arr" aria-hidden="true"><i><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5.5l6.5 6.5L9 18.5"/></svg></i></span>')}</div>
+        const alertN = k === "s7" ? mine.filter((x) => f(x) && kxStageInfo(x).alert).length : 0;
+        const warn = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:3px"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/></svg>';
+        return `<button type="button" class="mi-kpi mi-box ${st.k === k ? "on" : ""}${hot ? " hot" : ""}${g.goal ? " goal" : ""}" style="--c:${c}" data-mk="${k}" title="入る条件：${esc(g.cond || "")}"><span class="mi-tag">${esc(g.tag || "")}</span><span class="l"><span class="mi-nm">${esc(l)}</span></span><span class="v">${n0}<small>社</small></span><span class="mi-cond"><b>入る条件：</b>${esc(g.cond || "")}</span>${k === "s7" && alertN ? `<span class="mi-alert">${warn}うち納品メールから2か月超過・接点なし ${alertN}社</span>` : ""}<span class="mi-next">▶ ${esc(g.next || "")}</span></button>`; }).join('<span class="mi-arr" aria-hidden="true"><i><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5.5l6.5 6.5L9 18.5"/></svg></i></span>')}</div>
       ${st.k === "tk" ? `<div class="mi-h">タスク（ホームと同じもの・期日の近い順）</div><div data-mtk><div class="kx-note">読み込み中…</div></div>`
         : `<div class="mi-h">${esc(cur ? cur[1] : "")}<span class="kx-note">${list.length}社</span></div><div class="mi-list">${list.length ? list.map((x) => `<div class="mi-co" role="button" tabindex="0" data-mopen="${esc(x.id)}">${kxLogoMini(x)}<span class="t"><b>${esc(x.name)}</b><small>${esc(cur[4](x) || "")}</small></span>${kxStageSel(x)}</div>`).join("") : '<div class="kx-empty" style="grid-column:1/-1">ありません</div>'}</div>`}`;
     const wsel = box.querySelector("[data-mwho]"); if (wsel) wsel.addEventListener("change", (e) => { st.who = e.target.value; draw(); });
@@ -3939,7 +3944,7 @@ function kxNowCard(d) {
         return `<button type="button" class="${cls2}${i === 6 && si.i === 7 ? " warn" : ""} kx-a-stb" data-step-ed="${esc(s0.ed || s0.k)}" aria-expanded="false" title="押すと、${esc(s0.ed || s0.k)}を直す欄が開きます">${inner2}</button>`; }).join("")}</div>
       <div class="kx-a-ed" data-step-box hidden></div>
       <div class="kx-note" style="margin-top:-6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">道のりの段を押すと、日付や済み／戻すを直せます
-        <label style="margin-left:auto;display:inline-flex;align-items:center;gap:6px">段階を手で決める<select class="kx-in" data-stage-man style="width:auto;padding:3px 8px;font-size:12px"><option value="">自動${si.manual ? `（${esc(KX_STAGES[si.auto] ? KX_STAGES[si.auto].l : "")}）` : ""}</option>${KX_STAGES.slice(1).map((g) => `<option value="${g.k}" ${x.stageManual === g.k ? "selected" : ""}>${esc(g.l)}</option>`).join("")}</select></label>${si.manual ? '<span class="kx-src" title="自動の判定ではなく、手で決めた段階です。「自動」に戻すと自動の判定に戻ります">手で決めた</span>' : ""}</div>
+        <label style="margin-left:auto;display:inline-flex;align-items:center;gap:6px">段階を手で決める<select class="kx-in" data-stage-man style="width:auto;padding:3px 8px;font-size:12px"><option value="">自動${si.manual ? `（${esc(KX_STAGES[si.auto] ? KX_STAGES[si.auto].l : "")}）` : ""}</option>${KX_STAGES_SHOW.slice(1).map((g) => `<option value="${g.k}" ${x.stageManual === g.k ? "selected" : ""}>${esc(g.l)}</option>`).join("")}</select></label>${si.manual ? '<span class="kx-src" title="自動の判定ではなく、手で決めた段階です。「自動」に戻すと自動の判定に戻ります">手で決めた</span>' : ""}</div>
     </section>
     ${top ? `<section class="kx-a-next"><div class="kx-a-nt"><small>次にやること</small><b>${esc(top.t)}</b>${top.sub || top.s ? `<span>${esc(top.sub || top.s)}</span>` : ""}</div><div class="kx-a-nb">${btn(top.act, true, top.hw)}</div></section>` : ""}
     ${cur === 3 && !x.kenshuNa ? `<section class="kx-sec" data-ken-sec-st><div class="lb">検収書を入れる<span class="kx-note" style="margin-left:8px">PDFを残して、回収をチャットで知らせます</span></div><div data-ken-list data-ken-mode="full" class="kx-note">読み込んでいます…</div></section>` : ""}
@@ -3992,7 +3997,7 @@ function kxNowMount(bg) {
     if (open) { edBox.hidden = true; return; }
     edBox.dataset.k = k; edBox.innerHTML = edOf(k, (b.querySelector("small") || {}).textContent || ""); edBox.hidden = false; b.setAttribute("aria-expanded", "true");
     // どの段からも「この段階にする」で段階を手で動かせる（戻すこともできる）（2026-11-26 田中さん「ステージ戻せないよ」）
-    const toSt = { キックオフ設定: [["s1", "キックオフ未設定"], ["s2", "キックオフ設定済"]], キックオフ: [["s3", "キックオフ実施済"]], 利用スケジュール: [["s4", "利用スケジュール確定"]], 検収書: [["s5", "検収書回収済"]], 納品メール: [["s6", "納品メール回収済"]], 活用: [["s7", "要確認"]], 掲載スケジュール: [["s8", "オンボーディング中"]], 掲載: [["s9", "掲載・利用中"]] }[k] || [];
+    const toSt = { キックオフ設定: [["s1", "キックオフ未設定"], ["s2", "キックオフ未実施"]], キックオフ: [["s3", "利用スケジュール未確定"]], 利用スケジュール: [["s4", "検収書未回収"]], 検収書: [["s5", "納品メール未回収"]], 納品メール: [["s7", "要確認"]], 活用: [["s7", "要確認"]], 掲載スケジュール: [["s8", "オンボーディング中"]], 掲載: [["s9", "掲載・利用中"]] }[k] || [];   // 箱の名前を「まだ終わっていないこと」に変えたのに合わせた（2026-11-27 久野さん）
     if (toSt.length) edBox.insertAdjacentHTML("beforeend", `<div class="kx-a-edr" style="border-top:1px dashed #D5E2DB;padding-top:8px;margin-top:8px"><span class="kx-note">段階を手で動かす：</span>${toSt.map(([v, l]) => `<button type="button" class="kx-a-sec" data-to-stage="${v}">「${esc(l)}」にする</button>`).join("")}${now0.stageManual ? '<button type="button" class="kx-a-sec" data-to-stage="">自動の判定に戻す</button>' : ""}</div>`);
     edBox.querySelectorAll("[data-to-stage]").forEach((t) => t.addEventListener("click", () => { const v = t.dataset.toStage; put({ stage_manual: v }, v ? `段階を「${(KX_STAGES.find((g) => g.k === v) || {}).l}」にしました` : "段階を自動の判定に戻しました"); }));
     const dIn = edBox.querySelector("[data-ed-d]"); if (dIn && !dIn.value && !dIn.hasAttribute("data-keep-empty")) dIn.value = today;
