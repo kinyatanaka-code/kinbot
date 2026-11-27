@@ -56,4 +56,14 @@ t("担当 FS：自分のチーム → 他チーム → だれも空いていな�
   assert.equal(pickFs(all, ok({ 餌取: false, 齊藤: true, 本炭: false }), "").name, "齊藤");
   assert.equal(pickFs(all, ok({ 餌取: false, 齊藤: false, 本炭: false }), ""), null);
 });
+t("チーム「ランダム」：どのチームにも属さない（名簿の既定より優先）", () => {
+  for (const v of ["ランダム", "ランダムチーム", " ランダム "]) assert.equal(teamKey(v), "");
+  // 名簿では餌取チームの森さんでも、メンバー管理でランダムにしたらチームなし
+  assert.equal(teamOf({ email: "mori@example.com", name: "森康晴" }, [{ email: "mori@example.com", name: "森康晴", team: "ランダム" }]), "");
+  // ランダムの IS：チームを問わず空いている FS 全員が候補
+  const R = { email: "r@example.com", name: "ランダムFS", team: "" };
+  assert.deepEqual(splitFree([S, E, R], "").mine.map((x) => x.name), ["齊藤", "餌取", "ランダムFS"]);
+  // ランダムの FS：餌取の IS から見ると「他チーム」扱い（自チームの FS が空いていないときの代わり）
+  assert.equal(pickFs([E, R], new Map([[E.email, false], [R.email, true]]), "餌取").name, "ランダムFS");
+});
 console.log(`\nすべて通りました（${n} 件）`);

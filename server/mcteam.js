@@ -19,8 +19,13 @@ const VARIANT = { 齊: "斎", 斉: "斎", 齋: "斎", 賴: "頼", 髙: "高", �
 const nameKey = (v) => nz(v).replace(/[齊斉齋賴髙﨑邊邉濵濱]/g, (c) => VARIANT[c]);
 
 // チームの鍵：空白・「チーム」を落とし、斎藤の異体字（齊・斉）をそろえる
+//   「ランダム」は、どのチームにも属さない印（2026-11-27 福井さん）。空の鍵にして、
+//   IS ならチームを問わず空いている FS から選び、FS ならどのチームの IS のアポも（自チームの FS が空いていないときの代わりとして）受ける。
+//   名簿の既定のチームより優先したいので、teamOf では「チーム欄に何か入っている」扱いのまま空を返す
+export const RANDOM_TEAM = "ランダム";
 export function teamKey(v) {
-  return nz(v).replace(/チーム$/, "").replace(/[齊斉齋]/g, "斎");
+  const k = nz(v).replace(/チーム$/, "").replace(/[齊斉齋]/g, "斎");
+  return k === RANDOM_TEAM ? "" : k;
 }
 export const teamLabel = (k) => (k ? `${k}チーム` : "");
 
