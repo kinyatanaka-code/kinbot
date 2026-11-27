@@ -2673,16 +2673,16 @@ const KX_STAGES = [
   // 箱は「まだ終わっていないこと」で呼ぶ（2026-11-27 久野さん「箱の数字がそのまま、今やるべき対応の量になるように」）。
   //   1社は必ず1つの箱だけ。上から順に、まだ済んでいない最初のことで決める。tag＝小さな見出し、cond＝入る条件、next＝次のアクション
   { k: "s0", l: "受注", c: "#0d5b47" },
-  { k: "s1", l: "キックオフ未設定", c: "#E0A100", tag: "受注後", cond: "受注済み／キックオフ日程が未登録", next: "日程調整の連絡" },
-  { k: "s2", l: "キックオフ未実施", c: "#D9730D", tag: "キックオフ", cond: "キックオフ設定済み／実施日が未登録", next: "キックオフ実施・実施登録" },
-  { k: "s3", l: "利用スケジュール未確定", c: "#C43D3D", tag: "スケジュール", cond: "キックオフ実施済み／利用スケジュール（掲載予定日）が未確定", next: "利用時期のヒアリング" },
-  { k: "s4", l: "検収書未回収", c: "#2F6FD6", tag: "納品手続き", cond: "利用スケジュール確定済み／検収書が未回収", next: "検収書の回収" },
-  { k: "s5", l: "納品メール未回収", c: "#6B4FB8", tag: "納品手続き", cond: "検収書回収済み／納品メールが未回収", next: "納品メールの送付・回収" },
+  { k: "s1", done: "受注済み", l: "キックオフ未設定", c: "#E0A100", tag: "受注後", cond: "受注済み／キックオフ日程が未登録", next: "日程調整の連絡" },
+  { k: "s2", done: "キックオフ設定済み", l: "キックオフ未実施", c: "#D9730D", tag: "キックオフ", cond: "キックオフ設定済み／実施日が未登録", next: "キックオフ実施・実施登録" },
+  { k: "s3", done: "キックオフ実施済み", l: "利用スケジュール未確定", c: "#C43D3D", tag: "スケジュール", cond: "キックオフ実施済み／利用スケジュール（掲載予定日）が未確定", next: "利用時期のヒアリング" },
+  { k: "s4", done: "利用スケジュール確定済み", l: "検収書未回収", c: "#2F6FD6", tag: "納品手続き", cond: "利用スケジュール確定済み／検収書が未回収", next: "検収書の回収" },
+  { k: "s5", done: "検収書回収済み", l: "納品メール未回収", c: "#6B4FB8", tag: "納品手続き", cond: "検収書回収済み／納品メールが未回収", next: "納品メールの送付・回収" },
   //   s6（前の「納品メール回収済」）は要確認にまとめた。手で s6 にしていた会社も要確認として扱う
   { k: "s6", l: "要確認", c: "#B4441F", hide: true },
-  { k: "s7", l: "要確認", c: "#B4441F", tag: "要フォロー", cond: "検収書・納品メール回収済み／掲載予定日も掲載URLも未確認", next: "掲載時期の確認連絡" },
-  { k: "s8", l: "オンボーディング中", c: "#1E7A8C", tag: "掲載準備", cond: "掲載予定日が決定／掲載先一覧に掲載URLが未登録", next: "掲載準備の支援" },
-  { k: "s9", l: "掲載・利用中", c: "#1d9e75", tag: "ゴール", cond: "掲載先一覧に掲載URLが登録済み", next: "運用フォロー", goal: true },
+  { k: "s7", done: "納品メール回収済み", l: "要確認", c: "#B4441F", tag: "要フォロー", cond: "検収書・納品メール回収済み／掲載予定日も掲載URLも未確認", next: "掲載時期の確認連絡" },
+  { k: "s8", done: "掲載予定日決定済み", l: "オンボーディング中", c: "#1E7A8C", tag: "掲載準備", cond: "掲載予定日が決定／掲載先一覧に掲載URLが未登録", next: "掲載準備の支援" },
+  { k: "s9", done: "掲載URL登録済み", l: "掲載・利用中", c: "#1d9e75", tag: "ゴール", cond: "掲載先一覧に掲載URLが登録済み", next: "運用フォロー", goal: true },
 ];
 const KX_STAGES_SHOW = KX_STAGES.filter((g) => !g.hide);   // 箱・選択肢に出す段（s6 は出さない）
 function kxStageInfo(x) {
@@ -2758,10 +2758,12 @@ function kxRefreshAll() {
 }
 // 会社カードの右の札で段階を変える（2026-11-26 田中さん「企業カードからステージ変更できるように。利用中みたいなタグで変えられるように」）
 //   選ぶと「段階を手で決める」（stage_manual）に入る。「自動」で自動の判定に戻る
+// 会社カードの札は「入る条件の〇〇済み」で出す（2026-11-27 久野さん「ラベル部分は入る条件の〇〇済みのほうに」）。箱の名前（未〇〇）は上の箱で見る
+const kxDoneLb = (g) => (g && (g.done || g.l)) || "";
 function kxStageSel(x) {
   const si = kxStageInfo(x); const g = KX_STAGES[si.i] || {};
   return `<select class="mi-stsel" data-stsel="${esc(x.id)}" style="--c:${g.c || "#0d5b47"}" title="押すと段階を変えられます${si.manual ? "（手で決めた段階）" : ""}">
-    <option value="" ${si.manual ? "" : "selected"}>${si.manual ? "自動に戻す" : esc(g.l || "")}</option>${KX_STAGES_SHOW.slice(1).map((s0) => `<option value="${s0.k}" ${si.manual && x.stageManual === s0.k ? "selected" : ""}>${esc(s0.l)}${si.manual && x.stageManual === s0.k ? "（手で）" : ""}</option>`).join("")}</select>`;
+    <option value="" ${si.manual ? "" : "selected"}>${si.manual ? "自動に戻す" : esc(kxDoneLb(g))}</option>${KX_STAGES_SHOW.slice(1).map((s0) => `<option value="${s0.k}" ${si.manual && x.stageManual === s0.k ? "selected" : ""}>${esc(kxDoneLb(s0))}${si.manual && x.stageManual === s0.k ? "（手で）" : ""}</option>`).join("")}</select>`;
 }
 function kxStageSelWire(box) {
   box.querySelectorAll("[data-stsel]").forEach((sel) => {
