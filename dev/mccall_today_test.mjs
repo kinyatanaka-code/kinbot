@@ -364,6 +364,42 @@ await t("かけるリストから外す：選んだ会社だけ外せる・残�
   assert.equal((await call(A, "GET", `/api/mochica/bales/handoff?member=${encodeURIComponent("森 康晴")}`)).items.length, 0);
 });
 
+// ---------- 追いかけリスト（2026-11-27 福井さん「追いかけ設定・BALES の次回アクションがあるものを MOCHICALL で追いかけ、個人の画面に追いかけリストを」） ----------
+{
+  const day = 86400e3, iso = (ms) => new Date(Date.now() + ms).toISOString();
+  const na = (at, done = "false") => ({ "nextActions.0.id": "9", "nextActions.0.isDone": done, "nextActions.0.reservedAt": at });
+  const ZROWS = [
+    ["z1", "森 康晴", na(iso(-day))],            // 昨日の予定（終わっていない）→ 追いかけ・今日の100件に必ず入る
+    ["z2", "森 康晴", na(iso(5 * day))],         // 先の予定 → 追いかけ（今日の pin にはしない）
+    ["z4", "森 康晴", na(iso(-day), "true")],    // 終わった予定 → 入らない
+    ["z5", "森 康晴", na(iso(-200 * day))],      // 90日より前に過ぎた予定 → 入らない
+    ["z6", "森 康晴", na(iso(-day))],            // 予定日のあとに MOCHICALL でかけた → 入らない
+    ["z7", "森 康晴", {}],                       // BALES の予定なし・MOCHICALL で掛け直しの約束 → 追いかけ
+    ["z8", "内藤 賴郁亜", na(iso(-day))],        // ほかの人のもの → 森さんには入らない
+  ];
+  for (const [k, owner, extra] of ZROWS) await q(`INSERT INTO mochica_bales_rows (list_key, row_key, data, run_at, hot) VALUES ($1,$2,$3,$4,2)`,
+    [LK, k, JSON.stringify({ companyName: `株式会社 追いかけ${k}`, companyTel1: `03-5555-0${k.charCodeAt(0)}${k.slice(1)}`, operatorName: owner, ...extra }), run]);
+  await q(`INSERT INTO mc_call_leads (list_id, src, src_key, company, phone, last_at) VALUES ($1,'bales',$2,'株式会社 追いかけz6','03-5555-01226',now())`, [L1, `${LK}|z6`]);
+  await q(`INSERT INTO mc_call_leads (list_id, src, src_key, company, phone, assigned_to, next_at, next_why) VALUES ($1,'bales',$2,'株式会社 追いかけz7','03-5555-01227',$3,$4,'記録した人が決めた時刻')`, [L1, `${LK}|z7`, MORI, iso(2 * day)]);
+  const fuRows = async (nm) => (await call(A, "GET", `/api/mochica/bales/lists/${encodeURIComponent(LK)}/rows?col=operatorName&val=${encodeURIComponent(nm)}&stg=followup&limit=500`));
+  await t("追いかけリスト：BALES の終わっていない予定（90日以内）と MOCHICALL の掛け直しの約束だけが入る。カードの件数と表の件数がそろう", async () => {
+    const r = await fuRows("森 康晴"); const ks = r.rows.map((d) => d.__k || d.row_key).filter((k) => /^z/.test(k)).sort();
+    assert.deepEqual(ks, ["z1", "z2", "z7"], JSON.stringify(ks));
+    const st = await call(A, "GET", `/api/mochica/bales/lists/${encodeURIComponent(LK)}/stages?col=operatorName&val=${encodeURIComponent("森 康晴")}`);
+    assert.equal(st.followup, r.total, `カード ${st.followup} と表 ${r.total} がずれている`);
+    const nk = (await fuRows("内藤 賴郁亜")).rows.map((d) => d.__k || d.row_key);
+    assert.ok(nk.includes("z8") && !nk.includes("z1"), JSON.stringify(nk));
+  });
+  await t("追いかけ：予定日が来た BALES の追いかけ（z1）は今日かけるリストに必ず入り、予定日時が付く。先の予定・終わった予定は付かない", async () => {
+    const td = await todayOf("森 康晴", true);
+    const tk = (await call(A, "GET", `/api/mochica/bales/lists/${encodeURIComponent(LK)}/rows?col=operatorName&val=${encodeURIComponent("森 康晴")}&stg=today&limit=500`)).rows.map((d) => d.__k || d.row_key);
+    assert.ok(tk.includes("z1"), JSON.stringify(tk));
+    assert.ok(td.fu_n >= 1, JSON.stringify(td).slice(0, 300));
+    assert.ok(td.fu_at && td.fu_at.z1, JSON.stringify(td.fu_at));
+    for (const k of ["z2", "z4", "z5", "z6"]) assert.ok(!(k in (td.fu_at || {})), `${k} に予定日時が付いた`);
+  });
+}
+
 console.log(`\n${n} ok / ${failed} NG`);
 await pool.end().catch(() => {});
 process.exit(failed ? 1 : 0);

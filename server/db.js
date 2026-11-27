@@ -13301,6 +13301,21 @@ export const BALES_STG = {
   // かけるリスト：リサイクル・アーカイブ以外（ナーチャリングも含む＝残りの架け先と同じ）（2026-11-23 田中さん「かけるリストにはナーチャリングも含まれる」）
   call: `${BST} !~ '(アーカイブ|リサイクル)'`,
 };
+// ===== 追いかけ（2026-11-27 福井さん「所有者リストのうち、追いかけ設定があるもの・BALES で次回アクションが設定済のものを MOCHICALL で追いかけられるように」）=====
+//   p は行の表の名前（"r." など。mochica_bales_rows を名前なしで読むところは "mochica_bales_rows."）。
+//   BALES の次回アクション：終わっていない予定のいちばん早い日時。90日より前に過ぎた予定は「予定なし」と同じに数える（引き継ぎ・かけるの決まりと同じ）
+const balesNextAt = (p) => `(SELECT min(z.t) FROM (SELECT CASE WHEN ${p}data->>('nextActions.' || i || '.reservedAt') ~ '^\\d{4}-\\d{2}-\\d{2}T'
+    THEN (${p}data->>('nextActions.' || i || '.reservedAt'))::timestamptz END AS t FROM generate_series(0, 29) i
+    WHERE COALESCE(${p}data->>('nextActions.' || i || '.isDone'), 'false') <> 'true') z WHERE z.t > now() - interval '90 days')`;
+//   その行の MOCHICALL のリード（重複でまとめたものは、まとめ先）。src_key の索引は mccall.js で作る
+const mcLeadOfRow = (p) => `FROM mc_call_leads c JOIN mc_call_leads k ON k.id = COALESCE(c.dup_of, c.id) WHERE c.src = 'bales' AND c.src_key = ${p}list_key || '|' || ${p}row_key`;
+//   BALES 側の追いかけ：次回アクションがあり、MOCHICALL でまだ終わっていない・予定日のあとにかけていない（かけたら MOCHICALL の掛け直しに任せる）
+const balesFollowSql = (p) => `(${balesNextAt(p)} IS NOT NULL AND NOT EXISTS (SELECT 1 ${mcLeadOfRow(p)} AND (k.done OR k.last_at >= ${balesNextAt(p)})))`;
+//   MOCHICALL 側の追いかけ：かけた人が時刻を決めた掛け直し（mccadence.js の WHY_HUMAN と同じ文字）が終わらずに残っている
+const MC_WHY_HUMAN = "記録した人が決めた時刻";
+const mcFollowSql = (p) => `EXISTS (SELECT 1 ${mcLeadOfRow(p)} AND NOT k.done AND k.next_at IS NOT NULL AND k.next_why = '${MC_WHY_HUMAN}')`;
+//   追いかけリスト＝BALES 側（今日かけるリストに入れてよい行だけ）か MOCHICALL 側のどちらか
+const followListSql = (p) => `((${balesFollowSql(p)} AND ${bCanCall().replace(/\br\./g, p)}) OR ${mcFollowSql(p)})`;
 // アポ率（2026-11-23 田中さん「それぞれのリストのアポ率も」）：アポ＝最終架電結果がアポ獲得のリードだけ（立ち上げ済み＝コンバートは数えない：2026-11-23 田中さん）。
 //   分母＝架電したリード（最終架電結果があるもの）。未架電は入れない
 const BAPO = `(COALESCE(r.data->>'callResult','') ~ 'アポ獲得')`;
@@ -13378,6 +13393,8 @@ export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset 
   const sfW = many(sf).map(sfCond).filter(Boolean); if (sfW.length) w.push(`(${sfW.join(" OR ")})`);
   //   リードの出どころ（Bales の leadSources。1件に複数あり、平らにして leadSources.0.name〜4.name に入っている）（2026-11-23 田中さん「リードのでどころでリスト作って」）
   if (Object.hasOwn(BALES_STG, stg) && stg !== "archive") w.push(BALES_STG[stg]);   // アーカイブは上で（カードの分も含めて）
+  // 追いかけリスト（2026-11-27 福井さん）：BALES の次回アクションか MOCHICALL の掛け直しの約束が残っている行
+  if (stg === "followup") w.push(followListSql("mochica_bales_rows."));
   // 今日かけるリスト：その人（col/val）の今日の分の行だけ
   //   人に足したリストから入れた分（ほかのリストの行・ext）も同じ表に出す（2026-11-25）。その行は取り込みの日時をそのリストのもので見る
   if (stg === "today") { const t = await mcBalesToday(listKey, { col, val }); const ext = t && Array.isArray(t.ext) ? t.ext : [];
@@ -13474,7 +13491,10 @@ export async function mcBalesStages(listKey, { col = "", val = null } = {}) {
   if (!pool) return {}; await ensureMcBales();
   const sel = Object.entries(BALES_STG).map(([k, c]) => { const cc = c.replace(/data->>/g, "r.data->>"); return `count(*) FILTER (WHERE ${cc}) AS ${k}, count(*) FILTER (WHERE ${cc} AND ${BAPO}) AS ${k}_apo, count(*) FILTER (WHERE ${cc} AND ${BCALLED}) AS ${k}_called`; }).join(", ") + `, count(*) FILTER (WHERE ${BAPO}) AS total_apo, count(*) FILTER (WHERE ${BCALLED}) AS total_called`
     // ホット度ごと（すべてのリードの隣のカード）（2026-11-23 田中さん）。コールドは判定前も含む（表の「コールドだけ」と同じ）
-    + Object.entries({ hot: "r.hot >= 3", warm: "r.hot = 2", cold: "COALESCE(r.hot,0) <= 1" }).map(([k, c]) => `, count(*) FILTER (WHERE ${c}) AS h_${k}, count(*) FILTER (WHERE ${c} AND ${BAPO}) AS h_${k}_apo, count(*) FILTER (WHERE ${c} AND ${BCALLED}) AS h_${k}_called`).join("");
+    + Object.entries({ hot: "r.hot >= 3", warm: "r.hot = 2", cold: "COALESCE(r.hot,0) <= 1" }).map(([k, c]) => `, count(*) FILTER (WHERE ${c}) AS h_${k}, count(*) FILTER (WHERE ${c} AND ${BAPO}) AS h_${k}_apo, count(*) FILTER (WHERE ${c} AND ${BCALLED}) AS h_${k}_called`).join("")
+    // 追いかけリスト（2026-11-27 福井さん）：メンバーの画面のカード。1人分を見るときだけ数える（全員分だと重いため）
+    //   件数だけ（アポ率は出さない。同じ式を何度も数えると重くなるため）
+    + (col && val != null ? `, count(*) FILTER (WHERE ${followListSql("r.")}) AS followup` : "");
   const r = (await pool.query(`SELECT ${sel}, count(*) AS total FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1 AND r.dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND NOT ${BALES_OUT}${col && val != null ? ` AND COALESCE(${colX(col, "$2", "r.")},'') = $3` : ""}`, col && val != null ? [listKey, String(col).slice(0, 80), String(val)] : [listKey])).rows[0] || {};
   const o = Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Number(v)]));
   // その人のかけるリストに追加した会社（ほかのリストの会社）も、その人の件数に足す（2026-11-25 福井さん）。表（mcBalesRows）と同じ数え方。added＝その件数
@@ -13803,9 +13823,11 @@ async function mcTodayHold(listKey, run_at, col, val, day, rate) {
       (${STG} ~ '(ジャッジ|コネクト情報)' OR COALESCE(r.data->>'callResult','') ~ '(営業フォロー|資料送付)') AS nur, (${STG} ~ 'コネクト情報') AS cx, r.data->>'lastCalledAt' AS lc,
       (SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(r.data) e WHERE e.key ~ '^nextActions\\.[0-9]+\\.(reservedAt|isDone|id)$') AS na, ${MQ_COLS}`;
   const canCall = bCanCall(), own = `COALESCE(${colX(col, "$3", "r.")},'')`;
-  // 手持ち（主のリスト）：kinbot で割り振った会社＋本人のコネクト情報獲得・ジャッジ
-  const mine = (await pool.query(`SELECT ${pick0} FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.run_at=$2 AND ${VIS} AND ${canCall}
-      AND ${own} = $4 AND (COALESCE(r.assign_name,'') = $4 OR ${STG} ~ '(ジャッジ|コネクト情報)')`, [listKey, run_at, col, val])).rows;
+  // 手持ち（主のリスト）：kinbot で割り振った会社＋本人のコネクト情報獲得・ジャッジ＋本人の追いかけ（BALES の次回アクション）
+  //   追いかけ（2026-11-27 福井さん）：BALES の所有者のままの会社でも、次回アクションが残っているものは手持ちに入れる（今週の精査の対象から外す）。
+  //   fu＝追いかけ中（MOCHICALL で予定日のあとにかけたものは外す）、fu_at＝その予定日時
+  const mine = (await pool.query(`SELECT ${pick0}, ${balesFollowSql("r.")} AS fu, ${balesNextAt("r.")} AS fu_at FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.run_at=$2 AND ${VIS} AND ${canCall}
+      AND ${own} = $4 AND (COALESCE(r.assign_name,'') = $4 OR ${STG} ~ '(ジャッジ|コネクト情報)' OR ${balesFollowSql("r.")})`, [listKey, run_at, col, val])).rows;
   // 手持ち（ほかのリスト）：SF・CSV のリストでその人の担当の会社と、その人に渡した会社（取り込み直して担当が空に戻っていても渡した印で入れる）
   const other = (await pool.query(`SELECT ${pick0} FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key = r.list_key AND l.run_at = r.run_at AND l.list_key <> $1 AND l.status IS DISTINCT FROM 'running'
       WHERE ${VIS} AND ${canCall} AND (r.assign_name = $2 OR (COALESCE(r.assign_name,'') = '' AND EXISTS (SELECT 1 FROM mochica_bales_handoff h WHERE h.list_key = r.list_key AND h.row_key = r.row_key AND h.member = $2)))`,
@@ -13824,7 +13846,10 @@ async function mcTodayHold(listKey, run_at, col, val, day, rate) {
   const mqOut = gate ? await mcBalesMqlOut([...mine, ...other]).catch((e) => { console.warn("[mcToday] MQL の判定ができませんでした（外さずに作ります）", e.message); return new Map(); }) : new Map();
   const mqHold = mqlCount(new Set([...mine, ...other].map((c) => `${c.list_key}|${c.row_key}`)), mqOut);
   let mqRefill = 0;
-  const H = new Map(); for (const c of [...mine, ...other]) { if (mqOut.has(`${c.list_key}|${c.row_key}`)) continue; const x = toL(c); x.pin = !!c.cx; if (!H.has(x.id)) H.set(x.id, x); }
+  //   追いかけ（fu）で予定日が今日以前のものも pin にする（予定の日に必ず今日の100件に入れる。2026-11-27 福井さん）。fa＝その予定日時（MOCHICALL の掛け直しの時刻にする）
+  const H = new Map(); for (const c of [...mine, ...other]) { if (mqOut.has(`${c.list_key}|${c.row_key}`)) continue; const x = toL(c);
+    const fd = c.fu && c.fu_at ? jstDay(new Date(c.fu_at).getTime()) : ""; x.fu = !!fd && fd <= day; if (x.fu) { x.fa = new Date(c.fu_at).toISOString(); x.cat = 0; }
+    x.pin = !!c.cx || x.fu; if (!H.has(x.id)) H.set(x.id, x); }
   // 補充：300件に足りない分を、未割り振り・SF リードから選び方の割合に合わせて配る
   let refilled = 0;
   const need = HOLD_N - H.size;
@@ -13878,6 +13903,8 @@ async function mcTodayHold(listKey, run_at, col, val, day, rate) {
     prio_hi: out.filter((x) => x.pv >= 3).length, due_nurture: out.filter((x) => x.cat === 0 && x.due).length, due_other: out.filter((x) => x.cat !== 0 && x.due).length,
     pastlost: out.filter((x) => !x.due && x.pl).length, newlist: out.filter((x) => !x.due && !x.pl).length, pl_free: 0, pool: H.size,
     ext_n: out.filter((x) => x.ext).length, ext_pool: all.filter((x) => x.ext).length, cold_left: all.filter((x) => !taken.has(x.id) && x.cat === 2).length, pin: P, v: BALES_TODAY_V,
+    //   追いかけ（2026-11-27 福井さん）：今日の分に入れた追いかけの件数と、行ごとの予定日時（「かける」に出す時刻にする。mccall.js syncToday）
+    fu_n: out.filter((x) => x.fu).length, fu_at: Object.fromEntries(out.filter((x) => x.fu && !x.ext).map((x) => [x.k, x.fa])),
     //   MQL で外した数（hold_out＝本人の手持ちから・refill_out＝補充の候補から）と理由ごとの数（2026-11-27）
     mql: gate ? { hold_out: mqHold.n, why: mqHold.why, refill_out: mqRefill } : null };
   return { keys: out.filter((x) => !x.ext).map((x) => x.k), ext: out.filter((x) => x.ext).map((x) => [x.l, x.k]), info };

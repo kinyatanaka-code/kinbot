@@ -13,7 +13,7 @@ const apoTxt = (apo, called) => { apo = Number(apo || 0); called = Number(called
 const hotLine = (h) => (h ? `<span class="bl-lc-hot mini" title="ホット ${Number(h.hot || 0).toLocaleString()}・ウォーム ${Number(h.warm || 0).toLocaleString()}・コールド ${Number(h.cold || 0).toLocaleString()}"><i class="hot"></i>ホ ${Number(h.hot || 0).toLocaleString()}<i class="warm"></i>ウ ${Number(h.warm || 0).toLocaleString()}<i class="cold"></i>コ ${Number(h.cold || 0).toLocaleString()}</span>` : "");
 const HOTS = [["hot", "ホット", "担当者名・ニーズ・検討時期の3つ"], ["warm", "ウォーム", "3つのうち2つ"], ["cold", "コールド", "1つ以下・まだ判定していない"]];
 // stg=mcuser（MOCHICA ユーザー）の表の見出し用。STG の箱には出さない
-const STG_EXTRA = { mcuser: "MOCHICAユーザー", ng: "アプローチ禁止", pastlost: "過去失注リスト", newlist: "新規リスト", today: "今日かけるリスト", out: "対象外" };
+const STG_EXTRA = { mcuser: "MOCHICAユーザー", ng: "アプローチ禁止", pastlost: "過去失注リスト", newlist: "新規リスト", today: "今日かけるリスト", out: "対象外", followup: "追いかけリスト" };
 // リスト管理の5段（2026-11-27 福井さん）：温度とステージは「統合リード」を分けたもの（合計が統合リードと同じ）。サーバーの BALES_TIER と同じ印
 const TIER_STG = [["nurture", "ナーチャリング", "コネクト情報獲得・ジャッジ・営業フォロー・資料送付"], ["recycle", "リサイクル", "ステージがリサイクル"], ["archive", "アーカイブ", "ステージがアーカイブ・MOCHICAユーザー・対象外・アプローチ禁止"], ["other", "そのほか", "新規・担当者未接触など（上の3つ以外）"]];
 const SRC_NAME = { bales: "BALES", csv: "CSV", sf: "SF", doc: "DOC" };
@@ -386,7 +386,11 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
       const card = ([k, l, dsc]) => `<button type="button" class="bl-lc stg ${k}" data-mst="${k}"><b>${l}</b><span class="n">${Number(d[k] || 0).toLocaleString()}<small>件</small></span>${apoTxt(d[`${k}_apo`], d[`${k}_called`])}<small>${dsc}</small></button>`;
       const S = Object.fromEntries(STG.map((x) => [x[0], x]));
       // かけるリストの左隣に「今日かけるリスト」（2026-11-23 田中さん）。中身は別に読む（初めて開いた日は作るので少し待つ）
-      sb.innerHTML = `<button type="button" class="bl-lc stg today" data-mst="today"><b>今日かけるリスト<span class="bl-rb" data-rb title="今のデータで作り直す"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg></span></b><span class="n">…</span><small data-tst>作っています…</small></button>` + [S.call, S.nurture].map(card).join("");
+      sb.innerHTML = `<button type="button" class="bl-lc stg today" data-mst="today"><b>今日かけるリスト<span class="bl-rb" data-rb title="今のデータで作り直す"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg></span></b><span class="n">…</span><small data-tst>作っています…</small></button>`
+        // 追いかけリスト（2026-11-27 福井さん「個々人のリストの中に追いかけリストも」）：BALES の次回アクションか MOCHICALL の掛け直しの約束が残っている会社。
+        //   BALES の予定は、予定日が来たら今日かけるリストに必ず入り、時刻がまだ先ならその時刻から「かける」に出る
+        + `<button type="button" class="bl-lc stg followup" data-mst="followup"><b>追いかけリスト</b><span class="n">${Number(d.followup || 0).toLocaleString()}<small>件</small></span><small>BALES の次回アクション・MOCHICALL で決めた掛け直しが残っている会社。予定日が来たら今日かけるリストに入ります</small></button>`
+        + [S.call, S.nurture].map(card).join("");
       const tq = `/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/today?col=${encodeURIComponent(oc)}&${mh.blank ? "blank=1" : `val=${encodeURIComponent(mh.name)}`}`;
       const tb = sb.querySelector('[data-mst="today"]');
       const showToday = (t) => { if (!tb || !tb.isConnected) return;

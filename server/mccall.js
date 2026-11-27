@@ -105,6 +105,8 @@ async function ensure() {
       done BOOLEAN NOT NULL DEFAULT false, assigned_to TEXT, locked_by TEXT, locked_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ DEFAULT now(), UNIQUE (list_id, src, src_key))`);
     await q(`CREATE INDEX IF NOT EXISTS ix_mc_call_leads_q ON mc_call_leads(list_id, done, next_at)`);
+    // BALES の行から MOCHICALL のリードを引く（リスト管理の追いかけリスト・2026-11-27）。行ごとに引くので src_key だけの索引を置く
+    await q(`CREATE INDEX IF NOT EXISTS ix_mc_call_leads_srckey ON mc_call_leads(src_key)`);
     await q(`CREATE TABLE IF NOT EXISTS mc_call_logs (
       id SERIAL PRIMARY KEY, lead_id INT, list_id INT, biz TEXT NOT NULL DEFAULT 'MOCHICA', caller TEXT,
       phone TEXT, reach TEXT, outcome TEXT, reason TEXT, gate JSONB, memo TEXT, next_at TIMESTAMPTZ, apo_at TIMESTAMPTZ,
@@ -2297,8 +2299,9 @@ export function registerMcCall(app, deps) {
         const f = fromBales(r.data || {});
         const c = balesCarry(r.data || {}), due = c.next_at && Date.parse(c.next_at) <= Date.now() ? c.next_at : null;
         const x = await addLeadUnique({ list_id: tid, src: "bales", src_key: `${r.list_key}|${r.row_key}`, company: f.company, phone: f.phone, person: f.person, sf_lead_id: r.lid || null, hot: r.hot, assigned_to: u, next_at: due, next_why: c.next_comment || due ? balesNextWhy(c) : null, attempts: c.attempts }, { data: r.data });
-        if (x.added) { added++; ids.push(x.id); } else if (x.banned) banned++;
-        else if (x.dup && x.dup.lead_id) { const d = (await P().query(`SELECT COALESCE(dup_of, id) AS id FROM mc_call_leads WHERE id=$1`, [x.dup.lead_id])).rows[0]; if (d) ids.push(d.id); }   // 別の取り込みで入っている同じ会社
+        const sk = `${r.list_key}|${r.row_key}`;
+        if (x.added) { added++; ids.push(x.id); found.set(sk, x.id); } else if (x.banned) banned++;
+        else if (x.dup && x.dup.lead_id) { const d = (await P().query(`SELECT COALESCE(dup_of, id) AS id FROM mc_call_leads WHERE id=$1`, [x.dup.lead_id])).rows[0]; if (d) { ids.push(d.id); found.set(sk, d.id); } }   // 別の取り込みで入っている同じ会社
       }
       if (added) mynaviEnqueue(rows.map((r) => fromBales(r.data || {}).company)).catch((e) => console.error("[mccall] マイナビの調べを始められませんでした", e.message));
     }
@@ -2310,7 +2313,17 @@ export function registerMcCall(app, deps) {
     // 終わったリード（アポ・NG など）と、ほかの人が今開いているリードは動かさない。トークはリストごとなので、移したリードは選び直す
     const mv = ids.length ? await P().query(`UPDATE mc_call_leads SET talk_label = CASE WHEN list_id = $2 THEN talk_label ELSE NULL END, list_id=$2, assigned_to=$3, today_day=$4
       WHERE id = ANY($1::int[]) AND NOT done AND dup_of IS NULL AND (locked_by IS NULL OR locked_by=$3 OR locked_at < now() - interval '10 minutes') AND ${NOT_IN_CM()}`, [[...new Set(ids)], tid, u, day]) : { rowCount: 0 };
-    const res = { owner, n: pairs.length, ready: mv.rowCount, added, banned, exp: t.exp || 0, due_nurture: t.due_nurture || 0, due_other: t.due_other || 0, pastlost: t.pastlost || 0, newlist: t.newlist || 0, prio_hi: t.prio_hi || 0, ext_n: t.ext_n || 0, made_at: t.made_at };
+    // 追いかけ（2026-11-27 福井さん）：今日の分に入れた BALES の次回アクションの会社は、その予定日時を MOCHICALL の掛け直しにする。
+    //   時刻がまだ先なら約束（WHY_HUMAN）としてその時刻から「かける」に出し、過ぎていれば時刻が来た掛け直しとして出す（nurtureHandover と同じ決まり）。
+    //   MOCHICALL で掛け直しを決めてあるもの（next_at あり）・予定日のあとにかけたもの・本人の担当でないものは触らない
+    const fa = t.fu_at && typeof t.fu_at === "object" ? t.fu_at : {}, fuIds = [], fuAt = [];
+    for (const [k, at] of Object.entries(fa)) { const id = found.get(`${bm.listKey}|${k}`); if (id && at && !fuIds.includes(id)) { fuIds.push(id); fuAt.push(at); } }
+    const fu = fuIds.length ? await P().query(`UPDATE mc_call_leads c SET next_at = u.t, next_why = CASE WHEN u.t > now() THEN $3 ELSE $4 END
+        FROM unnest($1::int[], $2::timestamptz[]) AS u(id, t)
+        WHERE c.id = u.id AND NOT c.done AND c.next_at IS NULL AND (c.last_at IS NULL OR c.last_at < u.t) AND c.assigned_to = $5`,
+      [fuIds, fuAt, WHY_HUMAN, "BALES の次回アクション（予定日を過ぎています）", u]).catch((e) => { console.warn("[mccall] 追いかけの時刻を付けられませんでした", e.message); return { rowCount: 0 }; }) : { rowCount: 0 };
+    if (fu.rowCount) console.log(`[mccall] 今日かけるリスト ${u}（${owner}）：追いかけ ${fu.rowCount}件に BALES の次回アクションの時刻を付けました`);
+    const res = { owner, n: pairs.length, ready: mv.rowCount, added, banned, fu_n: t.fu_n || 0, exp: t.exp || 0, due_nurture: t.due_nurture || 0, due_other: t.due_other || 0, pastlost: t.pastlost || 0, newlist: t.newlist || 0, prio_hi: t.prio_hi || 0, ext_n: t.ext_n || 0, made_at: t.made_at };
     if (added || mv.rowCount < res.n) console.log(`[mccall] 今日かけるリスト ${u}（${owner}）：${res.n}件中 ${mv.rowCount}件を「かける」へ（新しく入れた ${added}・禁止 ${banned}）`);
     _todaySync.set(u, { ck, at: Date.now(), res }); return res;
   }
