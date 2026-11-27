@@ -1512,13 +1512,13 @@ export async function runReport(owner, reportId, filters = null) {
   }));
   let raw = rowsOf(data);
   let truncated = data.allData === false;
-  let pages = 1, splitBy = "";
+  let pages = 1, splitBy = ""; const splitErrors = [];
 
   //   2000行を超えるとき：区切りに使う列を選び、その列で並べ替えて「前回の最後より後」を取り直す
   if (truncated) {
     //   候補：ID の列 → 作成日の列 → ほかの日付の列。区切れなかった（Salesforce に断られた）ら次の候補へ
     const cands = [];
-    cols.forEach((c, i) => { if (/^id$/i.test(c.type) || /(^|\.|_)ID$/i.test(c.name)) cands.push(i); });
+    cols.forEach((c, i) => { if (/^id$/i.test(c.type) || /(^|\.|_)ID$/i.test(c.name) || /(^|\.|_)ID(18|15)?(__c)?$/i.test(c.name)) cands.push(i); });
     cols.forEach((c, i) => { if (/date/i.test(c.type) && /CREATED/i.test(c.name) && !cands.includes(i)) cands.push(i); });
     cols.forEach((c, i) => { if (/date/i.test(c.type) && !cands.includes(i)) cands.push(i); });
     const baseF = (baseOverride && baseOverride.reportFilters) || meta.reportFilters || [];
@@ -1535,7 +1535,8 @@ export async function runReport(owner, reportId, filters = null) {
           const fl = [...baseF];
           if (last != null) fl.push({ column: key, operator: last.op, value: String(last.v) });
           const bf = baseB && last != null ? `(${baseB}) AND ${fl.length}` : baseB;
-          const d2 = await call({ reportFilters: fl, ...(bf ? { reportBooleanFilter: bf } : {}), ...(baseD ? { standardDateFilter: baseD } : {}), sortBy: [{ sortColumn: key, sortOrder: "Asc" }] });
+          //   まとめ（Summary）形式は並べ替えを受け付けないことがあるので、明細だけの表（TABULAR）として実行する
+          const d2 = await call({ reportFormat: "TABULAR", groupingsDown: [], groupingsAcross: [], aggregates: ["RowCount"], reportFilters: fl, ...(bf ? { reportBooleanFilter: bf } : {}), ...(baseD ? { standardDateFilter: baseD } : {}), sortBy: [{ sortColumn: key, sortOrder: "Asc" }] });
           pg++;
           const rs = rowsOf(d2);
           more = d2.allData === false;
@@ -1549,7 +1550,7 @@ export async function runReport(owner, reportId, filters = null) {
           last = { v: nl, op: isDate ? "greaterOrEqual" : "greaterThan" };
         }
         if (all.length >= raw.length) { raw = all; truncated = more; pages = pg; splitBy = cols[pick].label; break; }
-      } catch (e) { console.warn(`[SFレポート] ${cols[pick].label} で分けて取れませんでした:`, e.message); }
+      } catch (e) { console.warn(`[SFレポート] ${cols[pick].label} で分けて取れませんでした:`, e.message); splitErrors.push(`${cols[pick].label}: ${e.message}`.slice(0, 200)); }
     }
   }
   const rows = raw.map((r) => r.label);
@@ -1580,7 +1581,7 @@ export async function runReport(owner, reportId, filters = null) {
     groups,
     aggLabel,
     truncated,
-    pages, splitBy,
+    pages, splitBy, ...(splitErrors.length && truncated ? { splitErrors } : {}),
     instanceUrl: acc.instanceUrl,
   };
 }
