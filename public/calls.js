@@ -8386,7 +8386,7 @@ function nmRenderCards() {
       //   件数は、リストに入っているリードの全部（残りだけでなく、かけ終わったもの・リサイクル・アーカイブも）（2026-11-26 田中さん「すべてのリストはそこにある全ての件数で」）
       const allE = ev.reduce((s0, x) => s0 + Number(x.全部 || 0), 0);
       return `<button type="button" class="nm-card nm-allcard nm-everycard" data-owner="__every__" title="非表示にしたリストも含めた、kincall にあるリストの全部"><div class="nm-card-name">すべてのリスト</div><div class="nm-card-zan"><span class="nm-zan-lb">全</span><span class="nm-zan-n">${allE.toLocaleString()}</span></div><div class="nm-card-sub">${ev.length} リスト（表示 ${_nmLists.length}・非表示 ${_nmHiddenLists.length}）</div></button>`;
-    })()}<button type="button" class="nm-card nm-allcard" data-owner="__all__"><div class="nm-card-name">全リスト</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zanA.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nurA.toLocaleString()}・${allLs.length} リスト</div>${_nmRates && _nmRates.byCaller ? `<div class="nm-rates">${nmRatePill(Object.values(_nmRates.byCaller).reduce((s, o) => ({ calls: s.calls + Number((o && o.calls) || 0), apos: s.apos + Number((o && o.apos) || 0) }), { calls: 0, apos: 0 }), "全体のアポ率（直近3か月・全員）")}</div>` : ""}</button>${_nmTree ? _nmTree.map((f) => f.name === "リサイクル" ? nmSpecialCard("recycle", "リサイクル", _nmStage.recycle, "ステージ＝リサイクル（全体）") : f.name === "アーカイブ" ? nmSpecialCard("archive", "アーカイブ", _nmStage.archive, "ステージ＝アーカイブ・使われていない番号（全体）") : nmTypeCardHtml(f)).join("") : ""}</div></div>`;
+    })()}${NM_SHOW_TYPE_CARDS ? `<button type="button" class="nm-card nm-allcard" data-owner="__all__"><div class="nm-card-name">全リスト</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zanA.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nurA.toLocaleString()}・${allLs.length} リスト</div>${_nmRates && _nmRates.byCaller ? `<div class="nm-rates">${nmRatePill(Object.values(_nmRates.byCaller).reduce((s, o) => ({ calls: s.calls + Number((o && o.calls) || 0), apos: s.apos + Number((o && o.apos) || 0) }), { calls: 0, apos: 0 }), "全体のアポ率（直近3か月・全員）")}</div>` : ""}</button>${_nmTree ? _nmTree.map((f) => f.name === "リサイクル" ? nmSpecialCard("recycle", "リサイクル", _nmStage.recycle, "ステージ＝リサイクル（全体）") : f.name === "アーカイブ" ? nmSpecialCard("archive", "アーカイブ", _nmStage.archive, "ステージ＝アーカイブ・使われていない番号（全体）") : nmTypeCardHtml(f)).join("") : ""}` : ""}</div></div>`;
     // ステージ別（すべてのリストから）（2026-11-26 田中さん「ステージ別のリストを作りたい。かける（ステージが空白・-・NEW・担当者未接触・コネクト情報獲得・ジャッジ）、リサイクル、アーカイブ。すべてのリストから」）
     //   押すと、そのステージのリードを1つの表で開く（リストそのものは動かさない）
     { const sa = _nmStage.all || {};
@@ -8395,6 +8395,10 @@ function nmRenderCards() {
         + nmSpecialCard("recyclein", "リサイクル", sa.recycle, "ステージ＝リサイクル（従業員数100〜500）")
         + nmSpecialCard("archive", "アーカイブ", sa.archive, "ステージ＝アーカイブ・使われていない番号")
         + nmSpecialCard("taishogai", "対象外", sa.taishogai, "かける・リサイクルのうち、従業員数が空白・-・99以下・501以上")
+        // 未割り当てのリストの、かけるステージ・従業員数100〜500を、失注の回数で分けたもの（2026-11-27 田中さん「さっきの未割当をステージ別に移動させて」）
+        + nmSpecialCard("unassignednew", "未割り当て・新規", sa.unassignedNew, "従業員数100〜500・かけるステージ・クロスの失注0回")
+        + nmSpecialCard("unassignedpast", "未割り当て・過去失注", sa.unassignedPast, "従業員数100〜500・かけるステージ・クロスの失注1〜3回")
+        + nmSpecialCard("unassignedout", "未割り当て・対象外", sa.unassignedOut, "新規かクロスの失注が4回以上")
         + `</div></div>`; }
     if (!_nmTree) nmLoadTree().then(() => { if (!_nmSel && _nmMode !== "group") nmRenderCards(); });   // 全リストの隣のリストの種類（2026-11-08）
   }
@@ -8417,10 +8421,7 @@ function nmRenderCards() {
   html += `<div class="nm-sec"><div class="nm-sec-h">その他</div><div class="nm-grid">` +
     `<button type="button" class="nm-card" data-owner="__other__"><div class="nm-card-name">未割り当て</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${unZan.toLocaleString()}</span></div><div class="nm-card-sub">${orphan.length} リスト</div>${nmRatePill(nmSumRates(orphan), "このリストでかけた分のアポ率（直近3か月）")}</button>` +
     // 未割り当てのうち、かけるステージで従業員数100〜500のリード（2026-11-27 田中さん）
-    // さらに失注の回数で分ける（2026-11-27 田中さん「クロスの失注が1回でもあれば過去失注、0回なら新規。新規もクロスも失注4回以上は対象外」）
-    nmSpecialCard("unassignednew", "未割り当て・新規", (_nmStage.all || {}).unassignedNew, "従業員数100〜500・かけるステージ・クロスの失注0回") +
-    nmSpecialCard("unassignedpast", "未割り当て・過去失注", (_nmStage.all || {}).unassignedPast, "従業員数100〜500・かけるステージ・クロスの失注1〜3回") +
-    nmSpecialCard("unassignedout", "未割り当て・対象外", (_nmStage.all || {}).unassignedOut, "新規かクロスの失注が4回以上") +
+    // 未割り当て（100〜500名）の新規・過去失注・対象外は、ステージ別の段へ移した（2026-11-27 田中さん）
     // リサイクル・アーカイブは「全体」の段（全リストの並び）へ移した（2026-11-09 田中さん）
     `</div></div>`;
   // ナーチャリング：全体／今週かける予定（担当メンバー間で移せる）
@@ -8645,6 +8646,9 @@ function nmRenderGroupCards(body) {
   body.querySelectorAll(".nm-card[data-group]").forEach((c) => c.addEventListener("click", () => { _nmChosen = new Set(); _nmSel = { type: "group", key: c.dataset.group, name: c.dataset.gname }; nmRenderDetail(); }));
 }
 // リサイクル・アーカイブ（ステージで数える全体のカード）。押すと今までどおりの中身の画面
+// 全体の段の「全リスト・新規リスト・過去リスト・その他・リサイクル・アーカイブ・コールド・対象外」のカードは、いったん出さない（2026-11-27 田中さん「この辺一旦非表示にして」）
+//   戻すときは true にする
+const NM_SHOW_TYPE_CARDS = false;
 function nmSpecialCard(key, name, n, sub) { return `<button type="button" class="nm-card" data-special="${key}"><div class="nm-card-name">${esc(name)}</div><div class="nm-card-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${Number(n || 0).toLocaleString()}</span></div><div class="nm-card-sub">${esc(sub)}</div></button>`; }
 function nmTypeCardHtml(f) {
   if (!f.children) return nmGroupCardHtml(f.id, f.name);
