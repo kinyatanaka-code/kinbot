@@ -1536,7 +1536,31 @@ export async function runReport(owner, reportId, filters = null) {
       splitDebug.chunks.push([a, b, rowsOf(d2).length, d2.allData]);
       if (d2.allData !== false) { all.push(...rowsOf(d2)); return; }
       const ta = Date.parse(a + "T00:00:00Z"), tb = Date.parse(b + "T00:00:00Z");
-      if (tb <= ta || depth > 20) { all.push(...rowsOf(d2)); partial = true; return; }   // 1日で2000件を超える：これ以上は分けられない
+      if (tb <= ta || depth > 20) {
+        //   1日で2000件を超える（まとめて取り込んだ日など）：その日の中を ID の列で半分ずつに分ける
+        //   （「X より小さい／X 以上」で分けるので、Salesforce の並べ方に関係なく抜けも重なりも出ない）
+        const idIdx = cols.findIndex((c) => /^id$/i.test(c.type) || /(^|\.|_)ID(18|15)?(__c)?$/i.test(c.name));
+        if (idIdx < 0) { all.push(...rowsOf(d2)); partial = true; return; }
+        const idCol = cols[idIdx].name;
+        const dateF = { column: sd.column, durationValue: "CUSTOM", startDate: a, endDate: b };
+        const bisect = async (lo, hi, dd, sample) => {
+          if (pg >= 120) { partial = true; return; }
+          const fl = [...baseF]; const extra = [];
+          if (lo != null) { fl.push({ column: idCol, operator: "greaterOrEqual", value: lo }); extra.push(fl.length); }
+          if (hi != null) { fl.push({ column: idCol, operator: "lessThan", value: hi }); extra.push(fl.length); }
+          const bf = baseB ? `(${baseB})${extra.map((n) => ` AND ${n}`).join("")}` : "";
+          const d3 = sample || await call({ ...meta, chart: null, reportFormat: "TABULAR", groupingsDown: [], groupingsAcross: [], aggregates: ["RowCount"], reportFilters: fl, ...(bf ? { reportBooleanFilter: bf } : {}), standardDateFilter: dateF });
+          if (!sample) { pg++; splitDebug.chunks.push([a, b, lo, hi, rowsOf(d3).length, d3.allData]); }
+          if (d3.allData !== false) { all.push(...rowsOf(d3)); return; }
+          const vals = rowsOf(d3).map((r) => String(r.raw[idIdx] || "")).filter(Boolean).sort((x, y) => (x.toLowerCase() < y.toLowerCase() ? -1 : x.toLowerCase() > y.toLowerCase() ? 1 : 0));
+          const m = vals[Math.floor(vals.length / 2)];
+          if (!m || dd > 16 || (lo != null && m.toLowerCase() === String(lo).toLowerCase())) { all.push(...rowsOf(d3)); partial = true; return; }
+          await bisect(lo, m, dd + 1, null);
+          await bisect(m, hi, dd + 1, null);
+        };
+        await bisect(null, null, 0, d2);
+        return;
+      }
       const mid = day(ta + Math.floor((tb - ta) / 86400000 / 2) * 86400000);
       const next = day(Date.parse(mid + "T00:00:00Z") + 86400000);
       await runRange(a, mid, depth + 1);
