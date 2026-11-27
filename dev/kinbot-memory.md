@@ -3162,3 +3162,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-27l 田中さん「新規のリサイクルのAとBとCでカード分けて」：リサイクルの内訳に『新規・A／B／C』のカード（仮想リスト recycle-new-a/b/c）。件数は stageLeadsLight にリサイクルだけ最終メモ（last_memo）を足して数える。
 - 2026-11-27m 田中さん「リサイクルの新規リストで今週復活のカードを作って。ABC含めてAIでジャッジして」：kcReviveRun（月曜始まりの週ごとに1回、リサイクル・新規を40件ずつ Gemini（callLLMPublic）で判定→表 kc_revive）。1時間ごとの kcReviveTick（8〜20時・settings.kcReviveTickAt で1時間に1回まで、判定済みは頼まない）。カード『新規・今週復活』と仮想リスト recycle-revive、表に『復活の理由（AI）』。AIは週に30回ほど。
 - 2026-11-27n 田中さん「協同組合,病院,市役所は対象外」：会社名にこれらを含むものは、かける・リサイクル・未割り当てから外して対象外へ（KC_OUT_SQL／KC_OUT_NAME_RE）。あわせて今週復活を今すぐ判定する POST /api/calls/revive/run と GET /api/calls/revive/status（田中さん「今回だけ今日AIで判定して」）。
+- 2026-11-27o 田中さん「ステージ別の合計がすべてのリストと違うのはなぜ」：stage-summary の all に total・banned（アプローチ禁止で除いた数）・other（どのカードにも入らないステージ別の件数）を足して調べられるように。
