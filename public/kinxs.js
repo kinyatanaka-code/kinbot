@@ -2104,6 +2104,8 @@ function kxOpsSection(x) {
       <label>請求書の発行${sel("invoice_need", [["", "未定"], ["true", "必要"], ["false", "不要"]], x.invoiceNeed == null ? "" : String(x.invoiceNeed))}</label>
       <label>請求書の状態${sel("invoice_state", [["", "—"], ["未発行", "未発行"], ["発行済み", "発行済み"]], x.invoiceState || "")}</label>
       <label>請求予定日<input type="date" class="kx-in" data-ops="invoice_date" value="${v(x.invoiceDate)}" /></label>
+      <label>請求書の着日指定${`<select class="kx-in" data-ops-info="invoice_arrival">${[["", "未確認"], ["必要", "必要"], ["不要", "不要"]].map(([val, lab]) => `<option value="${val}" ${(x.invoiceArrival || "") === val ? "selected" : ""}>${lab}</option>`).join("")}</select>`}<small>先方が「この日までに届けて」と決めているか（2026-11-27）</small></label>
+      <label>着日指定のメモ<input type="text" class="kx-in" data-ops-info="invoice_arrival_memo" maxlength="200" placeholder="例：毎月25日必着・郵送のみ" value="${v(x.invoiceArrivalMemo)}" /></label>
       <label>納品メール<span class="kx-note" style="display:block;padding:6px 0">${v(x.mail || "—")}</span></label>
     </div><span class="kx-note" data-ops-st></span></section>`;
 }
@@ -2112,6 +2114,8 @@ document.addEventListener("click", async (e) => {
   const box = b.closest("[data-ops-box]"); if (!box) return;
   const body = {};
   box.querySelectorAll("[data-ops]").forEach((el) => { const k = el.dataset.ops; let val = el.value; if (k === "invoice_need") val = val === "" ? null : val === "true"; body[k] = val; });
+  //   請求書の着日指定（info に入れる）
+  const inf = {}; box.querySelectorAll("[data-ops-info]").forEach((el) => { inf[el.dataset.opsInfo] = el.value; }); if (Object.keys(inf).length) body.info = inf;
   const st = box.querySelector("[data-ops-st]"); if (st) st.textContent = "保存しています…"; b.disabled = true;
   try { await api(`/api/kinxs/accounts/${encodeURIComponent(box.dataset.opsBox)}`, { method: "PUT", body: JSON.stringify(body) }); if (st) st.textContent = "保存しました（フェーズは読み直すと変わります）"; lsData = null; bdData && (bdData = null); }
   catch (er) { if (st) st.textContent = er.message; }
