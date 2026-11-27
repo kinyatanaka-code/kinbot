@@ -79,3 +79,26 @@ export function pickFs(closers, busyOk, myTeam) {
   if (own.length) return { ...own[0], other: false, conflict: true, unread: busyOk.get(own[0].email) == null };
   return null;
 }
+
+// 福井さんが取ったアポだけは、餌取チームと斎藤チームにランダムで振り分ける（2026-11-27 福井さん「福井のアポだけランダムに餌取、齊藤で取るように」）
+//   福井さんはどちらのチームにも入っていない運用者なので、決まったチームに偏らないよう、アポのたびにくじで決める。
+//   ただし、その時間に FS が空いているチームだけでくじを引く（空いていないチームを引いて「予定が重なる」にならないように）。
+//   どちらも空いていないときだけ、2チームからくじで選び、そのチームの FS を「予定が重なる」として担当にする（アポを落とさない）
+export const RANDOM_SETTERS = ["福井聖"];          // 名前（空白なし）。メンバー管理や kinbot の登録名で引く
+export const RANDOM_TEAMS = ["餌取", "斎藤"];
+export function isRandomSetter(person, members = []) {
+  const em = String((person && person.email) || "").toLowerCase();
+  const mm = em ? (members || []).find((m) => String(m.email || "").toLowerCase() === em) : null;
+  const keys = RANDOM_SETTERS.map(nameKey);
+  return [person && person.name, mm && mm.name].filter(Boolean).map(nameKey).some((n) => keys.includes(n));
+}
+//   rnd：0以上1未満を返す関数（確かめ用に差し替えられるように）
+export function pickFsRandom(closers, busyOk, rnd = Math.random) {
+  const has = (t, ok) => closers.some((c) => c.team === t && (!ok || busyOk.get(c.email) === true));
+  const teams = RANDOM_TEAMS.filter((t) => has(t, true));
+  const pool = teams.length ? teams : RANDOM_TEAMS.filter((t) => has(t, false));
+  if (!pool.length) return pickFs(closers, busyOk, "");
+  const team = pool[Math.min(pool.length - 1, Math.floor(rnd() * pool.length))];
+  const fs = pickFs(closers.filter((c) => RANDOM_TEAMS.includes(c.team)), busyOk, team);   // 餌取・斎藤の FS だけで決める（チームのない FS には回さない）
+  return fs ? { ...fs, random: true } : null;
+}

@@ -1,7 +1,7 @@
 // IS と FS のチーム（server/mcteam.js）の確かめ。使い方：node dev/mcteam_check.mjs
 //   取り違えると、同じチームの FS に渡るはずのアポが他チームへ行くので、「自分のチーム → 他チーム → 予定が重なっても自分のチーム」の順を見る
 import assert from "node:assert/strict";
-import { teamKey, teamLabel, teamOf, splitFree, slotScore, pickFs } from "../server/mcteam.js";
+import { teamKey, teamLabel, teamOf, splitFree, slotScore, pickFs, isRandomSetter, pickFsRandom } from "../server/mcteam.js";
 
 let n = 0; const t = (name, fn) => { fn(); n++; console.log(`ok  ${name}`); };
 
@@ -65,5 +65,22 @@ t("チーム「ランダム」：どのチームにも属さない（名簿の�
   assert.deepEqual(splitFree([S, E, R], "").mine.map((x) => x.name), ["齊藤", "餌取", "ランダムFS"]);
   // ランダムの FS：餌取の IS から見ると「他チーム」扱い（自チームの FS が空いていないときの代わり）
   assert.equal(pickFs([E, R], new Map([[E.email, false], [R.email, true]]), "餌取").name, "ランダムFS");
+});
+t("福井さんのアポだけ、餌取・斎藤にランダムで振る（空いているチームだけでくじ）", () => {
+  assert.equal(isRandomSetter({ email: "f@example.com", name: "福井 聖" }), true);
+  assert.equal(isRandomSetter({ email: "f@example.com", name: "" }, [{ email: "F@example.com", name: "福井聖" }]), true);
+  assert.equal(isRandomSetter({ email: "m@example.com", name: "森康晴" }), false);
+  const all = [E, S, H];
+  const ok = (o) => new Map([[E.email, o.e], [S.email, o.s], [H.email, o.h]]);
+  // 両方空いている：くじの目で分かれる
+  assert.equal(pickFsRandom(all, ok({ e: true, s: true, h: true }), () => 0).name, "餌取");
+  assert.equal(pickFsRandom(all, ok({ e: true, s: true, h: true }), () => 0.99).name, "齊藤");
+  // 片方だけ空いている：くじの目に関係なく空いている方（チームのない本炭さんは選ばない）
+  for (const r of [0, 0.99]) assert.equal(pickFsRandom(all, ok({ e: false, s: true, h: true }), () => r).name, "齊藤");
+  const one = pickFsRandom(all, ok({ e: false, s: true, h: true }), () => 0);
+  assert.equal(one.random, true); assert.equal(one.other, false); assert.equal(one.conflict, false);
+  // どちらも空いていない：くじで選んだチームの FS を「予定が重なる」で担当に
+  const c = pickFsRandom(all, ok({ e: false, s: false, h: true }), () => 0.99);
+  assert.equal(c.name, "齊藤"); assert.equal(c.conflict, true);
 });
 console.log(`\nすべて通りました（${n} 件）`);

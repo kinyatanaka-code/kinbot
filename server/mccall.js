@@ -16,7 +16,7 @@
 import { dbPool, listUsers, approachBanHit, approachBanHitSync, approachBanHitLead, approachBanHitLeadSync, loadApproachBans, listMembers, getSettings, saveSettings, mcBalesToday, mcBalesTodayPeek, mcBalesValues, mcBalesOwnerIndex, mcOwnedByOther, mcNurtureTargets, BALES_MCU, TODAY_MODES, HOLD_N } from "./db.js";
 import { freeBusy, gmailSend, isConnected as googleConnected, createCalendarEvent, deleteCalendarEvent, getCalendarEventState, patchCalendarEvent } from "./google.js";
 import { notifyPerson } from "./chat.js";
-import { teamOf, teamLabel, splitFree, slotScore, pickFs } from "./mcteam.js";   // IS と FS のチーム（2026-11-23）
+import { teamOf, teamLabel, splitFree, slotScore, pickFs, isRandomSetter, pickFsRandom } from "./mcteam.js";   // IS と FS のチーム（2026-11-23）
 import { fixMojibake } from "./docs.js";
 import { randomBytes } from "node:crypto";   // 日程調整メールの URL の鍵（2026-11-27）
 import { fileURLToPath } from "node:url";
@@ -3883,11 +3883,15 @@ export function registerMcCall(app, deps) {
       .map((m) => ({ email: String(m.email).toLowerCase(), name: m.name || m.email, team: teamOf(m, ms) }));
   }
   // 架電している人（IS）のチーム。分からない人は ""（今までどおり FS 全員から選ぶ）
-  async function myTeamOf(req) {
+  //   福井さんは餌取・斎藤のどちらかへランダムに振るので、日程の候補は両チームの FS を出す（チーム ""）（2026-11-27）
+  async function mySetterOf(req) {
     const [ms, us] = await Promise.all([listMembers().catch(() => []), listUsers().catch(() => [])]);
     const u = (us || []).find((x) => String(x.email || "").toLowerCase() === me(req));
-    return teamOf({ email: me(req), name: (u && u.name) || "" }, ms);
+    const p = { email: me(req), name: (u && u.name) || "" };
+    const random = isRandomSetter(p, ms);
+    return { team: random ? "" : teamOf(p, ms), random };
   }
+  async function myTeamOf(req) { return (await mySetterOf(req)).team; }
   // クローザーの Google カレンダーの「埋まっている時間」を読む（2026-11-18 福井さん「クローザーのグーグルカレンダーの空き日程に」）
   //   1) クローザー本人が Google 連携していれば、本人の権限で本人のカレンダーを読む（非公開の予定も漏れない）
   //   2) まだの人は、連携済みの人（自分・アポを読む係・ほかのクローザー）の権限で FreeBusy を読む
@@ -3991,14 +3995,16 @@ export function registerMcCall(app, deps) {
     if (!g || !g.apo_at || g.outcome !== "apo") return null;
     const setter = String(g.caller || "").toLowerCase();
     const start = new Date(g.apo_at), end = new Date(start.getTime() + 60 * 60e3);   // MOCHICALL の候補は1時間枠（/api/mccall/slots と同じ）
-    const [names, closers, myTeam, st] = await Promise.all([nameMap(), mcClosers(), myTeamOf(req), getSettings().catch(() => ({}))]);
+    const [names, closers, mySetter, st] = await Promise.all([nameMap(), mcClosers(), mySetterOf(req), getSettings().catch(() => ({}))]);
+    const myTeam = mySetter.team;
     const setterName = names.get(setter) || setter;
     const flow = { at: new Date().toISOString(), team: teamLabel(myTeam), warn: [] };
     // 1) 担当の FS
     let busy = null; try { busy = closers.length ? await busyOf(req, closers, start.toISOString(), end.toISOString()) : null; } catch {}
     const okMap = new Map(closers.map((c) => { const b = busy && busy.get(c.email); return [c.email, Array.isArray(b) ? !b.some(([bs, be]) => bs < end.getTime() && be > start.getTime()) : null]; }));
-    const fs = pickFs(closers, okMap, myTeam);
-    if (fs) flow.fs = { email: fs.email, name: fs.name, team: teamLabel(fs.team), other: !!fs.other, conflict: !!fs.conflict };
+    const fs = mySetter.random ? pickFsRandom(closers, okMap) : pickFs(closers, okMap, myTeam);
+    if (fs) flow.fs = { email: fs.email, name: fs.name, team: teamLabel(fs.team), other: !!fs.other, conflict: !!fs.conflict, random: !!fs.random };
+    if (fs && fs.random) flow.team = `ランダム→${teamLabel(fs.team) || "チームなし"}`;   // 予定の【アポ獲得】に、くじで決めたチームを出す
     else flow.warn.push(closers.length ? "担当の FS を決められませんでした（あなたのチームが決まっておらず、この時間に空いている FS もいません）。管理者に伝えてください"
       : "MOCHICA の FS（クローザー）が決まっていません。設定 → メンバー管理で、事業 MOCHICA・役割 クローザーを付けてください");
     if (fs && fs.other) flow.warn.push(`あなたのチームの FS がこの時間に空いていないため、他チームの ${fs.name}さんにお願いしました`);
