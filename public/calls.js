@@ -8397,7 +8397,9 @@ function nmRenderCards() {
         + nmSpecialCard("taishogai", "対象外", sa.taishogai, "かける・リサイクルのうち従業員数が空白・-・99以下・501以上、と未割り当ての失注4回以上")
         // 未割り当てのリストの、かけるステージ・従業員数100〜500を、失注の回数で分けたもの（2026-11-27 田中さん「さっきの未割当をステージ別に移動させて」）
         //   リサイクル・未割り当ては1枚にまとめ、押すと「新規」「過去失注」の2枚が下に出る（2026-11-27 田中さん）
-        + nmStageGrpCard("unassigned", "未割り当て", Number(sa.unassignedNew || 0) + Number(sa.unassignedPast || 0), "従業員数100〜500・かけるステージ。押すと新規／過去失注")
+        + nmStageGrpCard("unassigned", "未割り当て", Number(sa.unassignedNew || 0) + Number(sa.unassignedPast || 0), "かけるの内数（従業員数100〜500）。押すと新規／過去失注")
+        //   その他：アプローチ禁止の会社と、どの箱にも入らないステージ（コールド・Qualified など）。これで「すべてのリスト」と合計が合う（2026-11-28 田中さん）
+        + (() => { const ot = sa.other || {}; const on = Object.values(ot).reduce((a, b) => a + Number(b || 0), 0); const n = on + Number(sa.banned || 0); const top = Object.entries(ot).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k} ${Number(v).toLocaleString()}`).join("・"); return `<div class="nm-card" style="cursor:default" title="アプローチ禁止 ${Number(sa.banned || 0).toLocaleString()}件／${Object.entries(ot).map(([k, v]) => `${k} ${v}`).join("／")}"><div class="nm-card-name">その他</div><div class="nm-card-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${n.toLocaleString()}</span></div><div class="nm-card-sub">アプローチ禁止 ${Number(sa.banned || 0).toLocaleString()}${top ? `・${esc(top)}` : ""}</div></div>`; })()
         + `</div>`
         + (_nmStageGrp === "recycle" ? `<div class="nm-sec-h" style="margin-top:10px;font-size:12px">リサイクルの内訳</div><div class="nm-grid">`
             + nmSpecialCard("recyclenew", "リサイクル・新規", sa.recycleNew, "クロスの失注0回")

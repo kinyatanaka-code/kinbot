@@ -4566,7 +4566,7 @@ export function empOutJs(v) {
 export const UNASSIGNED_LIST_SQL = `(COALESCE(btrim(cl.owner),'') = '' AND NOT COALESCE(cl.hidden,false) AND NOT COALESCE(cl.closed,false) AND btrim(COALESCE(cl.name,'')) NOT IN ('アーカイブ','リサイクル'))`;
 export async function stageLeadsLight() {
   if (!pool) return [];
-  const { rows } = await pool.query(`SELECT t.id, t.lead_id, t.phone, t.company, t.stage, t.status, t.employees, t.list_id, (t.list_id IS NOT NULL AND ${UNASSIGNED_LIST_SQL}) AS unassigned, CASE WHEN COALESCE(t.stage,'') ILIKE '%リサイクル%' THEN (SELECT cl.memo FROM call_logs cl WHERE cl.target_id = t.id AND coalesce(btrim(cl.memo),'') <> '' ORDER BY cl.at DESC LIMIT 1) END AS last_memo FROM call_targets t LEFT JOIN call_lists cl ON cl.id = t.list_id`);
+  const { rows } = await pool.query(`SELECT t.id, t.lead_id, t.phone, t.company, t.stage, t.status, t.employees, t.list_id, (t.list_id IS NOT NULL AND ${UNASSIGNED_LIST_SQL}) AS unassigned, CASE WHEN COALESCE(t.stage,'') ILIKE '%リサイクル%' THEN (SELECT cl.memo FROM call_logs cl WHERE cl.target_id = t.id AND coalesce(btrim(cl.memo),'') <> '' ORDER BY cl.at DESC LIMIT 1) END AS last_memo FROM call_targets t LEFT JOIN call_lists cl ON cl.id = t.list_id WHERE ${KC_INLIST_SQL}`);   // すべてのリストと同じ母数（閉じていないリストのもの）（2026-11-28）
   return rows;
 }
 export async function stageSummaryCounts() {
@@ -4730,7 +4730,12 @@ function callQueryWhere(n, alias = "t") {
            OR ${_qn(alias + ".phone")} LIKE $${n} OR ${_qn(alias + ".email")} LIKE $${n})`;
 }
 
-export async function listStageTargets(keyword, { q = "", limit = 2000, statusMatch = [], owner = "", extraIds = [], ownerStrict = false, unassigned = false } = {}) {
+// ステージ別の数え方をそろえる（2026-11-28 田中さん「すべてのリストとステージ別の合計は一緒になってる？」）
+//   ・数えるのは「閉じていないリストに入っている」リードだけ（すべてのリストの件数と同じ母数）
+//   ・使われていない番号（現アナなど）はアーカイブだけに数え、かける・リサイクル・対象外には入れない（1件は1つの箱だけ）
+export const KC_DEAD_SQL = `COALESCE(t.status,'') ~ '(現在使われて|現アナ|欠番|不通|使われていない番号)'`;
+export const KC_INLIST_SQL = `(t.list_id IS NOT NULL AND cl.id IS NOT NULL AND NOT COALESCE(cl.closed, false))`;
+export async function listStageTargets(keyword, { q = "", limit = 2000, statusMatch = [], owner = "", extraIds = [], ownerStrict = false, unassigned = false, inLists = false } = {}) {
   if (!pool || !keyword) return [];
   try {
     const p = [`%${keyword}%`];
@@ -4747,6 +4752,9 @@ export async function listStageTargets(keyword, { q = "", limit = 2000, statusMa
     const xs = [...new Set((extraIds || []).map((x) => parseInt(x, 10)).filter(Boolean))];
     if (xs.length) { p.push(xs); stageOr += ` OR t.id = ANY($${p.length}::int[])`; }
     let where = `(${stageOr})`;
+    //   ステージ別の箱（かける・リサイクル・対象外・未割り当て）：閉じていないリストのものだけ、使われていない番号は除く
+    if (/^__(kakeru|recycle_in|taishogai|unassigned_in)__$/.test(keyword)) where += ` AND ${KC_INLIST_SQL} AND NOT ${KC_DEAD_SQL}`;
+    else if (inLists) where += ` AND ${KC_INLIST_SQL}`;
     //   unassigned：リスト管理の「未割り当て」と同じリストだけ（持ち主なし・表示中・閉じていない・名前がアーカイブ／リサイクルでない）（2026-11-27）
     if (unassigned) where += ` AND t.list_id IS NOT NULL AND ${UNASSIGNED_LIST_SQL}`;
     const own = String(owner || "").trim().toLowerCase();
