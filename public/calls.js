@@ -8422,6 +8422,8 @@ function nmRenderCards() {
         + `</div>`; }
     if (!_nmTree) nmLoadTree().then(() => { if (!_nmSel && _nmMode !== "group") nmRenderCards(); });   // 全リストの隣のリストの種類（2026-11-08）
   }
+  //   ステージ別より下（チームごとのメンバー・その他・ナーチャリングなど）は、いったん出さない（2026-11-28 田中さん「ここ以外は一回非表示で」）。NM_ONLY_STAGE を false で戻る
+  if (NM_ONLY_STAGE) _nmStageCutAt = html.length;
   if (!_nmShift || _nmShiftDay !== nmTodayStr()) nmLoadShift();
   for (const [key, label] of secs) {
     const arr = buckets[key]; if (!arr.length) continue; any = true;
@@ -8480,6 +8482,8 @@ function nmRenderCards() {
   }
   }
   if (!NM_SHOW_PAST_SECTIONS && _nmCutAt >= 0) html = html.slice(0, _nmCutAt);
+  if (NM_ONLY_STAGE && _nmStageCutAt >= 0) html = html.slice(0, _nmStageCutAt);
+  _nmStageCutAt = -1;
   _nmCutAt = -1;
   body.innerHTML = html;
   if ($("nmClConsolidate")) $("nmClConsolidate").addEventListener("click", nmClConsolidate);
@@ -8680,6 +8684,8 @@ let _nmStageGrp = "";
 function nmStageGrpCard(key, name, n, sub) { const on = _nmStageGrp === key; return `<button type="button" class="nm-card" data-stagegrp="${key}"${on ? ' style="border-color:#1d9e75;box-shadow:0 0 0 2px #5DCAA5 inset"' : ""}><div class="nm-card-name">${esc(name)}<svg viewBox="0 0 24 24" width="12" height="12" style="margin-left:4px;vertical-align:-1px;transform:rotate(${on ? 180 : 0}deg)" fill="none" stroke="#1d9e75" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></div><div class="nm-card-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${Number(n || 0).toLocaleString()}</span></div><div class="nm-card-sub">${esc(sub)}</div></button>`; }
 const NM_SHOW_PAST_SECTIONS = false;   // ナーチャリング・過去リスト・過去の失注の段（2026-11-28 いったん非表示）
 var _nmCutAt = -1;
+const NM_ONLY_STAGE = true;   // リスト管理は「全体（すべてのリスト）」と「ステージ別」だけ出す（2026-11-28 いったん）
+var _nmStageCutAt = -1;
 function nmSpecialCard(key, name, n, sub) { return `<button type="button" class="nm-card" data-special="${key}"><div class="nm-card-name">${esc(name)}</div><div class="nm-card-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${Number(n || 0).toLocaleString()}</span></div><div class="nm-card-sub">${esc(sub)}</div></button>`; }
 function nmTypeCardHtml(f) {
   if (!f.children) return nmGroupCardHtml(f.id, f.name);
