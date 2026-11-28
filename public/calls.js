@@ -8437,6 +8437,9 @@ function nmRenderCards() {
     // 未割り当て（100〜500名）の新規・過去失注・対象外は、ステージ別の段へ移した（2026-11-27 田中さん）
     // リサイクル・アーカイブは「全体」の段（全リストの並び）へ移した（2026-11-09 田中さん）
     `</div></div>`;
+  // ここから下（ナーチャリング・過去リスト（クロス失注）・過去の失注）は、いったん出さない（2026-11-28 田中さん「この辺は一旦非表示」）。
+  //   NM_SHOW_PAST_SECTIONS を true にすれば元に戻る
+  _nmCutAt = html.length;
   // ナーチャリング：全体／今週かける予定（担当メンバー間で移せる）
   {
     const nc = (key, ic, nm, n, ds, cc) =>
@@ -8469,6 +8472,8 @@ function nmRenderCards() {
       `<div class="note" style="margin-top:4px">SFの失注レポートをCSVで保存して取り込みます。使う列：取引先名（会社名）・主.取引先責任者・電話・メール・受失注日・失注理由（大項目／中項目／詳細）・失注後次回アクション日・商談所有者。ほかの列もそのまま残ります。</div></div>`;
   }
   }
+  if (!NM_SHOW_PAST_SECTIONS && _nmCutAt >= 0) html = html.slice(0, _nmCutAt);
+  _nmCutAt = -1;
   body.innerHTML = html;
   if ($("nmClConsolidate")) $("nmClConsolidate").addEventListener("click", nmClConsolidate);
   if ($("nmClImport")) $("nmClImport").addEventListener("click", nmClImportMissing);
@@ -8666,6 +8671,8 @@ const NM_SHOW_TYPE_CARDS = false;
 // ステージ別の「まとめカード」：押すと内訳のカード（新規／過去失注）を下に開く。もう一度押すと閉じる（2026-11-27）
 let _nmStageGrp = "";
 function nmStageGrpCard(key, name, n, sub) { const on = _nmStageGrp === key; return `<button type="button" class="nm-card" data-stagegrp="${key}"${on ? ' style="border-color:#1d9e75;box-shadow:0 0 0 2px #5DCAA5 inset"' : ""}><div class="nm-card-name">${esc(name)}<svg viewBox="0 0 24 24" width="12" height="12" style="margin-left:4px;vertical-align:-1px;transform:rotate(${on ? 180 : 0}deg)" fill="none" stroke="#1d9e75" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></div><div class="nm-card-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${Number(n || 0).toLocaleString()}</span></div><div class="nm-card-sub">${esc(sub)}</div></button>`; }
+const NM_SHOW_PAST_SECTIONS = false;   // ナーチャリング・過去リスト・過去の失注の段（2026-11-28 いったん非表示）
+var _nmCutAt = -1;
 function nmSpecialCard(key, name, n, sub) { return `<button type="button" class="nm-card" data-special="${key}"><div class="nm-card-name">${esc(name)}</div><div class="nm-card-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${Number(n || 0).toLocaleString()}</span></div><div class="nm-card-sub">${esc(sub)}</div></button>`; }
 function nmTypeCardHtml(f) {
   if (!f.children) return nmGroupCardHtml(f.id, f.name);
