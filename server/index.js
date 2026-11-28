@@ -9351,7 +9351,7 @@ app.get("/api/calls/stage-summary", async (req, res) => {
           else { if (isK) kakeru++; if (isR) { recycle++; const nw = cls(r) === "new"; rc[nw ? "new" : "past"]++; if (nw) rcN[kcRecycleRank(r.status, r.last_memo)]++; } }   // 新規のリサイクルは A/B/C でも数える   // リサイクルも失注の回数で新規／過去失注に分ける（2026-11-27）
           if (!isK && !isR) { const k = t || "（空）"; other[k] = (other[k] || 0) + 1; }
         }
-        return { kakeru, recycle, recycleNew: rc.new, recyclePast: rc.past, recycleNewA: rcN.A, recycleNewB: rcN.B, recycleNewC: rcN.C, recycleNewRevive: rvMap.size /* 今週復活：復活させると NEW になるので、ステージに関係なく今週復活にしたものを数える */, total: all0.length, banned: all0.length - rows.length, other, archive, taishogai: taishogai + ua.out, unassignedIn, unassignedNew: ua.new, unassignedPast: ua.past, unassignedOut: ua.out };   // 対象外には未割り当ての失注4回以上も入れる
+        return { kakeru, recycle, recycleNew: rc.new, recyclePast: rc.past, recycleNewA: rcN.A, recycleNewB: rcN.B, recycleNewC: rcN.C, recycleNewRevive: rvMap.size /* 今週復活：復活させると NEW になるので、ステージに関係なく今週復活にしたものを数える */, total: all0.length, banned: all0.length - rows.length, byList: all0.reduce((m, r) => { const k = String(r.list_id); m[k] = (m[k] || 0) + 1; return m; }, {}), other, archive, taishogai: taishogai + ua.out, unassignedIn, unassignedNew: ua.new, unassignedPast: ua.past, unassignedOut: ua.out };   // 対象外には未割り当ての失注4回以上も入れる
       });
     } catch (e) { console.warn("[kincall] ステージ別の件数:", e.message); }
     res.json(out);
